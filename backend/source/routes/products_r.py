@@ -31,7 +31,6 @@ from source.services.products_s import (
     list_admin_catalog,
     list_admin_products_with_variants,
     list_categories as list_categories_s,
-    list_variants_by_product_id,
     update_category as update_category_s,
     update_product as update_product_s,
     update_variant as update_variant_s,
@@ -270,22 +269,6 @@ def delete_category(
     if category is None:
         raise HTTPException(status_code=404, detail="Category not found")
     return {"data": category}
-
-
-@router.get("/products/{product_id}/variants")
-def list_variants(
-    product_id: int,
-    include_inactive: bool = Query(True),
-    _: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
-):
-    return {
-        "data": list_variants_by_product_id(
-            product_id=product_id,
-            include_inactive=include_inactive,
-            db=db,
-        )
-    }
 
 
 @router.get("/variants/{variant_id}")

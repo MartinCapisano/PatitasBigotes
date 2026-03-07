@@ -180,22 +180,16 @@ class ReplaceDraftItemsTests(unittest.TestCase):
 
         self.assertEqual(submitted["status"], "submitted")
 
-    def test_legacy_incremental_draft_routes_are_marked_deprecated(self) -> None:
+    def test_replace_draft_route_exists_and_is_not_deprecated(self) -> None:
         route_map: dict[tuple[str, str], APIRoute] = {}
         for route in orders_router.routes:
             if isinstance(route, APIRoute):
                 for method in sorted(route.methods or []):
                     route_map[(method, route.path)] = route
 
-        add_route = route_map.get(("POST", "/orders/draft/items"))
-        delete_route = route_map.get(("DELETE", "/orders/draft/items/{item_id}"))
         replace_route = route_map.get(("PUT", "/orders/draft/items"))
 
-        self.assertIsNotNone(add_route)
-        self.assertIsNotNone(delete_route)
         self.assertIsNotNone(replace_route)
-        self.assertTrue(bool(add_route.deprecated))
-        self.assertTrue(bool(delete_route.deprecated))
         self.assertFalse(bool(replace_route.deprecated))
 
 

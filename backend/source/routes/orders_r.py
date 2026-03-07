@@ -4,22 +4,18 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
 from sqlalchemy.orm import Session
 
 from source.dependencies.auth_d import get_current_user, get_current_user_id, require_admin
-from source.db.session import get_db_transactional
+from source.db.session import get_db, get_db_transactional
 from source.errors import raise_http_error_from_exception
 from source.schemas import (
-    AddOrderItemRequest,
     AdminRegisterPaymentRequest,
     CreateAdminSaleRequest,
-    CreateManualSubmittedOrderRequest,
     CreateOrderPaymentRequest,
-    PayOrderRequest,
     PublicGuestCheckoutRequest,
     ReplaceDraftItemsRequest,
     SubmitBankTransferReceiptRequest,
     UpdateOrderStatusRequest,
 )
 from source.services.orders_s import (
-    add_item_to_draft_order,
     change_order_status,
     create_admin_sale,
     create_manual_submitted_order,
@@ -30,7 +26,6 @@ from source.services.orders_s import (
     list_orders_for_admin,
     list_orders_for_user,
     replace_draft_order_items,
-    remove_item_from_draft_order,
 )
 from source.services.anti_abuse_s import enforce_public_guest_checkout_limits
 from source.services.idempotency_s import (
@@ -52,6 +47,7 @@ from source.services.payment_s import (
     list_payments_for_order,
     submit_bank_transfer_receipt,
 )
+from source.services.post_commit_actions_s import clear_post_commit_actions, dispatch_post_commit_actions
 
 router = APIRouter()
 
@@ -140,26 +136,6 @@ def create_guest_checkout_order(
         if record_created and claimed_record is not None and claimed_record.status == "processing":
             db.delete(claimed_record)
             db.flush()
-        raise_http_error_from_exception(exc, db=db)
-    return {"data": result}
-
-
-@router.post("/orders/manual/submitted", deprecated=True)
-def create_manual_submitted(
-    payload: CreateManualSubmittedOrderRequest,
-    _: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
-):
-    try:
-        result = create_manual_submitted_order(
-            email=payload.customer.email,
-            first_name=payload.customer.first_name,
-            last_name=payload.customer.last_name,
-            phone=payload.customer.phone,
-            items=[item.model_dump() for item in payload.items],
-            db=db,
-        )
-    except Exception as exc:
         raise_http_error_from_exception(exc, db=db)
     return {"data": result}
 
@@ -261,44 +237,6 @@ def replace_draft_items(
     return {"data": order}
 
 
-@router.post("/orders/draft/items", deprecated=True)
-def add_item_to_draft(
-    payload: AddOrderItemRequest,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db_transactional),
-):
-    user_id = get_current_user_id(current_user)
-    try:
-        order = add_item_to_draft_order(
-            user_id=user_id,
-            variant_id=payload.variant_id,
-            quantity=payload.quantity,
-            db=db,
-        )
-    except Exception as exc:
-        raise_http_error_from_exception(exc, db=db)
-
-    return {"data": order}
-
-
-@router.delete("/orders/draft/items/{item_id}", deprecated=True)
-def remove_item_from_draft(
-    item_id: int,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db_transactional),
-):
-    user_id = get_current_user_id(current_user)
-    try:
-        order = remove_item_from_draft_order(user_id=user_id, item_id=item_id, db=db)
-    except Exception as exc:
-        raise_http_error_from_exception(exc, db=db)
-
-    if order is None:
-        raise HTTPException(status_code=404, detail="Draft order item not found")
-
-    return {"data": order}
-
-
 @router.patch("/orders/{order_id}/status")
 def update_order_status(
     order_id: int,
@@ -307,6 +245,11 @@ def update_order_status(
     db: Session = Depends(get_db_transactional),
 ):
     user_id = get_current_user_id(current_user)
+    if payload.status == "paid":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="paid status must be set through a payment endpoint",
+        )
     try:
         order = change_order_status(
             user_id=user_id,
@@ -389,36 +332,12 @@ def list_orders_admin(
     return {"data": rows}
 
 
-@router.post("/admin/orders/{order_id}/pay/manual")
-def admin_manual_pay_order_endpoint(
-    order_id: int,
-    payload: PayOrderRequest,
-    admin_user: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
-):
-    admin_user_id = get_current_user_id(admin_user)
-    try:
-        order = change_order_status(
-            user_id=admin_user_id,
-            order_id=order_id,
-            new_status="paid",
-            is_admin=True,
-            payment_ref=payload.payment_ref,
-            paid_amount=int(payload.paid_amount),
-            db=db,
-        )
-    except Exception as exc:
-        raise_http_error_from_exception(exc, db=db)
-
-    return {"data": order}
-
-
 @router.post("/admin/orders/{order_id}/payments/manual")
 def admin_register_manual_payment(
     order_id: int,
     payload: AdminRegisterPaymentRequest,
     _: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     try:
         order = get_order_for_admin(order_id=order_id, db=db)
@@ -434,8 +353,12 @@ def admin_register_manual_payment(
             db=db,
         )
         updated_order = get_order_for_admin(order_id=order_id, db=db)
+        db.commit()
     except Exception as exc:
+        db.rollback()
+        clear_post_commit_actions(db=db)
         raise_http_error_from_exception(exc, db=db)
+    dispatch_post_commit_actions(db=db, source="admin_register_manual_payment")
     return {
         "data": {
             "order": updated_order,

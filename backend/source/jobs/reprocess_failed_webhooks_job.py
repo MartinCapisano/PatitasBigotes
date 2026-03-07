@@ -15,6 +15,7 @@ from source.services.mercadopago_client import (
     _is_retryable_noop_error,
     process_mercadopago_event_payload,
 )
+from source.services.post_commit_actions_s import clear_post_commit_actions, dispatch_post_commit_actions
 from source.services.payment_s import (
     acquire_webhook_event,
     get_webhook_reprocess_metrics,
@@ -200,6 +201,7 @@ def run_once(
             if not acquired:
                 metrics["skipped"] += 1
                 db.rollback()
+                clear_post_commit_actions(db=db)
                 continue
 
             try:
@@ -258,6 +260,7 @@ def run_once(
                     db=db,
                 )
                 db.commit()
+                dispatch_post_commit_actions(db=db, source="reprocess_failed_webhooks_job")
                 metrics["reprocessed"] += 1
 
         after_now = datetime.now(UTC)
@@ -295,6 +298,7 @@ def run_once(
         return metrics
     except Exception:
         db.rollback()
+        clear_post_commit_actions(db=db)
         logger.exception("event=webhook_reprocess_failed provider=%s", PROVIDER)
         raise
     finally:

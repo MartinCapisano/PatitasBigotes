@@ -21,7 +21,8 @@ from source.services.stock_reservations_s import (
     release_reservations_for_cancelled_order,
     reserve_stock_for_submitted_order,
 )
-from source.services.notifications_s import create_admin_notification
+from source.services.domain_events_s import publish_domain_event
+from source.services.post_commit_actions_s import set_skip_order_paid_email
 from source.services.users_s import get_or_create_user_by_contact, serialize_user_basic
 
 ALLOWED_ORDER_STATUS = {"draft", "submitted", "paid", "cancelled"}
@@ -334,79 +335,6 @@ def list_orders_for_admin(
     return [_order_to_dict(order) for order in rows]
 
 
-# Legacy incremental draft-editing service kept for the deprecated POST /orders/draft/items route.
-def add_item_to_draft_order(
-    user_id: int,
-    variant_id: int,
-    quantity: int,
-    db: Session,
-) -> dict:
-    if quantity <= 0:
-        raise ValueError("quantity must be greater than 0")
-
-    variant = (
-        db.query(ProductVariant)
-        .options(joinedload(ProductVariant.product))
-        .filter(
-            ProductVariant.id == variant_id,
-            ProductVariant.is_active.is_(True),
-        )
-        .first()
-    )
-    if variant is None:
-        raise ValueError("variant not found")
-
-    order, _ = _get_or_create_draft_order_model(user_id=user_id, db=db)
-    if order.status != "draft":
-        raise ValueError("items can only be edited in draft status")
-
-    existing_item = (
-        db.query(OrderItem)
-        .filter(
-            OrderItem.order_id == order.id,
-            OrderItem.variant_id == variant_id,
-        )
-        .first()
-    )
-    if existing_item is not None:
-        existing_item.quantity = int(existing_item.quantity) + quantity
-        pricing = calculate_line_pricing(
-            unit_price=int(existing_item.unit_price),
-            quantity=int(existing_item.quantity),
-            discount=None,
-        )
-        existing_item.discount_id = pricing["discount_id"]
-        existing_item.discount_amount = pricing["discount_amount"]
-        existing_item.final_unit_price = pricing["final_unit_price"]
-        existing_item.line_total = pricing["line_total"]
-    else:
-        pricing = calculate_line_pricing(
-            unit_price=int(variant.price),
-            quantity=quantity,
-            discount=None,
-        )
-        db.add(
-            OrderItem(
-                order_id=order.id,
-                product_id=variant.product_id,
-                variant_id=variant.id,
-                quantity=quantity,
-                unit_price=pricing["unit_price"],
-                discount_id=pricing["discount_id"],
-                discount_amount=pricing["discount_amount"],
-                final_unit_price=pricing["final_unit_price"],
-                line_total=pricing["line_total"],
-            )
-        )
-
-    db.flush()
-    db.refresh(order)
-    _recalculate_order_total(order, db=db)
-    db.flush()
-    db.refresh(order)
-    return _order_to_dict(order)
-
-
 def replace_draft_order_items(user_id: int, items: list[dict], db: Session) -> dict:
     order, _ = _get_or_create_draft_order_model(user_id=user_id, db=db)
     if order.status != "draft":
@@ -464,43 +392,6 @@ def replace_draft_order_items(user_id: int, items: list[dict], db: Session) -> d
     db.flush()
     db.refresh(order)
     return _order_to_dict(order)
-
-
-# Legacy incremental draft-editing service kept for the deprecated DELETE /orders/draft/items/{item_id} route.
-def remove_item_from_draft_order(user_id: int, item_id: int, db: Session) -> dict | None:
-    draft = (
-        _order_lock_query(db)
-        .filter(
-            Order.user_id == user_id,
-            Order.status == "draft",
-        )
-        .order_by(Order.created_at.desc(), Order.id.desc())
-        .with_for_update()
-        .first()
-    )
-    if draft is None:
-        return None
-    if draft.status != "draft":
-        raise ValueError("items can only be edited in draft status")
-
-    item = (
-        db.query(OrderItem)
-        .filter(
-            OrderItem.id == item_id,
-            OrderItem.order_id == draft.id,
-        )
-        .first()
-    )
-    if item is None:
-        return None
-
-    db.delete(item)
-    db.flush()
-    db.refresh(draft)
-    _recalculate_order_total(draft, db=db)
-    db.flush()
-    db.refresh(draft)
-    return _order_to_dict(draft)
 
 
 def change_order_status(
@@ -612,21 +503,22 @@ def change_order_status(
     db.refresh(order)
     if current_status != str(order.status):
         if str(order.status) == "submitted":
-            create_admin_notification(
+            publish_domain_event(
                 event_type="order_submitted",
-                title="Nueva orden submitted",
-                message=f"La orden #{int(order.id)} fue enviada y espera pago.",
-                order_id=int(order.id),
-                dedupe_key=f"admin:order:{int(order.id)}:submitted",
+                payload={
+                    "order_id": int(order.id),
+                    "user_id": int(order.user_id) if order.user_id is not None else None,
+                },
                 db=db,
             )
         elif str(order.status) == "cancelled":
-            create_admin_notification(
+            publish_domain_event(
                 event_type="order_cancelled",
-                title="Orden cancelada",
-                message=f"La orden #{int(order.id)} fue cancelada.",
-                order_id=int(order.id),
-                dedupe_key=f"admin:order:{int(order.id)}:cancelled",
+                payload={
+                    "order_id": int(order.id),
+                    "user_id": int(order.user_id) if order.user_id is not None else None,
+                    "reason": None,
+                },
                 db=db,
             )
     logger.info(
@@ -637,33 +529,6 @@ def change_order_status(
         current_status,
         str(order.status),
     )
-    return _order_to_dict(order)
-
-
-def pay_order(
-    user_id: int,
-    order_id: int,
-    payment_ref: str,
-    paid_amount: int,
-    db: Session,
-) -> dict:
-    confirm_manual_payment_for_order(
-        order_id=order_id,
-        user_id=user_id,
-        payment_ref=payment_ref,
-        paid_amount=paid_amount,
-        db=db,
-    )
-    order = (
-        _order_query(db)
-        .filter(
-            Order.id == order_id,
-            Order.user_id == user_id,
-        )
-        .first()
-    )
-    if order is None:
-        raise LookupError("order not found")
     return _order_to_dict(order)
 
 
@@ -731,12 +596,12 @@ def _create_submitted_order_for_user(
     order.status = "submitted"
     db.flush()
     db.refresh(order)
-    create_admin_notification(
+    publish_domain_event(
         event_type="order_submitted",
-        title="Nueva orden submitted",
-        message=f"La orden #{int(order.id)} fue enviada y espera pago.",
-        order_id=int(order.id),
-        dedupe_key=f"admin:order:{int(order.id)}:submitted",
+        payload={
+            "order_id": int(order.id),
+            "user_id": int(order.user_id) if order.user_id is not None else None,
+        },
         db=db,
     )
     return _order_to_dict(order)
@@ -846,15 +711,20 @@ def create_admin_sale(
             raise ValueError("payment.payment_ref is required for bank_transfer")
         if method == "cash" and not payment_ref:
             payment_ref = f"cash-order-{int(order_payload['id'])}-{_utc_now().strftime('%Y%m%d%H%M%S')}"
-        payment_payload = confirm_manual_payment_for_order(
-            order_id=int(order_payload["id"]),
-            user_id=int(selected_user.id),
-            payment_ref=payment_ref,
-            paid_amount=int(amount_paid),
-            method=method,
-            change_amount=int(change_amount) if change_amount is not None else None,
-            db=db,
-        )
+        previous_skip_value = bool(db.info.get("skip_order_paid_email", False))
+        set_skip_order_paid_email(db=db, value=True)
+        try:
+            payment_payload = confirm_manual_payment_for_order(
+                order_id=int(order_payload["id"]),
+                user_id=int(selected_user.id),
+                payment_ref=payment_ref,
+                paid_amount=int(amount_paid),
+                method=method,
+                change_amount=int(change_amount) if change_amount is not None else None,
+                db=db,
+            )
+        finally:
+            set_skip_order_paid_email(db=db, value=previous_skip_value)
         order_after_payment = get_order_for_admin(order_id=int(order_payload["id"]), db=db)
         if order_after_payment is not None:
             order_payload = order_after_payment
@@ -877,6 +747,7 @@ def create_admin_sale(
         "meta": {
             "customer_created": bool(user_created),
             "payment_registered": bool(payment_payload is not None),
+            "order_paid_email_suppressed": bool(payment_payload is not None),
         },
     }
 

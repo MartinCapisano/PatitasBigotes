@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
-from sqlalchemy.sql import or_
 
 from source.db.models import Notification
 
@@ -66,39 +66,6 @@ def create_admin_notification(
     return _serialize_notification(row)
 
 
-def create_user_notification(
-    *,
-    user_id: int,
-    event_type: str,
-    title: str,
-    message: str,
-    db: Session,
-    order_id: int | None = None,
-    payment_id: int | None = None,
-    incident_id: int | None = None,
-    dedupe_key: str | None = None,
-) -> dict:
-    existing = _find_by_dedupe_key(dedupe_key=dedupe_key, db=db)
-    if existing is not None:
-        return _serialize_notification(existing)
-
-    row = Notification(
-        user_id=int(user_id),
-        role_target=None,
-        event_type=str(event_type).strip(),
-        title=str(title).strip(),
-        message=str(message).strip(),
-        order_id=int(order_id) if order_id is not None else None,
-        payment_id=int(payment_id) if payment_id is not None else None,
-        incident_id=int(incident_id) if incident_id is not None else None,
-        dedupe_key=str(dedupe_key).strip() if dedupe_key else None,
-        is_read=False,
-    )
-    db.add(row)
-    db.flush()
-    return _serialize_notification(row)
-
-
 def list_notifications_for_user(
     *,
     user_id: int,
@@ -126,22 +93,33 @@ def list_notifications_for_user(
         .all()
     )
 
-    unread_count = int(
-        db.query(Notification)
-        .filter(or_(*filters), Notification.is_read.is_(False))
-        .count()
-    )
-
     return (
         [_serialize_notification(row) for row in rows],
         {
             "total": total,
             "limit": safe_limit,
             "offset": safe_offset,
-            "unread_count": unread_count,
             "has_more": safe_offset + len(rows) < total,
         },
     )
+
+
+def get_unread_notification_count(
+    *,
+    user_id: int,
+    is_admin: bool,
+    db: Session,
+) -> int:
+    filters = [Notification.user_id == int(user_id)]
+    if bool(is_admin):
+        filters.append(Notification.role_target == ROLE_TARGET_ADMIN)
+
+    unread_count = (
+        db.query(Notification)
+        .filter(or_(*filters), Notification.is_read.is_(False))
+        .count()
+    )
+    return int(unread_count or 0)
 
 
 def mark_notification_read(
@@ -180,17 +158,20 @@ def mark_all_notifications_read(
     if bool(is_admin):
         filters.append(Notification.role_target == ROLE_TARGET_ADMIN)
 
-    rows = (
+    now = datetime.now(UTC)
+    query = (
         db.query(Notification)
         .filter(or_(*filters), Notification.is_read.is_(False))
-        .with_for_update()
-        .all()
     )
-    now = datetime.now(UTC)
-    updated = 0
-    for row in rows:
-        row.is_read = True
-        row.read_at = now
-        updated += 1
+    updated = int(
+        query.update(
+            {
+                Notification.is_read: True,
+                Notification.read_at: now,
+            },
+            synchronize_session=False,
+        )
+        or 0
+    )
     db.flush()
     return {"updated": int(updated)}

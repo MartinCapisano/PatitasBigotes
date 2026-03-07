@@ -512,26 +512,6 @@ def get_variant_by_id(
         return _variant_to_dict(variant)
 
 
-def list_variants_by_product_id(
-    product_id: int,
-    db: Session | None = None,
-    *,
-    include_inactive: bool = False,
-) -> list[dict]:
-    with _read_session_scope(db) as (session, _):
-        query = (
-            session.query(ProductVariant)
-            .filter(
-                ProductVariant.product_id == product_id,
-            )
-            .order_by(ProductVariant.id.asc())
-        )
-        if not include_inactive:
-            query = query.filter(ProductVariant.is_active.is_(True))
-        variants = query.all()
-        return [_variant_to_dict(variant) for variant in variants]
-
-
 def list_categories(db: Session | None = None) -> list[dict]:
     with _read_session_scope(db) as (session, _):
         categories = session.query(Category).order_by(Category.id.asc()).all()

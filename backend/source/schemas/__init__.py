@@ -9,11 +9,8 @@ from source.schemas.auth_s import (
 )
 from source.schemas.discounts_s import CreateDiscountRequest, UpdateDiscountRequest
 from source.schemas.orders_s import (
-    AddOrderItemRequest,
     AdminRegisterPaymentRequest,
     CreateAdminSaleRequest,
-    CreateManualSubmittedOrderRequest,
-    PayOrderRequest,
     PublicGuestCheckoutRequest,
     ReplaceDraftItemsRequest,
     UpdateOrderStatusRequest,
@@ -48,11 +45,9 @@ from source.schemas.users_s import (
 )
 
 __all__ = [
-    "AddOrderItemRequest",
     "AdminRegisterPaymentRequest",
     "CreateAdminSaleRequest",
     "UpdateOrderStatusRequest",
-    "CreateManualSubmittedOrderRequest",
     "ReplaceDraftItemsRequest",
     "PublicGuestCheckoutRequest",
     "CreateUserRequest",
@@ -67,7 +62,6 @@ __all__ = [
     "UpdateMyProfileRequest",
     "UpdateDiscountRequest",
     "CreateDiscountRequest",
-    "PayOrderRequest",
     "CreateOrderPaymentRequest",
     "AdminWebhookReplayRequest",
     "SubmitBankTransferReceiptRequest",

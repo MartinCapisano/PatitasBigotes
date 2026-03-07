@@ -6,7 +6,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from source.db.models import Order, OrderItem, Payment, ProductVariant, StockReservation
-from source.services.notifications_s import create_admin_notification
+from source.services.domain_events_s import publish_domain_event
 
 RESERVATION_TTL_HOURS = 42
 RESERVATION_REACTIVATION_TTL_HOURS = 12
@@ -167,12 +167,13 @@ def _expire_active_reservations_internal(
                 order.status = "cancelled"
             if order.cancelled_at is None:
                 order.cancelled_at = now
-            create_admin_notification(
+            publish_domain_event(
                 event_type="order_cancelled",
-                title="Orden cancelada",
-                message=f"La orden #{int(order_id)} fue cancelada por expiracion de reserva.",
-                order_id=int(order_id),
-                dedupe_key=f"admin:order:{int(order_id)}:cancelled",
+                payload={
+                    "order_id": int(order_id),
+                    "user_id": int(order.user_id) if order.user_id is not None else None,
+                    "reason": "expiracion de reserva",
+                },
                 db=db,
             )
             _cancel_pending_payments_for_order(order_id=order_id, now=now, db=db)
@@ -205,12 +206,13 @@ def _expire_active_reservations_internal(
             order.status = "cancelled"
         if order.cancelled_at is None:
             order.cancelled_at = now
-        create_admin_notification(
+        publish_domain_event(
             event_type="order_cancelled",
-            title="Orden cancelada",
-            message=f"La orden #{int(order_id)} fue cancelada por expiracion de reserva.",
-            order_id=int(order_id),
-            dedupe_key=f"admin:order:{int(order_id)}:cancelled",
+            payload={
+                "order_id": int(order_id),
+                "user_id": int(order.user_id) if order.user_id is not None else None,
+                "reason": "expiracion de reserva",
+            },
             db=db,
         )
         _cancel_pending_payments_for_order(order_id=order_id, now=now, db=db)

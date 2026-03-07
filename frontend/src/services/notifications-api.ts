@@ -1,6 +1,11 @@
 import { http } from "./http";
 import type { ApiEnvelope, NotificationItem } from "../types";
 
+export async function getUnreadNotificationCount(): Promise<number> {
+  const response = await http.get<ApiEnvelope<{ unread_count: number }>>("/notifications/unread-count");
+  return Number(response.data.data.unread_count ?? 0);
+}
+
 export async function listNotifications(params?: {
   unread_only?: boolean;
   limit?: number;
@@ -13,7 +18,6 @@ export async function listNotifications(params?: {
     total?: number;
     limit?: number;
     offset?: number;
-    unread_count?: number;
     has_more?: boolean;
   };
   return {
@@ -22,7 +26,6 @@ export async function listNotifications(params?: {
       total: Number(meta.total ?? 0),
       limit: Number(meta.limit ?? params?.limit ?? 20),
       offset: Number(meta.offset ?? params?.offset ?? 0),
-      unread_count: Number(meta.unread_count ?? 0),
       has_more: Boolean(meta.has_more ?? false)
     }
   };

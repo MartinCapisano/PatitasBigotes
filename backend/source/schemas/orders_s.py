@@ -2,14 +2,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-
-# Legacy schema kept for the deprecated incremental draft-editing endpoint.
-class AddOrderItemRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    variant_id: int
-    quantity: int = Field(gt=0)
-
-
 class ReplaceDraftItemsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     items: list["ManualOrderItemRequest"] = Field(default_factory=list)
@@ -20,12 +12,6 @@ class UpdateOrderStatusRequest(BaseModel):
     status: Literal["draft", "submitted", "paid", "cancelled"]
     payment_ref: str | None = None
     paid_amount: int | None = Field(default=None, gt=0)
-
-
-class PayOrderRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    payment_ref: str
-    paid_amount: int = Field(gt=0)
 
 
 class AdminRegisterPaymentRequest(BaseModel):
@@ -48,12 +34,6 @@ class ManualOrderItemRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     variant_id: int
     quantity: int = Field(gt=0)
-
-
-class CreateManualSubmittedOrderRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    customer: ManualOrderCustomerRequest
-    items: list[ManualOrderItemRequest] = Field(min_length=1)
 
 
 class PublicGuestCheckoutItemRequest(BaseModel):

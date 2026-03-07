@@ -23,8 +23,8 @@ from source.services.refund_s import (
     PAYMENT_INCIDENT_STATUS_PENDING_REVIEW,
     create_late_paid_incident_if_needed,
 )
+from source.services.domain_events_s import publish_domain_event
 from source.services.mercadopago_client import create_checkout_preference
-from source.services.notifications_s import create_admin_notification, create_user_notification
 from source.services.money_s import parse_amount_to_cents
 from source.services.stock_reservations_s import (
     consume_reservations_for_paid_order,
@@ -604,6 +604,37 @@ def _has_checkout_preference(payload: dict | None) -> bool:
     return _get_checkout_preference_id(payload) is not None
 
 
+def _build_order_paid_event_payload(*, order: Order, payment: Payment) -> dict:
+    items_payload: list[dict] = []
+    for item in sorted(order.items, key=lambda row: row.id):
+        product_name = None
+        if getattr(item, "product", None) is not None:
+            product_name = getattr(item.product, "name", None)
+        variant = getattr(item, "variant", None)
+        variant_label = "-/-"
+        if variant is not None:
+            variant_label = f"{variant.size or '-'}/{variant.color or '-'}"
+        items_payload.append(
+            {
+                "product_name": product_name,
+                "variant_label": variant_label,
+                "quantity": int(item.quantity or 0),
+                "line_total": int(item.line_total or 0),
+            }
+        )
+
+    return {
+        "order_id": int(order.id),
+        "user_id": int(order.user_id),
+        "payment_id": int(payment.id),
+        "payment_method": str(payment.method),
+        "order_status": str(order.status),
+        "total_amount": int(order.total_amount or 0),
+        "currency": str(order.currency or payment.currency or "ARS").strip().upper(),
+        "items": items_payload,
+    }
+
+
 def _map_mercadopago_provider_status(provider_status: str) -> str:
     normalized_status = provider_status.strip().lower()
     if not normalized_status:
@@ -849,7 +880,6 @@ def apply_mercadopago_normalized_state(
         normalized_currency = normalized_currency.upper()
 
     now = datetime.now(UTC)
-    payment_was_paid = False
     payment = (
         db.query(Payment)
         .filter(Payment.id == payment_id, Payment.method == "mercadopago")
@@ -857,7 +887,6 @@ def apply_mercadopago_normalized_state(
     )
     if payment is None:
         raise LookupError("payment not found")
-    payment_was_paid = str(payment.status) == "paid"
     order = payment.order
     if order is None:
         raise LookupError("order not found")
@@ -944,34 +973,10 @@ def apply_mercadopago_normalized_state(
             if order.paid_at is None:
                 order.paid_at = now
 
-        if not payment_was_paid:
-            create_admin_notification(
-                event_type="payment_paid",
-                title="Pago acreditado",
-                message=f"El pago #{int(payment.id)} se acredito para la orden #{int(order.id)}.",
-                order_id=int(order.id),
-                payment_id=int(payment.id),
-                dedupe_key=f"admin:payment:{int(payment.id)}:paid",
-                db=db,
-            )
         if order_was_submitted and str(order.status) == "paid":
-            create_admin_notification(
+            publish_domain_event(
                 event_type="order_paid",
-                title="Orden pagada",
-                message=f"La orden #{int(order.id)} quedo en estado paid.",
-                order_id=int(order.id),
-                payment_id=int(payment.id),
-                dedupe_key=f"admin:order:{int(order.id)}:paid",
-                db=db,
-            )
-            create_user_notification(
-                user_id=int(order.user_id),
-                event_type="order_ready_for_pickup",
-                title="Tu orden esta lista para retirar",
-                message=f"La orden #{int(order.id)} ya esta pagada y lista para retirar.",
-                order_id=int(order.id),
-                payment_id=int(payment.id),
-                dedupe_key=f"user:{int(order.user_id)}:order:{int(order.id)}:ready_to_pickup",
+                payload=_build_order_paid_event_payload(order=order, payment=payment),
                 db=db,
             )
     elif internal_status == "cancelled":
@@ -1365,32 +1370,9 @@ def confirm_manual_payment_for_order(
         order.paid_at = now
 
     db.flush()
-    create_admin_notification(
-        event_type="payment_paid",
-        title="Pago confirmado",
-        message=f"El pago manual #{int(payment.id)} se confirmo para la orden #{int(order.id)}.",
-        order_id=int(order.id),
-        payment_id=int(payment.id),
-        dedupe_key=f"admin:payment:{int(payment.id)}:paid",
-        db=db,
-    )
-    create_admin_notification(
+    publish_domain_event(
         event_type="order_paid",
-        title="Orden pagada",
-        message=f"La orden #{int(order.id)} quedo en estado paid.",
-        order_id=int(order.id),
-        payment_id=int(payment.id),
-        dedupe_key=f"admin:order:{int(order.id)}:paid",
-        db=db,
-    )
-    create_user_notification(
-        user_id=int(order.user_id),
-        event_type="order_ready_for_pickup",
-        title="Tu orden esta lista para retirar",
-        message=f"La orden #{int(order.id)} ya esta pagada y lista para retirar.",
-        order_id=int(order.id),
-        payment_id=int(payment.id),
-        dedupe_key=f"user:{int(order.user_id)}:order:{int(order.id)}:ready_to_pickup",
+        payload=_build_order_paid_event_payload(order=order, payment=payment),
         db=db,
     )
     db.refresh(payment)

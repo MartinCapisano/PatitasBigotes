@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import {
-  adminMarkOrderPaid,
-  createManualSubmittedOrder,
   getAdminOrder,
   listAdminOrderPayments,
   listAdminOrders,
   listAdminPayments,
+  registerAdminOrderManualPayment,
   type AdminOrder,
   type AdminPayment
 } from "../../../services/admin-orders-api";
+import { createAdminSale } from "../../../services/admin-sales-api";
 import type { AdminSection, ManualOrderItem, VariantOption } from "../types";
 
 export function useAdminOrdersPayments(params: {
@@ -89,14 +89,16 @@ export function useAdminOrdersPayments(params: {
       return;
     }
     try {
-      const response = await createManualSubmittedOrder({
+      const response = await createAdminSale({
         customer: {
+          mode: "new",
           email: manualEmail.trim(),
           first_name: manualFirstName.trim(),
           last_name: manualLastName.trim(),
           phone: manualPhone.trim()
         },
-        items: manualItems.map((row) => ({ variant_id: row.variant_id, quantity: row.quantity }))
+        items: manualItems.map((row) => ({ variant_id: row.variant_id, quantity: row.quantity })),
+        register_payment: false
       });
       const orderId = response.order.id;
       await loadAdminOrder(orderId);
@@ -122,8 +124,13 @@ export function useAdminOrdersPayments(params: {
     setOrderError("");
     setOrderSuccess("");
     try {
-      const updated = await adminMarkOrderPaid(selectedOrder.id, manualPayRef.trim(), parsedAmount);
-      setSelectedOrder(updated);
+      const result = await registerAdminOrderManualPayment({
+        order_id: selectedOrder.id,
+        method: "bank_transfer",
+        paid_amount: parsedAmount,
+        payment_ref: manualPayRef.trim()
+      });
+      setSelectedOrder(result.order);
       await loadAdminOrder(selectedOrder.id);
       setOrderSuccess(`Orden #${selectedOrder.id} marcada como pagada.`);
     } catch {

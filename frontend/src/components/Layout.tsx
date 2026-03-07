@@ -3,7 +3,7 @@ import { Link, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { cartCount } from "../lib/cart-storage";
 import type { NotificationItem } from "../types";
-import { listNotifications, readAllNotifications, readNotification } from "../services/notifications-api";
+import { getUnreadNotificationCount, listNotifications, readAllNotifications, readNotification } from "../services/notifications-api";
 
 export function Layout() {
   const location = useLocation();
@@ -15,17 +15,28 @@ export function Layout() {
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
+  const loadUnreadCount = useCallback(async () => {
+    if (!isAuthenticated) {
+      setUnreadCount(0);
+      return;
+    }
+    try {
+      const count = await getUnreadNotificationCount();
+      setUnreadCount(count);
+    } catch {
+      // fail silently in topbar
+    }
+  }, [isAuthenticated]);
+
   const loadNotifications = useCallback(async () => {
     if (!isAuthenticated) {
       setNotifications([]);
-      setUnreadCount(0);
       return;
     }
     setNotificationsLoading(true);
     try {
       const response = await listNotifications({ limit: 20, offset: 0 });
       setNotifications(response.data);
-      setUnreadCount(response.meta.unread_count);
     } catch {
       // fail silently in topbar
     } finally {
@@ -34,16 +45,27 @@ export function Layout() {
   }, [isAuthenticated]);
 
   useEffect(() => {
-    void loadNotifications();
-  }, [loadNotifications]);
+    if (!isAuthenticated) {
+      setNotifications([]);
+      setUnreadCount(0);
+      return;
+    }
+    void loadUnreadCount();
+  }, [isAuthenticated, loadUnreadCount]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
     const timer = window.setInterval(() => {
-      void loadNotifications();
+      if (document.visibilityState !== "visible") return;
+      void loadUnreadCount();
     }, 30000);
     return () => window.clearInterval(timer);
-  }, [isAuthenticated, loadNotifications]);
+  }, [isAuthenticated, loadUnreadCount]);
+
+  useEffect(() => {
+    if (!notificationsOpen) return;
+    void loadNotifications();
+  }, [notificationsOpen, loadNotifications]);
 
   async function onReadNotification(item: NotificationItem) {
     if (item.is_read) return;

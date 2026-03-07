@@ -12,6 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from source.db.models import Base, Category, Product, ProductVariant, User
 from source.services.orders_s import create_admin_sale
+from source.services.post_commit_actions_s import POST_COMMIT_ACTIONS_KEY
 from source.services.stock_reservations_s import list_active_reservations_for_order
 
 
@@ -127,6 +128,7 @@ class AdminSalesTests(unittest.TestCase):
                 },
                 db=session,
             )
+            queued_actions = list(session.info.get(POST_COMMIT_ACTIONS_KEY, []))
             session.commit()
         finally:
             session.close()
@@ -136,6 +138,8 @@ class AdminSalesTests(unittest.TestCase):
         self.assertEqual(result["payment"]["method"], "bank_transfer")
         self.assertIsNone(result["payment"]["change_amount"])
         self.assertTrue(result["meta"]["payment_registered"])
+        self.assertTrue(result["meta"]["order_paid_email_suppressed"])
+        self.assertEqual(queued_actions, [])
 
     def test_create_admin_sale_cash_requires_amount_minus_change_equals_total(self) -> None:
         variant_id = self._seed_variant()

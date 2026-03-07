@@ -8,6 +8,7 @@ import time
 
 from source.db.session import SessionLocal
 from source.services.mercadopago_client import find_latest_payment_by_external_reference
+from source.services.post_commit_actions_s import clear_post_commit_actions, dispatch_post_commit_actions
 from source.services.payment_s import (
     apply_mercadopago_normalized_state,
     list_reconcilable_pending_mercadopago_payments,
@@ -95,9 +96,11 @@ def run_once(*, batch_size: int, max_age_hours: int, min_age_minutes: int) -> di
                     db=db,
                 )
                 db.commit()
+                dispatch_post_commit_actions(db=db, source="payments_reconcile_job")
                 metrics["reconciled"] += 1
             except Exception:
                 db.rollback()
+                clear_post_commit_actions(db=db)
                 metrics["failed"] += 1
                 logger.exception(
                     "event=payments_reconcile_item_failed payment_id=%s external_ref=%s",

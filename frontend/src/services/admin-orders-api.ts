@@ -1,12 +1,5 @@
 import { http } from "./http";
 
-export type ManualOrderCustomer = {
-  email: string;
-  first_name: string;
-  last_name: string;
-  phone: string;
-};
-
 export type ManualOrderItem = {
   variant_id: number;
   quantity: number;
@@ -90,14 +83,6 @@ export type AdminPaymentIncident = {
   };
 };
 
-export async function createManualSubmittedOrder(payload: {
-  customer: ManualOrderCustomer;
-  items: ManualOrderItem[];
-}) {
-  const response = await http.post<{ data: { order: AdminOrder } }>("/orders/manual/submitted", payload);
-  return response.data.data;
-}
-
 export async function getAdminOrder(orderId: number): Promise<AdminOrder> {
   const response = await http.get<{ data: AdminOrder }>(`/admin/orders/${orderId}`);
   return response.data.data;
@@ -135,14 +120,6 @@ export async function listAdminPayments(params?: {
   if (params?.sort_by) qs.set("sort_by", params.sort_by);
   if (params?.sort_dir) qs.set("sort_dir", params.sort_dir);
   const response = await http.get<{ data: AdminPayment[] }>(`/admin/payments?${qs.toString()}`);
-  return response.data.data;
-}
-
-export async function adminMarkOrderPaid(orderId: number, paymentRef: string, paidAmount: number): Promise<AdminOrder> {
-  const response = await http.post<{ data: AdminOrder }>(`/admin/orders/${orderId}/pay/manual`, {
-    payment_ref: paymentRef,
-    paid_amount: paidAmount
-  });
   return response.data.data;
 }
 
