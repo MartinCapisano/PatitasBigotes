@@ -2,7 +2,7 @@
 param(
     [switch]$SkipVenv,
     [switch]$SkipInstall,
-    [switch]$SkipInitDb,
+    [switch]$SkipMigrations,
     [switch]$EnableJobs,
     [switch]$ForceJobs
 )
@@ -21,6 +21,7 @@ $repoDir = Split-Path -Parent $backendDir
 $venvDir = Join-Path $repoDir '.venv'
 $venvPython = Join-Path $venvDir 'Scripts\python.exe'
 $requirementsPath = Join-Path $backendDir 'requirements.txt'
+$requirementsDevPath = Join-Path $backendDir 'requirements-dev.txt'
 $envPath = Join-Path $backendDir '.env'
 $installJobsScript = Join-Path $scriptDir 'install-jobs.ps1'
 
@@ -56,17 +57,21 @@ if (-not $SkipInstall) {
     Write-Step 'Installing dependencies from backend/requirements.txt'
     & $venvPython -m pip install --upgrade pip
     & $venvPython -m pip install -r $requirementsPath
+    if (Test-Path $requirementsDevPath) {
+        Write-Step 'Installing development tools from backend/requirements-dev.txt'
+        & $venvPython -m pip install -r $requirementsDevPath
+    }
 }
 
 if (-not (Test-Path $envPath)) {
-    throw "Missing backend/.env at $envPath. Create it before initializing DB."
+    throw "Missing backend/.env at $envPath. Create it before running migrations."
 }
 
-if (-not $SkipInitDb) {
-    Write-Step 'Initializing database schema via init_db (no SQL migrations)'
+if (-not $SkipMigrations) {
+    Write-Step 'Applying database migrations via Alembic'
     Push-Location $backendDir
     try {
-        & $venvPython -m source.db.init_db
+        & $venvPython -m alembic upgrade head
     }
     finally {
         Pop-Location

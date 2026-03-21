@@ -2,7 +2,6 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from source.db.init_db import init_db
 from source.db.config import get_cors_allow_origins
 from source.dependencies.csrf_d import CSRFMiddleware
 from source.routes.auth_r import router as auth_router
@@ -45,12 +44,6 @@ app.include_router(payments_router)
 app.include_router(notifications_router)
 app.include_router(stock_reservations_router)
 app.include_router(storefront_router)
-
-
-@app.on_event("startup")
-def startup_init_db() -> None:
-    # Project policy: keep init_db up to date and ensure missing tables are created on boot.
-    init_db()
 
 
 @app.get("/health")

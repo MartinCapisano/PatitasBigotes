@@ -20,6 +20,36 @@
    - `AUTH_COOKIE_PATH_REFRESH` (default `/auth`)
 10. For CSRF origin checks, set `CORS_ALLOW_ORIGINS` to the exact frontend origin list.
 
+## Database Migrations
+
+Alembic is the source of truth for schema changes.
+
+Run these commands from `backend/`.
+
+Apply all pending migrations on a new or empty database:
+
+```bash
+alembic upgrade head
+```
+
+If an existing database is already aligned with the current schema baseline, mark it without reapplying DDL:
+
+```bash
+alembic stamp 20260321_01
+```
+
+Create a new migration after changing SQLAlchemy models:
+
+```bash
+alembic revision --autogenerate -m "describe change"
+```
+
+Notes:
+
+1. `stamp` only records the revision in `alembic_version`; it does not change the schema.
+2. Do not use `stamp` if the live schema diverges from the baseline.
+3. Future schema changes must ship as Alembic revisions, not manual SQL in the README.
+
 ## Auth cookie contract (backend phase 1)
 
 Auth endpoints are cookie-based (cookie-only):
@@ -92,42 +122,12 @@ Jobs administrados:
 Notas de bootstrap:
 
 1. `backend/scripts/bootstrap.ps1` ya no activa jobs automaticamente por default.
-2. Para bootstrap + jobs en un paso:
+2. `bootstrap.ps1` aplica `alembic upgrade head` por default. Usa `-SkipMigrations` si queres omitir ese paso.
+3. Para bootstrap + jobs en un paso:
 
 ```powershell
 .\backend\scripts\bootstrap.ps1 -EnableJobs
 ```
-
-## Initialize database tables
-
-Run from `backend/`:
-
-```bash
-python -m source.db.init_db
-```
-
-## Auth email verification + password reset migration
-
-For existing databases, apply:
-
-```sql
-\i backend/scripts/sql/2026_03_03_auth_email_verification_and_reset.sql
-```
-
-New auth endpoints:
-
-1. `POST /auth/register`
-2. `POST /auth/email/verify/request`
-3. `POST /auth/email/verify/confirm`
-4. `POST /auth/password/reset/request`
-5. `POST /auth/password/reset/confirm`
-6. `POST /auth/password/change`
-
-Behavior:
-
-1. Login is blocked until email verification is completed.
-2. Verification/reset tokens are one-time and persisted as hashes in DB.
-3. Password reset/change bumps `token_version` and invalidates refresh session.
 
 ## Guest checkout idempotency
 
@@ -190,85 +190,6 @@ Or via env var:
 STOCK_RESERVATIONS_JOB_INTERVAL_MINUTES=240
 STOCK_RESERVATIONS_JOB_BATCH_LIMIT=200
 STOCK_RESERVATIONS_JOB_MAX_BATCHES=20
-```
-
-## Product price migration (product -> variants)
-
-Catalog product endpoints now expose `min_var_price` instead of `price`.
-
-### SQL migration
-
-Backfill is not required because prices already live in `product_variants.price`.
-To drop `products.price` in PostgreSQL:
-
-```sql
-ALTER TABLE products DROP COLUMN price;
-```
-
-For SQLite (without direct DROP COLUMN support), recreate the table:
-
-```sql
-PRAGMA foreign_keys=off;
-
-CREATE TABLE products_new (
-  id INTEGER PRIMARY KEY,
-  name VARCHAR NOT NULL,
-  description VARCHAR,
-  category_id INTEGER NOT NULL,
-  FOREIGN KEY(category_id) REFERENCES categories(id) ON DELETE RESTRICT
-);
-
-INSERT INTO products_new (id, name, description, category_id)
-SELECT id, name, description, category_id
-FROM products;
-
-DROP TABLE products;
-ALTER TABLE products_new RENAME TO products;
-
-PRAGMA foreign_keys=on;
-```
-
-## Webhook inbox migration (MercadoPago idempotency)
-
-Webhook events are now deduplicated with a DB inbox table (`webhook_events`).
-Webhook signature freshness is also enforced with `x-signature ts`:
-requests older than `MERCADOPAGO_WEBHOOK_MAX_AGE_SECONDS` (default 300s)
-or too far in the future are rejected.
-
-### SQL migration
-
-```sql
-CREATE TABLE webhook_events (
-  id INTEGER PRIMARY KEY,
-  provider VARCHAR NOT NULL,
-  event_key VARCHAR NOT NULL UNIQUE,
-  status VARCHAR NOT NULL DEFAULT 'processing',
-  payload TEXT,
-  received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  processed_at TIMESTAMP,
-  last_error TEXT,
-  attempt_count INTEGER NOT NULL DEFAULT 0,
-  next_retry_at TIMESTAMP,
-  dead_letter_at TIMESTAMP
-);
-
-CREATE INDEX ix_webhook_events_provider ON webhook_events(provider);
-CREATE UNIQUE INDEX ux_webhook_events_event_key ON webhook_events(event_key);
-CREATE INDEX ix_webhook_events_provider_status_retry
-  ON webhook_events(provider, status, next_retry_at);
-CREATE INDEX ix_webhook_events_dead_letter_at ON webhook_events(dead_letter_at);
-```
-
-If `webhook_events` already exists, apply:
-
-```sql
-ALTER TABLE webhook_events ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE webhook_events ADD COLUMN next_retry_at TIMESTAMP;
-ALTER TABLE webhook_events ADD COLUMN dead_letter_at TIMESTAMP;
-
-CREATE INDEX ix_webhook_events_provider_status_retry
-  ON webhook_events(provider, status, next_retry_at);
-CREATE INDEX ix_webhook_events_dead_letter_at ON webhook_events(dead_letter_at);
 ```
 
 ## Failed webhook reprocess job
@@ -356,57 +277,6 @@ Run periodically (default daily):
 
 ```bash
 python -m source.jobs.prune_auth_action_tokens_job
-```
-
-## Stock reservations migration (orders submitted)
-
-Stock reservations reserve inventory on `submitted`, consume on `paid`, and expire after 42 hours.
-When a `submitted` reservation expires:
-1. it can be reactivated only once for 12 hours (`reactivation_count=1`) if stock still exists,
-2. after that second expiration (or if stock is missing), the order is cancelled.
-
-### SQL migration
-
-```sql
-CREATE TABLE stock_reservations (
-  id SERIAL PRIMARY KEY,
-  order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-  order_item_id INTEGER NOT NULL REFERENCES order_items(id) ON DELETE CASCADE,
-  variant_id INTEGER NOT NULL REFERENCES product_variants(id) ON DELETE RESTRICT,
-  quantity INTEGER NOT NULL,
-  status VARCHAR NOT NULL DEFAULT 'active',
-  reactivation_count INTEGER NOT NULL DEFAULT 0,
-  expires_at TIMESTAMP NOT NULL,
-  consumed_at TIMESTAMP NULL,
-  released_at TIMESTAMP NULL,
-  reason VARCHAR NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT ck_stock_reservations_quantity_positive CHECK (quantity > 0)
-);
-
-CREATE INDEX ix_stock_reservations_variant_status_expires
-  ON stock_reservations(variant_id, status, expires_at);
-CREATE INDEX ix_stock_reservations_order_status
-  ON stock_reservations(order_id, status);
-CREATE INDEX ix_stock_reservations_status_expires
-  ON stock_reservations(status, expires_at);
-CREATE UNIQUE INDEX uq_stock_reservation_active_per_item
-  ON stock_reservations(order_item_id)
-  WHERE status = 'active';
-```
-
-### Quick validation
-
-```sql
-SELECT status, COUNT(*) FROM stock_reservations GROUP BY status ORDER BY status;
-```
-
-If `stock_reservations` already exists, add the new column:
-
-```sql
-ALTER TABLE stock_reservations
-ADD COLUMN reactivation_count INTEGER NOT NULL DEFAULT 0;
 ```
 
 ## Pagos MP en local (Uvicorn + ngrok fijo)
