@@ -9,6 +9,7 @@ export function LoginPage() {
     <section className="auth-wrap">
       <h1 className="page-title">Ingresar</h1>
       <form className="card auth-form" onSubmit={loginPage.onSubmit}>
+        {loginPage.infoMessage && <p className="muted">{loginPage.infoMessage}</p>}
         <label>
           Email
           <input

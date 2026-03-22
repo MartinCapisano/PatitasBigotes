@@ -6,7 +6,10 @@ from datetime import UTC, datetime
 from sqlalchemy.orm import Session, joinedload
 
 from source.db.models import Order, OrderItem, ProductVariant, User
-from source.exceptions import OrderStatusTransitionError
+from source.exceptions import (
+    OrderStatusTransitionError,
+    RegisteredAccountCheckoutConflictError,
+)
 from source.services.discount_s import (
     calculate_line_pricing,
     list_discounts,
@@ -618,6 +621,20 @@ def create_manual_submitted_order(
 ) -> dict:
     if not items:
         raise ValueError("items are required")
+
+    normalized_email = str(email or "").strip().lower()
+    existing_auth_user = (
+        db.query(User)
+        .filter(
+            User.email == normalized_email,
+            User.has_account.is_(True),
+        )
+        .first()
+    )
+    if existing_auth_user is not None:
+        raise RegisteredAccountCheckoutConflictError(
+            "registered account requires login"
+        )
 
     user, user_created = get_or_create_user_by_contact(
         email=email,

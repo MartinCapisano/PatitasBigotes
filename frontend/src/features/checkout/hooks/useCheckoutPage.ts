@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { clearCart, readCart } from "../../../lib/cart-storage";
 import {
   getMercadoPagoCheckoutUrl,
@@ -7,10 +8,11 @@ import {
   submitGuestCheckoutFromCart,
   type CheckoutPaymentMethod
 } from "../../../services/checkout-api";
-import { toUserMessage } from "../../../services/http-errors";
+import { classifyHttpError, toUserMessage } from "../../../services/http-errors";
 
 export function useCheckoutPage(params: { authLoading: boolean; isAuthenticated: boolean }) {
   const { authLoading, isAuthenticated } = params;
+  const navigate = useNavigate();
   const items = readCart();
   const total = items.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
   const [guestFirstName, setGuestFirstName] = useState("");
@@ -54,6 +56,21 @@ export function useCheckoutPage(params: { authLoading: boolean; isAuthenticated:
         setSuccess(`Compra enviada. Orden #${result.order.id} en estado ${result.order.status}. Pago acordado en efectivo.`);
       }
     } catch (apiError: unknown) {
+      const classified = classifyHttpError(apiError);
+      if (
+        !isAuthenticated &&
+        classified.kind === "conflict" &&
+        classified.detail === "registered account requires login"
+      ) {
+        navigate("/login", {
+          state: {
+            from: "/checkout",
+            checkoutEmail: guestEmail.trim(),
+            reason: "registered_account_checkout"
+          }
+        });
+        return;
+      }
       setError(toUserMessage(apiError, "checkout"));
     } finally {
       setLoading(false);

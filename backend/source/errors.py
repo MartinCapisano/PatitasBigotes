@@ -2,7 +2,11 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from source.exceptions import OrderStatusTransitionError, WebhookReplayConflictError
+from source.exceptions import (
+    OrderStatusTransitionError,
+    RegisteredAccountCheckoutConflictError,
+    WebhookReplayConflictError,
+)
 from source.services.payment_errors import (
     PaymentProviderAuthError,
     PaymentProviderTimeoutError,
@@ -18,6 +22,8 @@ def raise_http_error_from_exception(exc: Exception, db: Session | None = None) -
     if isinstance(exc, LookupError):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if isinstance(exc, OrderStatusTransitionError):
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if isinstance(exc, RegisteredAccountCheckoutConflictError):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if isinstance(exc, WebhookReplayConflictError):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
