@@ -266,6 +266,7 @@ payments = Table(
     Column("idempotency_key", String, nullable=False, unique=True),
     Column("external_ref", String, nullable=True),
     Column("preference_id", String, nullable=True),
+    Column("public_status_token", String, nullable=False),
     Column("provider_status", String, nullable=True),
     Column("provider_payload", String, nullable=True),
     Column("receipt_url", String, nullable=True),
@@ -280,6 +281,7 @@ payments = Table(
     Index("ix_payments_idempotency_key", "idempotency_key", unique=True),
     Index("ix_payments_external_ref", "external_ref"),
     Index("ix_payments_preference_id", "preference_id"),
+    Index("ix_payments_public_status_token", "public_status_token", unique=True),
     Index(
         "uq_payments_one_pending_per_order_method",
         "order_id",

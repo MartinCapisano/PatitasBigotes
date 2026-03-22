@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, UTC
 import hashlib
 import json
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 import uuid
 
 from sqlalchemy import func, or_
@@ -17,7 +17,13 @@ from source.db.config import (
     get_mercadopago_pending_url,
     get_mercadopago_success_url,
 )
-from source.db.models import Order, Payment, PaymentIncident, WebhookEvent
+from source.db.models import (
+    Order,
+    Payment,
+    PaymentIncident,
+    WebhookEvent,
+    generate_public_status_token,
+)
 from source.exceptions import WebhookReplayConflictError
 from source.services.refund_s import (
     PAYMENT_INCIDENT_STATUS_PENDING_REVIEW,
@@ -77,6 +83,7 @@ def _payment_to_dict(payment: Payment) -> dict:
         "idempotency_key": payment.idempotency_key,
         "external_ref": payment.external_ref,
         "preference_id": payment.preference_id,
+        "public_status_token": payment.public_status_token,
         "provider_status": payment.provider_status,
         "provider_payload": payment.provider_payload,
         "provider_payload_data": parsed_provider_payload,
@@ -121,6 +128,21 @@ def _deserialize_provider_payload(payload: str | None) -> dict | None:
     if not isinstance(parsed, dict):
         return None
     return parsed
+
+
+def _append_public_status_token_to_url(url: str, public_status_token: str) -> str:
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["public_status_token"] = public_status_token
+    return urlunsplit(
+        (
+            parts.scheme,
+            parts.netloc,
+            parts.path,
+            urlencode(query, doseq=True),
+            parts.fragment,
+        )
+    )
 
 
 def _normalize_webhook_key_part(value: object) -> str | None:
@@ -756,6 +778,7 @@ def _build_mercadopago_payload(
     currency: str,
     expires_at: datetime,
     payment_idempotency_key: str,
+    public_status_token: str,
 ) -> tuple[str, dict]:
     external_ref = f"mp-order-{order_id}-pay-{payment_id}"
     provider_idempotency_key = f"mp-preference-{payment_idempotency_key}"
@@ -772,9 +795,15 @@ def _build_mercadopago_payload(
             }
         ],
         "back_urls": {
-            "success": get_mercadopago_success_url(),
-            "failure": get_mercadopago_failure_url(),
-            "pending": get_mercadopago_pending_url(),
+            "success": _append_public_status_token_to_url(
+                get_mercadopago_success_url(), public_status_token
+            ),
+            "failure": _append_public_status_token_to_url(
+                get_mercadopago_failure_url(), public_status_token
+            ),
+            "pending": _append_public_status_token_to_url(
+                get_mercadopago_pending_url(), public_status_token
+            ),
         },
         "notification_url": get_mercadopago_notification_url(),
         "expires": True,
@@ -785,6 +814,7 @@ def _build_mercadopago_payload(
             "order_id": order_id,
             "payment_id": payment_id,
             "external_ref": external_ref,
+            "public_status_token": public_status_token,
             "currency": currency,
             "amount": amount,
         },
@@ -800,6 +830,7 @@ def _build_mercadopago_payload(
             "provider": "mercadopago",
             "environment": env,
             "external_ref": external_ref,
+            "public_status_token": public_status_token,
             "provider_idempotency_key": provider_idempotency_key,
             "preference_id": provider_response.get("id"),
             "checkout_url": checkout_url,
@@ -1086,6 +1117,7 @@ def create_payment_for_order(
         currency=payment_currency,
         idempotency_key=normalized_key,
         external_ref=None,
+        public_status_token=generate_public_status_token(),
         provider_status=None,
         provider_payload=None,
         receipt_url=None,
@@ -1154,6 +1186,7 @@ def create_payment_for_order(
                 currency=payment_currency,
                 expires_at=expires_at,
                 payment_idempotency_key=normalized_key,
+                public_status_token=payment.public_status_token,
             )
             payment.external_ref = external_ref
             payment.preference_id = _get_checkout_preference_id(provider_payload)
@@ -1446,26 +1479,25 @@ def get_payment_for_user(
 
 def get_payment_public_status(
     *,
-    external_ref: str | None = None,
-    preference_id: str | None = None,
+    public_status_token: str | None = None,
     db: Session,
 ) -> dict:
-    normalized_external_ref = _normalize_optional_str(external_ref)
-    normalized_preference_id = _normalize_optional_str(preference_id)
-    if normalized_external_ref is None and normalized_preference_id is None:
-        raise ValueError("external_ref or preference_id is required")
-    if normalized_external_ref is not None and len(normalized_external_ref) > 255:
-        raise ValueError("external_ref is too long")
-    if normalized_preference_id is not None and len(normalized_preference_id) > 255:
-        raise ValueError("preference_id is too long")
+    normalized_public_status_token = _normalize_optional_str(public_status_token)
+    if normalized_public_status_token is None:
+        raise ValueError("public_status_token is required")
+    if len(normalized_public_status_token) > 255:
+        raise ValueError("public_status_token is too long")
 
-    query = db.query(Payment).options(joinedload(Payment.order)).filter(Payment.method == "mercadopago")
-    if normalized_external_ref is not None:
-        query = query.filter(Payment.external_ref == normalized_external_ref)
-    if normalized_preference_id is not None:
-        query = query.filter(Payment.preference_id == normalized_preference_id)
-
-    payment = query.order_by(Payment.created_at.desc(), Payment.id.desc()).first()
+    payment = (
+        db.query(Payment)
+        .options(joinedload(Payment.order))
+        .filter(
+            Payment.method == "mercadopago",
+            Payment.public_status_token == normalized_public_status_token,
+        )
+        .order_by(Payment.created_at.desc(), Payment.id.desc())
+        .first()
+    )
     if payment is None:
         raise LookupError("payment not found")
 

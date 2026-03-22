@@ -45,14 +45,12 @@ def get_payment(
 
 @router.get("/payments/public/status")
 def get_public_payment_status(
-    external_ref: str | None = None,
-    preference_id: str | None = None,
+    public_status_token: str | None = None,
     db: Session = Depends(get_db_transactional),
 ):
     try:
         payment = get_payment_public_status(
-            external_ref=external_ref,
-            preference_id=preference_id,
+            public_status_token=public_status_token,
             db=db,
         )
     except Exception as exc:

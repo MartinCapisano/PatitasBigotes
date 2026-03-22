@@ -166,6 +166,57 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
         finally:
             db.close()
 
+    def _seed_public_mercadopago_payment(self, *, status: str = "pending") -> str:
+        db = self._db()
+        try:
+            customer = User(
+                first_name="Pay",
+                last_name="Lookup",
+                email=f"lookup-{datetime.now(UTC).timestamp()}@example.com",
+                phone="1122334455",
+                password_hash="!",
+                has_account=False,
+                is_admin=False,
+            )
+            db.add(customer)
+            db.flush()
+
+            order = Order(
+                user_id=int(customer.id),
+                status="submitted" if status != "paid" else "paid",
+                currency="ARS",
+                subtotal=10000,
+                discount_total=0,
+                total_amount=10000,
+                pricing_frozen=True,
+                submitted_at=datetime.now(UTC),
+                paid_at=datetime.now(UTC) if status == "paid" else None,
+            )
+            db.add(order)
+            db.flush()
+
+            payment = Payment(
+                order_id=int(order.id),
+                method="mercadopago",
+                status=status,
+                amount=10000,
+                currency="ARS",
+                idempotency_key=f"idemp-public-{datetime.now(UTC).timestamp()}",
+                external_ref=f"mp-order-{order.id}-pay-public",
+                preference_id=f"pref-public-{datetime.now(UTC).timestamp()}",
+                provider_status="approved" if status == "paid" else "pending",
+                provider_payload=None,
+                receipt_url=None,
+                expires_at=None,
+                paid_at=datetime.now(UTC) if status == "paid" else None,
+            )
+            db.add(payment)
+            db.commit()
+            db.refresh(payment)
+            return str(payment.public_status_token)
+        finally:
+            db.close()
+
     def test_create_order_payment_rejects_non_ars_currency_over_http(self) -> None:
         user_id = self._create_user(email="pay-currency@example.com", verified=True)
         order_id = self._seed_submitted_order_with_reservation_for_user(user_id=user_id)
@@ -182,6 +233,74 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
         )
 
         self.assertEqual(response.status_code, 422)
+
+    def test_create_mercadopago_payment_returns_public_status_token_over_http(self) -> None:
+        user_id = self._create_user(email="pay-public-token@example.com", verified=True)
+        order_id = self._seed_submitted_order_with_reservation_for_user(user_id=user_id)
+        login_response = self._login(email="pay-public-token@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        with patch(
+            "source.services.payment_s.create_checkout_preference",
+            return_value={
+                "id": "pref-public-token",
+                "init_point": "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-public-token",
+            },
+        ) as mocked_create_checkout_preference:
+            response = self.client.post(
+                f"/orders/{order_id}/payments",
+                json={"method": "mercadopago", "currency": "ARS"},
+                headers={
+                    **self._origin_headers(),
+                    "Idempotency-Key": "payment-public-token-key",
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()["data"]
+        public_status_token = payload["public_status_token"]
+        self.assertIsInstance(public_status_token, str)
+        self.assertGreaterEqual(len(public_status_token), 20)
+
+        checkout_payload = payload["provider_payload_data"]["checkout"]
+        self.assertEqual(checkout_payload["public_status_token"], public_status_token)
+        preference_payload = mocked_create_checkout_preference.call_args.args[0]
+        self.assertIn(
+            f"public_status_token={public_status_token}",
+            preference_payload["back_urls"]["success"],
+        )
+
+    def test_get_public_payment_status_by_public_token_over_http(self) -> None:
+        public_status_token = self._seed_public_mercadopago_payment(status="paid")
+
+        response = self.client.get(
+            f"/payments/public/status?public_status_token={public_status_token}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["data"]
+        self.assertEqual(payload["status"], "paid")
+        self.assertEqual(payload["order_status"], "paid")
+
+    def test_get_public_payment_status_requires_public_token_over_http(self) -> None:
+        response = self.client.get("/payments/public/status")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "public_status_token is required")
+
+    def test_get_public_payment_status_rejects_legacy_lookup_params_over_http(self) -> None:
+        response = self.client.get(
+            "/payments/public/status?external_ref=mp-order-1-pay-1&preference_id=pref-1"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "public_status_token is required")
+
+    def test_get_public_payment_status_unknown_token_returns_404_over_http(self) -> None:
+        response = self.client.get("/payments/public/status?public_status_token=missing-public-token")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "payment not found")
 
     def test_retry_payment_creates_new_attempt_after_cancelled_over_http(self) -> None:
         user_id = self._create_user(email="pay-retry@example.com", verified=True)

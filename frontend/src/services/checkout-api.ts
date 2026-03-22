@@ -31,11 +31,13 @@ type PaymentData = {
   status: string;
   amount: number;
   currency: string;
+  public_status_token?: string | null;
   provider_payload_data?: {
     checkout?: {
       checkout_url?: string | null;
       init_point?: string | null;
       sandbox_init_point?: string | null;
+      public_status_token?: string | null;
     };
   };
 };

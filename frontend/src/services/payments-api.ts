@@ -12,12 +12,10 @@ type PublicPaymentStatusEnvelope = {
 };
 
 export async function fetchPublicPaymentStatus(params: {
-  externalRef?: string | null;
-  preferenceId?: string | null;
+  publicStatusToken?: string | null;
 }): Promise<PublicPaymentStatus> {
   const query = new URLSearchParams();
-  if (params.externalRef) query.set("external_ref", params.externalRef);
-  if (params.preferenceId) query.set("preference_id", params.preferenceId);
+  if (params.publicStatusToken) query.set("public_status_token", params.publicStatusToken);
   const response = await http.get<PublicPaymentStatusEnvelope>(`/payments/public/status?${query.toString()}`);
   return response.data.data;
 }

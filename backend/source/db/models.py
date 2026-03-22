@@ -1,4 +1,5 @@
 ﻿from datetime import UTC, datetime
+import secrets
 
 from sqlalchemy import (
     Boolean,
@@ -18,6 +19,10 @@ Base = declarative_base()
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def generate_public_status_token() -> str:
+    return secrets.token_urlsafe(32)
 
 
 class Category(Base):
@@ -309,6 +314,13 @@ class Payment(Base):
     idempotency_key = Column(String, nullable=False, unique=True, index=True)
     external_ref = Column(String, nullable=True, index=True)
     preference_id = Column(String, nullable=True, index=True)
+    public_status_token = Column(
+        String,
+        nullable=False,
+        unique=True,
+        index=True,
+        default=generate_public_status_token,
+    )
     provider_status = Column(String, nullable=True)
     provider_payload = Column(String, nullable=True)
     receipt_url = Column(String, nullable=True)

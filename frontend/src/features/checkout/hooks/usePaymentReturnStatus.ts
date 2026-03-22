@@ -10,14 +10,13 @@ export function usePaymentReturnStatus() {
   const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const lookup = useMemo(
     () => ({
-      externalRef: params.get("external_reference") || params.get("external_ref"),
-      preferenceId: params.get("preference_id")
+      publicStatusToken: params.get("public_status_token"),
     }),
     [params]
   );
 
   async function loadStatus() {
-    if (!lookup.externalRef && !lookup.preferenceId) {
+    if (!lookup.publicStatusToken) {
       return;
     }
     setLoading(true);
@@ -34,7 +33,7 @@ export function usePaymentReturnStatus() {
 
   useEffect(() => {
     void loadStatus();
-  }, [lookup.externalRef, lookup.preferenceId]);
+  }, [lookup.publicStatusToken]);
 
   return {
     location,

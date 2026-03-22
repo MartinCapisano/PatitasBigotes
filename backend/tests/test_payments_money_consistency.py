@@ -156,6 +156,7 @@ class PaymentsMoneyConsistencyTests(unittest.TestCase):
                     currency="ARS",
                     expires_at=datetime.now(UTC) + timedelta(hours=1),
                     payment_idempotency_key="idemp-test",
+                    public_status_token="public-status-token-test",
                 )
         self.assertEqual(str(ctx.exception), "invalid mercadopago checkout_url")
 

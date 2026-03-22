@@ -298,8 +298,9 @@ python -m source.jobs.prune_auth_action_tokens_job
    - `MERCADOPAGO_ACCESS_TOKEN=...` (de prueba/sandbox).
    - `MERCADOPAGO_WEBHOOK_SECRET=...` (de prueba/sandbox).
    - `MERCADOPAGO_ENV=sandbox`.
-3. Usa la URL fija:
-   - `MERCADOPAGO_NOTIFICATION_URL=https://terpenic-dampishly-reda.ngrok-free.dev/payments/webhook/mercadopago`
+3. Configura tu propia URL publica para webhooks:
+   - `MERCADOPAGO_NOTIFICATION_URL=https://tu-dominio-ngrok.ngrok-free.app/payments/webhook/mercadopago`
+4. El retorno del checkout consulta el estado con `public_status_token` opaco agregado por backend. `external_ref` queda solo para proveedor y reconciliacion interna.
 
 ### Arranque local (2 terminales)
 
@@ -315,8 +316,8 @@ Terminal 2 (tunnel ngrok fijo):
 .\backend\scripts\start-tunnel.ps1
 ```
 
-El dominio esperado es:
-`https://terpenic-dampishly-reda.ngrok-free.dev`
+El dominio esperado es algo como:
+`https://tu-dominio-ngrok.ngrok-free.app`
 
 ### Paso manual obligatorio en Mercado Pago (panel web)
 
@@ -324,7 +325,7 @@ Debes pegar esta URL en:
 
 `Mercado Pago Developers > Tus integraciones > App de prueba > Webhooks/Notificaciones > URL de notificacion`
 
-`https://terpenic-dampishly-reda.ngrok-free.dev/payments/webhook/mercadopago`
+`https://tu-dominio-ngrok.ngrok-free.app/payments/webhook/mercadopago`
 
 Despues de guardar la URL, verifica si Mercado Pago muestra un `webhook secret` nuevo para esa configuracion. Si cambio, actualiza tambien `MERCADOPAGO_WEBHOOK_SECRET` en `backend/.env`.
 
