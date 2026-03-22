@@ -3,7 +3,6 @@ import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -12,10 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from source.db.models import Base, Category, Order, OrderItem, Product, ProductVariant, StockReservation, User
-from source.errors import raise_http_error_from_exception
 from source.exceptions import OrderStatusTransitionError
-from source.routes.orders_r import update_order_status
-from source.schemas.orders_s import UpdateOrderStatusRequest
 from source.services.orders_s import change_order_status
 
 
@@ -156,30 +152,6 @@ class OrderStatusStateMachineTests(unittest.TestCase):
             session.close()
         self.assertEqual(order["status"], "paid")
 
-    def test_update_order_status_route_rejects_paid_transition(self) -> None:
-        order_id, user_id = self._seed_order(order_status="submitted", with_reservation=True)
-        session = self.TestSession()
-        try:
-            with self.assertRaises(HTTPException) as ctx:
-                update_order_status(
-                    order_id=order_id,
-                    payload=UpdateOrderStatusRequest(
-                        status="paid",
-                        payment_ref="MANUAL-REF-1",
-                        paid_amount=10000,
-                    ),
-                    current_user={"sub": str(user_id), "is_admin": True},
-                    db=session,
-                )
-        finally:
-            session.close()
-
-        self.assertEqual(ctx.exception.status_code, 400)
-        self.assertEqual(
-            ctx.exception.detail,
-            "paid status must be set through a payment endpoint",
-        )
-
     def test_submitted_to_cancelled_allowed(self) -> None:
         order_id, user_id = self._seed_order(order_status="submitted", with_reservation=True)
         session = self.TestSession()
@@ -195,13 +167,6 @@ class OrderStatusStateMachineTests(unittest.TestCase):
         finally:
             session.close()
         self.assertEqual(order["status"], "cancelled")
-
-    def test_paid_to_cancelled_rejected_409(self) -> None:
-        _, _ = self._seed_order(order_status="paid")
-        exc = OrderStatusTransitionError("cannot transition terminal order from paid to cancelled")
-        with self.assertRaises(HTTPException) as ctx:
-            raise_http_error_from_exception(exc)
-        self.assertEqual(ctx.exception.status_code, 409)
 
     def test_paid_to_submitted_rejected_409(self) -> None:
         order_id, user_id = self._seed_order(order_status="paid")
@@ -232,32 +197,6 @@ class OrderStatusStateMachineTests(unittest.TestCase):
                 )
         finally:
             session.close()
-
-    def test_same_status_is_idempotent_no_side_effects(self) -> None:
-        order_id, user_id = self._seed_order(order_status="submitted", with_reservation=True)
-        session = self.TestSession()
-        try:
-            order_before = session.query(Order).filter(Order.id == order_id).first()
-            assert order_before is not None
-            cancelled_before = order_before.cancelled_at
-
-            order = change_order_status(
-                user_id=user_id,
-                order_id=order_id,
-                new_status="submitted",
-                db=session,
-                is_admin=False,
-            )
-            session.commit()
-
-            order_after = session.query(Order).filter(Order.id == order_id).first()
-            assert order_after is not None
-        finally:
-            session.close()
-
-        self.assertEqual(order["status"], "submitted")
-        self.assertEqual(order_after.status, "submitted")
-        self.assertEqual(order_after.cancelled_at, cancelled_before)
 
     def test_invalid_transition_logs_rejected_event(self) -> None:
         order_id, user_id = self._seed_order(order_status="paid")

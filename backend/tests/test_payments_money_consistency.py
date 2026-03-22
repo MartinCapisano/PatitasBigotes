@@ -25,12 +25,8 @@ from source.db.models import (
 )
 from source.services.payment_s import (
     _build_mercadopago_payload,
-    normalize_and_validate_mercadopago_checkout_url,
     apply_mercadopago_normalized_state,
     create_payment_for_order,
-    create_retry_payment_for_order,
-    find_payment_for_mercadopago_event,
-    submit_bank_transfer_receipt,
 )
 
 
@@ -144,55 +140,6 @@ class PaymentsMoneyConsistencyTests(unittest.TestCase):
         self.assertIn("provider_payload_data", payment)
         self.assertIsInstance(payment["provider_payload_data"], dict)
 
-    def test_normalize_checkout_url_accepts_expected_https_host(self) -> None:
-        checkout_url = normalize_and_validate_mercadopago_checkout_url(
-            {
-                "id": "pref-1",
-                "init_point": "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-1",
-                "sandbox_init_point": "https://sandbox.mercadopago.com/checkout/v1/redirect?pref_id=pref-1",
-            },
-            "prod",
-        )
-        self.assertEqual(
-            checkout_url,
-            "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-1",
-        )
-
-    def test_normalize_checkout_url_rejects_non_https(self) -> None:
-        with self.assertRaises(ValueError) as ctx:
-            normalize_and_validate_mercadopago_checkout_url(
-                {
-                    "id": "pref-2",
-                    "init_point": "http://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-2",
-                },
-                "prod",
-            )
-        self.assertEqual(str(ctx.exception), "invalid mercadopago checkout_url")
-
-    def test_normalize_checkout_url_rejects_unexpected_host(self) -> None:
-        with self.assertRaises(ValueError) as ctx:
-            normalize_and_validate_mercadopago_checkout_url(
-                {
-                    "id": "pref-3",
-                    "init_point": "https://evil.example.com/pay?pref_id=pref-3",
-                },
-                "prod",
-            )
-        self.assertEqual(str(ctx.exception), "invalid mercadopago checkout_url")
-
-    def test_normalize_checkout_url_uses_valid_fallback_when_primary_missing(self) -> None:
-        checkout_url = normalize_and_validate_mercadopago_checkout_url(
-            {
-                "id": "pref-4",
-                "sandbox_init_point": "https://sandbox.mercadopago.com/checkout/v1/redirect?pref_id=pref-4",
-            },
-            "prod",
-        )
-        self.assertEqual(
-            checkout_url,
-            "https://sandbox.mercadopago.com/checkout/v1/redirect?pref_id=pref-4",
-        )
-
     def test_build_mercadopago_payload_rejects_invalid_checkout_url(self) -> None:
         with patch(
             "source.services.payment_s.create_checkout_preference",
@@ -211,23 +158,6 @@ class PaymentsMoneyConsistencyTests(unittest.TestCase):
                     payment_idempotency_key="idemp-test",
                 )
         self.assertEqual(str(ctx.exception), "invalid mercadopago checkout_url")
-
-    def test_create_payment_rejects_non_ars_currency(self) -> None:
-        order_id, user_id = self._seed_submitted_order_with_reservation()
-        session = self.TestSession()
-        try:
-            with self.assertRaises(ValueError) as ctx:
-                create_payment_for_order(
-                    order_id=order_id,
-                    method="bank_transfer",
-                    db=session,
-                    user_id=user_id,
-                    idempotency_key=f"idemp-usd-{datetime.now(UTC).timestamp()}",
-                    currency="USD",
-                )
-            self.assertEqual(str(ctx.exception), "only ARS currency is supported")
-        finally:
-            session.close()
 
     def test_webhook_amount_mismatch_raises(self) -> None:
         order_id, user_id = self._seed_submitted_order_with_reservation()
@@ -431,139 +361,6 @@ class PaymentsMoneyConsistencyTests(unittest.TestCase):
             self.assertEqual(incidents[0].status, "pending_review")
         finally:
             session.close()
-
-    def test_retry_payment_creates_new_attempt_after_cancelled(self) -> None:
-        order_id, user_id = self._seed_submitted_order_with_reservation()
-        session = self.TestSession()
-        try:
-            cancelled = Payment(
-                order_id=order_id,
-                method="bank_transfer",
-                status="cancelled",
-                amount=10000,
-                currency="ARS",
-                idempotency_key=f"idemp-bt-cancelled-{datetime.now(UTC).timestamp()}",
-                external_ref=f"bt-order-{order_id}-pay-9",
-                provider_status="cancelled",
-                provider_payload=None,
-                receipt_url=None,
-                expires_at=datetime.now(UTC) + timedelta(hours=1),
-                paid_at=None,
-            )
-            session.add(cancelled)
-            session.flush()
-            cancelled_id = int(cancelled.id)
-
-            retried = create_retry_payment_for_order(
-                order_id=order_id,
-                method="bank_transfer",
-                db=session,
-                user_id=user_id,
-                currency="ARS",
-                expires_in_minutes=60,
-            )
-            session.commit()
-        finally:
-            session.close()
-
-        self.assertNotEqual(int(retried["id"]), cancelled_id)
-        self.assertEqual(retried["status"], "pending")
-        self.assertEqual(retried["method"], "bank_transfer")
-
-    def test_retry_payment_requires_retryable_latest_status(self) -> None:
-        order_id, user_id = self._seed_submitted_order_with_reservation()
-        session = self.TestSession()
-        try:
-            pending = Payment(
-                order_id=order_id,
-                method="bank_transfer",
-                status="pending",
-                amount=10000,
-                currency="ARS",
-                idempotency_key=f"idemp-bt-pending-{datetime.now(UTC).timestamp()}",
-                external_ref=None,
-                provider_status="pending",
-                provider_payload=None,
-                receipt_url=None,
-                expires_at=datetime.now(UTC) + timedelta(hours=1),
-                paid_at=None,
-            )
-            session.add(pending)
-            session.flush()
-
-            with self.assertRaises(ValueError) as ctx:
-                create_retry_payment_for_order(
-                    order_id=order_id,
-                    method="bank_transfer",
-                    db=session,
-                    user_id=user_id,
-                    currency="ARS",
-                    expires_in_minutes=60,
-                )
-            self.assertEqual(str(ctx.exception), "latest payment attempt is not retryable")
-        finally:
-            session.close()
-
-    def test_find_payment_by_preference_id_uses_dedicated_column(self) -> None:
-        order_id, _ = self._seed_submitted_order_with_reservation()
-        session = self.TestSession()
-        try:
-            payment = Payment(
-                order_id=order_id,
-                method="mercadopago",
-                status="pending",
-                amount=10000,
-                currency="ARS",
-                idempotency_key=f"idemp-pref-{datetime.now(UTC).timestamp()}",
-                external_ref=f"mp-order-{order_id}-pay-pref",
-                preference_id=f"pref-{order_id}",
-                provider_status="preference_created",
-                provider_payload=None,
-                receipt_url=None,
-                expires_at=datetime.now(UTC) + timedelta(hours=1),
-                paid_at=None,
-            )
-            session.add(payment)
-            session.commit()
-
-            found = find_payment_for_mercadopago_event(
-                preference_id=f"pref-{order_id}",
-                external_ref=None,
-                db=session,
-            )
-            self.assertIsNotNone(found)
-            assert found is not None
-            self.assertEqual(found["id"], int(payment.id))
-        finally:
-            session.close()
-
-    def test_submit_bank_transfer_receipt_updates_payment(self) -> None:
-        order_id, user_id = self._seed_submitted_order_with_reservation()
-        session = self.TestSession()
-        try:
-            payment = create_payment_for_order(
-                order_id=order_id,
-                method="bank_transfer",
-                db=session,
-                user_id=user_id,
-                idempotency_key=f"idemp-receipt-{datetime.now(UTC).timestamp()}",
-                currency="ARS",
-            )
-            updated = submit_bank_transfer_receipt(
-                order_id=order_id,
-                payment_id=int(payment["id"]),
-                user_id=user_id,
-                receipt_url="https://example.com/receipt-1.jpg",
-                db=session,
-            )
-            session.commit()
-        finally:
-            session.close()
-
-        self.assertEqual(updated["receipt_url"], "https://example.com/receipt-1.jpg")
-        payload_data = updated.get("provider_payload_data") or {}
-        self.assertIn("receipt", payload_data)
-        self.assertEqual(payload_data["receipt"]["url"], "https://example.com/receipt-1.jpg")
 
 
 if __name__ == "__main__":

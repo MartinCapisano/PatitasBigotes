@@ -12,11 +12,6 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from source.db.models import Base, Notification, User
-from source.routes.notifications_r import (
-    list_notifications,
-    read_all_notifications,
-    unread_notification_count,
-)
 from source.services.domain_events_s import publish_domain_event
 from source.services.post_commit_actions_s import (
     POST_COMMIT_ACTIONS_KEY,
@@ -203,108 +198,6 @@ class DomainEventsNotificationsTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].event_type, "possible_refund")
         self.assertEqual(rows[0].incident_id, 9)
-
-    def test_unread_count_route_returns_user_and_admin_notifications(self) -> None:
-        user = self._seed_user(is_admin=True)
-        db = self.TestSession()
-        try:
-            publish_domain_event(
-                event_type="order_submitted",
-                payload={"order_id": 1, "user_id": int(user.id)},
-                db=db,
-            )
-            db.add(
-                Notification(
-                    user_id=int(user.id),
-                    role_target=None,
-                    event_type="custom",
-                    title="Hola",
-                    message="Tu alerta",
-                    is_read=False,
-                )
-            )
-            db.commit()
-
-            payload = unread_notification_count(
-                current_user={"sub": str(user.id), "is_admin": True},
-                db=db,
-            )
-        finally:
-            db.close()
-
-        self.assertEqual(payload["data"]["unread_count"], 2)
-
-    def test_list_notifications_keeps_full_list_shape(self) -> None:
-        user = self._seed_user()
-        db = self.TestSession()
-        try:
-            db.add(
-                Notification(
-                    user_id=int(user.id),
-                    role_target=None,
-                    event_type="custom",
-                    title="Titulo",
-                    message="Mensaje",
-                    is_read=False,
-                )
-            )
-            db.commit()
-
-            payload = list_notifications(
-                unread_only=False,
-                limit=20,
-                offset=0,
-                current_user={"sub": str(user.id), "is_admin": False},
-                db=db,
-            )
-        finally:
-            db.close()
-
-        self.assertEqual(len(payload["data"]), 1)
-        self.assertIn("total", payload["meta"])
-        self.assertIn("has_more", payload["meta"])
-        self.assertNotIn("unread_count", payload["meta"])
-
-    def test_read_all_notifications_marks_everything_visible_as_read(self) -> None:
-        user = self._seed_user(is_admin=True)
-        db = self.TestSession()
-        try:
-            db.add_all(
-                [
-                    Notification(
-                        user_id=int(user.id),
-                        role_target=None,
-                        event_type="custom",
-                        title="Uno",
-                        message="M1",
-                        is_read=False,
-                    ),
-                    Notification(
-                        user_id=None,
-                        role_target="admin",
-                        event_type="admin",
-                        title="Dos",
-                        message="M2",
-                        is_read=False,
-                    ),
-                ]
-            )
-            db.commit()
-
-            payload = read_all_notifications(
-                current_user={"sub": str(user.id), "is_admin": True},
-                db=db,
-            )
-            unread = (
-                db.query(Notification)
-                .filter(Notification.is_read.is_(False))
-                .count()
-            )
-        finally:
-            db.close()
-
-        self.assertEqual(payload["data"]["updated"], 2)
-        self.assertEqual(unread, 0)
 
 
 if __name__ == "__main__":

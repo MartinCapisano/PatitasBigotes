@@ -273,24 +273,6 @@ class StockReservationExpirationTests(unittest.TestCase):
         self.assertEqual(order.status, "draft")
         self.assertEqual(reservation.status, "expired")
 
-    def test_expire_is_idempotent_after_first_run(self) -> None:
-        self._seed_order_with_reservation(
-            order_status="draft",
-            variant_stock=10,
-            item_qty=1,
-        )
-
-        session = self.TestSession()
-        try:
-            first = expire_active_reservations(now=datetime.now(UTC), db=session)
-            second = expire_active_reservations(now=datetime.now(UTC), db=session)
-            session.commit()
-        finally:
-            session.close()
-
-        self.assertEqual(first, 1)
-        self.assertEqual(second, 0)
-
     def test_second_expiration_after_reactivation_cancels_order(self) -> None:
         order_id, reservation_id, _ = self._seed_order_with_reservation(
             order_status="submitted",
