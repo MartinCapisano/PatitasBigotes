@@ -2,7 +2,9 @@ from datetime import UTC, datetime
 from unittest.mock import patch
 
 from backend.tests.http._base import HttpFundamentalsBase
-from source.db.models import Category, Order, OrderItem, Product, ProductVariant, User
+from source.db.models import Category, IdempotencyRecord, Order, OrderItem, Payment, Product, ProductVariant, User
+from source.services.idempotency_s import build_guest_checkout_scope
+from source.services.payment_errors import PaymentProviderUnavailableError
 
 
 class HttpCheckoutFundamentalsTests(HttpFundamentalsBase):
@@ -274,6 +276,209 @@ class HttpCheckoutFundamentalsTests(HttpFundamentalsBase):
             )
 
         self.assertEqual(response.status_code, 422)
+
+    def test_guest_checkout_mercadopago_success_over_http(self) -> None:
+        variant_id = self._seed_variant()
+
+        with patch("source.routes.orders_r.enforce_public_guest_checkout_limits", return_value=None), patch(
+            "source.services.payment_s.create_checkout_preference",
+            return_value={
+                "id": "pref-guest-mp",
+                "init_point": "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-guest-mp",
+            },
+        ):
+            response = self.client.post(
+                "/checkout/guest",
+                json={
+                    "customer": {
+                        "email": "guest-mp@example.com",
+                        "first_name": "Guest",
+                        "last_name": "Buyer",
+                        "phone": "1122334455",
+                    },
+                    "items": [{"variant_id": variant_id, "quantity": 1}],
+                    "payment_method": "mercadopago",
+                    "website": None,
+                },
+                headers={
+                    **self._origin_headers(),
+                    "Idempotency-Key": "guest-mp-key-1",
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()["data"]
+        self.assertEqual(payload["payment"]["method"], "mercadopago")
+        self.assertEqual(payload["payment"]["provider_status"], "preference_created")
+        self.assertIsNotNone(payload["payment"]["provider_payload_data"]["checkout"]["checkout_url"])
+
+    def test_guest_checkout_mercadopago_setup_failure_persists_order_payment_and_failed_idempotency_over_http(self) -> None:
+        variant_id = self._seed_variant()
+        headers = {
+            **self._origin_headers(),
+            "Idempotency-Key": "guest-mp-fail-key",
+        }
+        payload = {
+            "customer": {
+                "email": "guest-mp-fail@example.com",
+                "first_name": "Guest",
+                "last_name": "Buyer",
+                "phone": "1122334455",
+            },
+            "items": [{"variant_id": variant_id, "quantity": 1}],
+            "payment_method": "mercadopago",
+            "website": None,
+        }
+
+        with patch("source.routes.orders_r.enforce_public_guest_checkout_limits", return_value=None), patch(
+            "source.services.payment_s.create_checkout_preference",
+            side_effect=PaymentProviderUnavailableError("mercadopago unavailable"),
+        ):
+            first = self.client.post("/checkout/guest", json=payload, headers=headers)
+            second = self.client.post("/checkout/guest", json=payload, headers=headers)
+
+        self.assertEqual(first.status_code, 502)
+        self.assertEqual(second.status_code, 502)
+        self.assertEqual(
+            first.json()["detail"],
+            "no se pudo inicializar el checkout de Mercado Pago",
+        )
+        self.assertEqual(second.json()["detail"], first.json()["detail"])
+
+        db = self._db()
+        try:
+            orders = db.query(Order).all()
+            payments = db.query(Payment).all()
+            scope = build_guest_checkout_scope("guest-mp-fail@example.com")
+            record = (
+                db.query(IdempotencyRecord)
+                .filter(
+                    IdempotencyRecord.scope == scope,
+                    IdempotencyRecord.idempotency_key == "guest-mp-fail-key",
+                )
+                .first()
+            )
+            self.assertEqual(len(orders), 1)
+            self.assertEqual(len(payments), 1)
+            self.assertIsNotNone(record)
+            self.assertEqual(record.status, "failed")
+            self.assertEqual(payments[0].status, "pending")
+            self.assertEqual(payments[0].provider_status, "setup_failed")
+            self.assertIsNone(payments[0].preference_id)
+            failed_payload = record.response_payload
+            self.assertIn('"payment_id":', failed_payload)
+            self.assertIn('"order_id":', failed_payload)
+        finally:
+            db.close()
+
+    def test_guest_checkout_mercadopago_failed_replay_recovers_same_payment_over_http(self) -> None:
+        variant_id = self._seed_variant()
+        headers = {
+            **self._origin_headers(),
+            "Idempotency-Key": "guest-mp-recover-key",
+        }
+        payload = {
+            "customer": {
+                "email": "guest-mp-recover@example.com",
+                "first_name": "Guest",
+                "last_name": "Buyer",
+                "phone": "1122334455",
+            },
+            "items": [{"variant_id": variant_id, "quantity": 1}],
+            "payment_method": "mercadopago",
+            "website": None,
+        }
+
+        with patch("source.routes.orders_r.enforce_public_guest_checkout_limits", return_value=None), patch(
+            "source.services.payment_s.create_checkout_preference",
+            side_effect=[
+                PaymentProviderUnavailableError("mercadopago unavailable"),
+                {
+                    "id": "pref-guest-mp-recovered",
+                    "init_point": "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-guest-mp-recovered",
+                },
+            ],
+        ):
+            first = self.client.post("/checkout/guest", json=payload, headers=headers)
+            second = self.client.post("/checkout/guest", json=payload, headers=headers)
+
+        self.assertEqual(first.status_code, 502)
+        self.assertEqual(second.status_code, 201)
+        second_payload = second.json()["data"]
+        self.assertEqual(second_payload["payment"]["method"], "mercadopago")
+        self.assertEqual(second_payload["payment"]["provider_status"], "preference_created")
+        self.assertEqual(second_payload["order"]["status"], "submitted")
+
+        db = self._db()
+        try:
+            orders = db.query(Order).all()
+            payments = db.query(Payment).all()
+            scope = build_guest_checkout_scope("guest-mp-recover@example.com")
+            record = (
+                db.query(IdempotencyRecord)
+                .filter(
+                    IdempotencyRecord.scope == scope,
+                    IdempotencyRecord.idempotency_key == "guest-mp-recover-key",
+                )
+                .first()
+            )
+            self.assertEqual(len(orders), 1)
+            self.assertEqual(len(payments), 1)
+            self.assertIsNotNone(record)
+            self.assertEqual(record.status, "completed")
+            self.assertIsNotNone(payments[0].preference_id)
+            self.assertEqual(int(second_payload["payment"]["id"]), int(payments[0].id))
+        finally:
+            db.close()
+
+    def test_guest_checkout_mercadopago_failed_replay_keeps_same_failed_payment_over_http(self) -> None:
+        variant_id = self._seed_variant()
+        headers = {
+            **self._origin_headers(),
+            "Idempotency-Key": "guest-mp-refail-key",
+        }
+        payload = {
+            "customer": {
+                "email": "guest-mp-refail@example.com",
+                "first_name": "Guest",
+                "last_name": "Buyer",
+                "phone": "1122334455",
+            },
+            "items": [{"variant_id": variant_id, "quantity": 1}],
+            "payment_method": "mercadopago",
+            "website": None,
+        }
+
+        with patch("source.routes.orders_r.enforce_public_guest_checkout_limits", return_value=None), patch(
+            "source.services.payment_s.create_checkout_preference",
+            side_effect=PaymentProviderUnavailableError("mercadopago unavailable"),
+        ):
+            first = self.client.post("/checkout/guest", json=payload, headers=headers)
+            second = self.client.post("/checkout/guest", json=payload, headers=headers)
+
+        self.assertEqual(first.status_code, 502)
+        self.assertEqual(second.status_code, 502)
+
+        db = self._db()
+        try:
+            orders = db.query(Order).all()
+            payments = db.query(Payment).all()
+            scope = build_guest_checkout_scope("guest-mp-refail@example.com")
+            record = (
+                db.query(IdempotencyRecord)
+                .filter(
+                    IdempotencyRecord.scope == scope,
+                    IdempotencyRecord.idempotency_key == "guest-mp-refail-key",
+                )
+                .first()
+            )
+            self.assertEqual(len(orders), 1)
+            self.assertEqual(len(payments), 1)
+            self.assertEqual(record.status, "failed")
+            self.assertEqual(payments[0].provider_status, "setup_failed")
+            self.assertIsNone(payments[0].preference_id)
+        finally:
+            db.close()
 
     def test_replace_draft_groups_duplicate_variants_over_http(self) -> None:
         variants = self._seed_catalog_with_variants()

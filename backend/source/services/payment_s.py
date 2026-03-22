@@ -40,6 +40,7 @@ from source.services.stock_reservations_s import (
 
 ALLOWED_PAYMENT_METHODS = {"bank_transfer", "mercadopago", "cash"}
 RETRYABLE_PAYMENT_STATUSES = {"cancelled", "expired"}
+PAYMENT_PROVIDER_SETUP_FAILED = "setup_failed"
 DEFAULT_WEBHOOK_MAX_ATTEMPTS = 4
 DEFAULT_WEBHOOK_RETRY_DELAY_MINUTES = 60
 MERCADOPAGO_PROVIDER_TO_INTERNAL_STATUS = {
@@ -843,6 +844,88 @@ def _build_mercadopago_payload(
     return external_ref, payload
 
 
+def _mark_payment_checkout_setup_failed(
+    payment: Payment,
+    *,
+    error_detail: str,
+    now: datetime | None = None,
+) -> None:
+    safe_now = now or datetime.now(UTC)
+    payload = _deserialize_provider_payload(payment.provider_payload) or {}
+    payload["checkout_setup_error"] = {
+        "detail": error_detail,
+        "failed_at": safe_now.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+    }
+    payment.provider_status = PAYMENT_PROVIDER_SETUP_FAILED
+    payment.provider_payload = _serialize_provider_payload(payload)
+
+
+def initialize_mercadopago_checkout_for_payment(
+    *,
+    payment_id: int,
+    db: Session,
+) -> dict:
+    payment = (
+        db.query(Payment)
+        .join(Order, Payment.order_id == Order.id)
+        .options(joinedload(Payment.order))
+        .filter(Payment.id == int(payment_id), Payment.method == "mercadopago")
+        .with_for_update()
+        .first()
+    )
+    if payment is None:
+        raise LookupError("payment not found")
+    if str(payment.status) != "pending":
+        raise ValueError("payment checkout can only be initialized for pending payments")
+    if payment.preference_id is not None:
+        return _payment_to_dict(payment)
+
+    order = payment.order
+    if order is None:
+        raise LookupError("order not found")
+    payment_currency = str(payment.currency or "ARS").strip().upper()
+    expires_at = payment.expires_at
+    if expires_at is None:
+        raise ValueError("payment expires_at is required")
+
+    external_ref, provider_payload = _build_mercadopago_payload(
+        order_id=int(order.id),
+        payment_id=int(payment.id),
+        amount=int(payment.amount),
+        currency=payment_currency,
+        expires_at=expires_at,
+        payment_idempotency_key=str(payment.idempotency_key),
+        public_status_token=str(payment.public_status_token),
+    )
+    payment.external_ref = external_ref
+    payment.preference_id = _get_checkout_preference_id(provider_payload)
+    payment.provider_status = "preference_created"
+    payment.provider_payload = _serialize_provider_payload(provider_payload)
+    db.flush()
+    db.refresh(payment)
+    return _payment_to_dict(payment)
+
+
+def mark_payment_checkout_setup_failed(
+    *,
+    payment_id: int,
+    error_detail: str,
+    db: Session,
+) -> dict:
+    payment = (
+        db.query(Payment)
+        .filter(Payment.id == int(payment_id), Payment.method == "mercadopago")
+        .with_for_update()
+        .first()
+    )
+    if payment is None:
+        raise LookupError("payment not found")
+    _mark_payment_checkout_setup_failed(payment, error_detail=error_detail)
+    db.flush()
+    db.refresh(payment)
+    return _payment_to_dict(payment)
+
+
 def find_payment_for_mercadopago_event(
     *,
     preference_id: str | None,
@@ -1029,6 +1112,7 @@ def create_payment_for_order(
     idempotency_key: str,
     currency: str | None = None,
     expires_in_minutes: int = 60,
+    initialize_provider: bool = True,
 ) -> dict:
     expire_active_reservations_for_order(
         order_id=order_id,
@@ -1106,6 +1190,16 @@ def create_payment_for_order(
             requested_amount=amount,
             requested_currency=payment_currency,
         )
+        if (
+            method == "mercadopago"
+            and initialize_provider
+            and active_pending_payment.preference_id is None
+            and active_pending_payment.provider_status != PAYMENT_PROVIDER_SETUP_FAILED
+        ):
+            return initialize_mercadopago_checkout_for_payment(
+                payment_id=int(active_pending_payment.id),
+                db=db,
+            )
         return _payment_to_dict(active_pending_payment)
 
     expires_at = now + timedelta(minutes=expires_in_minutes)
@@ -1164,7 +1258,7 @@ def create_payment_for_order(
             currency=payment_currency,
         )
         payment.provider_payload = _serialize_provider_payload(provider_payload)
-    elif method == "mercadopago":
+    elif method == "mercadopago" and initialize_provider:
         existing_provider_payload = _deserialize_provider_payload(
             payment.provider_payload
         )
@@ -1206,6 +1300,7 @@ def create_retry_payment_for_order(
     user_id: int,
     currency: str | None = None,
     expires_in_minutes: int = 60,
+    initialize_provider: bool = True,
 ) -> dict:
     latest_attempt = (
         db.query(Payment)
@@ -1220,8 +1315,17 @@ def create_retry_payment_for_order(
     )
     if latest_attempt is None:
         raise ValueError("no previous payment attempt found for this method")
-    if str(latest_attempt.status) not in RETRYABLE_PAYMENT_STATUSES:
+    latest_status = str(latest_attempt.status)
+    latest_provider_status = str(latest_attempt.provider_status or "").strip().lower() or None
+    is_setup_failed_pending = (
+        latest_status == "pending"
+        and latest_provider_status == PAYMENT_PROVIDER_SETUP_FAILED
+    )
+    if latest_status not in RETRYABLE_PAYMENT_STATUSES and not is_setup_failed_pending:
         raise ValueError("latest payment attempt is not retryable")
+    if is_setup_failed_pending:
+        latest_attempt.status = "cancelled"
+        db.flush()
 
     retry_key = f"retry-order-{order_id}-{method}-{uuid.uuid4().hex}"
     return create_payment_for_order(
@@ -1232,6 +1336,7 @@ def create_retry_payment_for_order(
         idempotency_key=retry_key,
         currency=currency,
         expires_in_minutes=expires_in_minutes,
+        initialize_provider=initialize_provider,
     )
 
 

@@ -19,3 +19,7 @@ class PaymentProviderAuthError(PaymentProviderError):
 
 class PaymentProviderUnavailableError(PaymentProviderError):
     """Provider service is unavailable or dependency is missing."""
+
+
+class PaymentCheckoutInitializationError(PaymentProviderError):
+    """Local payment was persisted but checkout initialization failed."""

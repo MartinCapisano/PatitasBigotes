@@ -130,6 +130,23 @@ def mark_record_completed(
     return record
 
 
+def mark_record_failed(
+    *,
+    record: IdempotencyRecord,
+    response_payload: dict,
+    db: Session,
+) -> IdempotencyRecord:
+    record.response_payload = json.dumps(
+        response_payload,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        default=_json_default,
+    )
+    record.status = "failed"
+    db.flush()
+    return record
+
+
 def load_replay_payload(record: IdempotencyRecord) -> dict:
     try:
         parsed = json.loads(record.response_payload)

@@ -36,20 +36,26 @@ from source.services.idempotency_s import (
     hash_payload,
     load_replay_payload,
     mark_record_completed,
+    mark_record_failed,
     normalize_idempotency_key,
     prune_expired_records,
 )
+from source.services.payment_errors import PaymentCheckoutInitializationError
 from source.services.payment_s import (
+    PAYMENT_PROVIDER_SETUP_FAILED,
     confirm_manual_payment_for_order,
     create_payment_for_order,
     create_retry_payment_for_order,
+    initialize_mercadopago_checkout_for_payment,
     list_payments_for_order_admin,
     list_payments_for_order,
+    mark_payment_checkout_setup_failed,
     submit_bank_transfer_receipt,
 )
 from source.services.post_commit_actions_s import clear_post_commit_actions, dispatch_post_commit_actions
 
 router = APIRouter()
+MERCADOPAGO_CHECKOUT_SETUP_ERROR_DETAIL = "no se pudo inicializar el checkout de Mercado Pago"
 
 
 def _client_ip_from_request(request: Request) -> str:
@@ -61,12 +67,61 @@ def _client_ip_from_request(request: Request) -> str:
     return "unknown"
 
 
+def _initialize_mercadopago_payment_or_raise(*, payment: dict, db: Session) -> dict:
+    if payment.get("method") != "mercadopago":
+        return payment
+    if payment.get("preference_id") is not None:
+        return payment
+    if payment.get("provider_status") == PAYMENT_PROVIDER_SETUP_FAILED:
+        raise PaymentCheckoutInitializationError(
+            MERCADOPAGO_CHECKOUT_SETUP_ERROR_DETAIL
+        )
+
+    payment_id = int(payment["id"])
+    try:
+        return initialize_mercadopago_checkout_for_payment(payment_id=payment_id, db=db)
+    except Exception as exc:
+        db.rollback()
+        mark_payment_checkout_setup_failed(
+            payment_id=payment_id,
+            error_detail=str(exc),
+            db=db,
+        )
+        db.commit()
+        raise PaymentCheckoutInitializationError(
+            MERCADOPAGO_CHECKOUT_SETUP_ERROR_DETAIL
+        ) from exc
+
+
+def _build_guest_checkout_recovery_payload(
+    *,
+    order_id: int,
+    payment_id: int,
+    db: Session,
+) -> dict:
+    order = get_order_for_admin(order_id=order_id, db=db)
+    if order is None:
+        raise LookupError("order not found")
+    payments = list_payments_for_order_admin(order_id=order_id, db=db)
+    payment = next(
+        (row for row in payments if int(row["id"]) == int(payment_id)),
+        None,
+    )
+    if payment is None:
+        raise LookupError("payment not found")
+    return {
+        "customer": order.get("customer"),
+        "order": order,
+        "payment": payment,
+    }
+
+
 @router.post("/checkout/guest", status_code=status.HTTP_201_CREATED)
 def create_guest_checkout_order(
     payload: PublicGuestCheckoutRequest,
     request: Request,
     idempotency_key: str = Header(..., alias="Idempotency-Key"),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     record_created = False
     claimed_record = None
@@ -93,6 +148,50 @@ def create_guest_checkout_order(
                 )
             if claimed_record.status == "completed":
                 return {"data": load_replay_payload(claimed_record)}
+            if claimed_record.status == "failed":
+                failed_payload = load_replay_payload(claimed_record)
+                payment_id = failed_payload.get("payment_id")
+                order_id = failed_payload.get("order_id")
+                if payment_id is None or order_id is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=str(
+                            failed_payload.get("detail")
+                            or MERCADOPAGO_CHECKOUT_SETUP_ERROR_DETAIL
+                        ),
+                    )
+                try:
+                    recovered_payment = _initialize_mercadopago_payment_or_raise(
+                        payment={"id": int(payment_id), "method": "mercadopago"},
+                        db=db,
+                    )
+                    result = _build_guest_checkout_recovery_payload(
+                        order_id=int(order_id),
+                        payment_id=int(recovered_payment["id"]),
+                        db=db,
+                    )
+                    mark_record_completed(
+                        record=claimed_record,
+                        response_payload=result,
+                        db=db,
+                    )
+                    db.commit()
+                    return {"data": result}
+                except PaymentCheckoutInitializationError as exc:
+                    mark_record_failed(
+                        record=claimed_record,
+                        response_payload={
+                            "detail": str(exc),
+                            "order_id": int(order_id),
+                            "payment_id": int(payment_id),
+                        },
+                        db=db,
+                    )
+                    db.commit()
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=str(exc),
+                    )
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="idempotent request already in progress",
@@ -125,17 +224,41 @@ def create_guest_checkout_order(
                 idempotency_key=f"guest-payment-{order_id}-{normalized_key}",
                 currency="ARS",
                 expires_in_minutes=60,
+                initialize_provider=False,
             )
             result["payment"] = payment
+            if payment["method"] == "mercadopago":
+                db.commit()
+                payment = _initialize_mercadopago_payment_or_raise(payment=payment, db=db)
+                result["payment"] = payment
+                mark_record_completed(
+                    record=claimed_record,
+                    response_payload=result,
+                    db=db,
+                )
+                db.commit()
+                return {"data": result}
         mark_record_completed(
             record=claimed_record,
             response_payload=result,
             db=db,
         )
-    except Exception as exc:
+        db.commit()
+    except PaymentCheckoutInitializationError as exc:
         if record_created and claimed_record is not None and claimed_record.status == "processing":
-            db.delete(claimed_record)
-            db.flush()
+            mark_record_failed(
+                record=claimed_record,
+                response_payload={
+                    "detail": str(exc),
+                    "order_id": int(result["order"]["id"]),
+                    "payment_id": int(result["payment"]["id"]),
+                },
+                db=db,
+            )
+            db.commit()
+        raise_http_error_from_exception(exc, db=db)
+    except Exception as exc:
+        db.rollback()
         raise_http_error_from_exception(exc, db=db)
     return {"data": result}
 
@@ -373,7 +496,7 @@ def create_order_payment(
     payload: CreateOrderPaymentRequest,
     idempotency_key: str = Header(..., alias="Idempotency-Key"),
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     user_id = get_current_user_id(current_user)
 
@@ -386,8 +509,14 @@ def create_order_payment(
             idempotency_key=idempotency_key,
             currency=payload.currency,
             expires_in_minutes=payload.expires_in_minutes,
+            initialize_provider=False,
         )
+        db.commit()
+        payment = _initialize_mercadopago_payment_or_raise(payment=payment, db=db)
+        if payment.get("method") == "mercadopago" and payment.get("provider_status") != PAYMENT_PROVIDER_SETUP_FAILED:
+            db.commit()
     except Exception as exc:
+        db.rollback()
         raise_http_error_from_exception(exc, db=db)
 
     return {"data": payment}
@@ -434,7 +563,7 @@ def retry_order_payment(
     order_id: int,
     payload: CreateOrderPaymentRequest,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     user_id = get_current_user_id(current_user)
     try:
@@ -445,8 +574,14 @@ def retry_order_payment(
             user_id=user_id,
             currency=payload.currency,
             expires_in_minutes=payload.expires_in_minutes,
+            initialize_provider=False,
         )
+        db.commit()
+        payment = _initialize_mercadopago_payment_or_raise(payment=payment, db=db)
+        if payment.get("method") == "mercadopago" and payment.get("provider_status") != PAYMENT_PROVIDER_SETUP_FAILED:
+            db.commit()
     except Exception as exc:
+        db.rollback()
         raise_http_error_from_exception(exc, db=db)
 
     return {"data": payment}

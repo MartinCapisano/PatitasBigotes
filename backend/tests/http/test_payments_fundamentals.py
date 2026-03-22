@@ -13,6 +13,7 @@ from source.db.models import (
     StockReservation,
     User,
 )
+from source.services.payment_errors import PaymentProviderUnavailableError
 
 
 class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
@@ -270,6 +271,46 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
             preference_payload["back_urls"]["success"],
         )
 
+    def test_create_mercadopago_payment_setup_failure_returns_502_and_persists_local_payment_over_http(self) -> None:
+        user_id = self._create_user(email="pay-public-fail@example.com", verified=True)
+        order_id = self._seed_submitted_order_with_reservation_for_user(user_id=user_id)
+        login_response = self._login(email="pay-public-fail@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        with patch(
+            "source.services.payment_s.create_checkout_preference",
+            side_effect=PaymentProviderUnavailableError("mercadopago unavailable"),
+        ):
+            response = self.client.post(
+                f"/orders/{order_id}/payments",
+                json={"method": "mercadopago", "currency": "ARS"},
+                headers={
+                    **self._origin_headers(),
+                    "Idempotency-Key": "payment-public-fail-key",
+                },
+            )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(
+            response.json()["detail"],
+            "no se pudo inicializar el checkout de Mercado Pago",
+        )
+
+        db = self._db()
+        try:
+            payment = (
+                db.query(Payment)
+                .filter(Payment.order_id == order_id, Payment.method == "mercadopago")
+                .order_by(Payment.id.desc())
+                .first()
+            )
+            self.assertIsNotNone(payment)
+            self.assertEqual(payment.status, "pending")
+            self.assertEqual(payment.provider_status, "setup_failed")
+            self.assertIsNone(payment.preference_id)
+        finally:
+            db.close()
+
     def test_get_public_payment_status_by_public_token_over_http(self) -> None:
         public_status_token = self._seed_public_mercadopago_payment(status="paid")
 
@@ -344,6 +385,63 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"], "latest payment attempt is not retryable")
+
+    def test_retry_mercadopago_setup_failed_creates_new_attempt_and_marks_failure_over_http(self) -> None:
+        user_id = self._create_user(email="pay-retry-mp-fail@example.com", verified=True)
+        order_id = self._seed_submitted_order_with_reservation_for_user(user_id=user_id)
+        original_id = self._seed_retryable_payment(
+            order_id=order_id,
+            method="mercadopago",
+            status="pending",
+        )
+        db = self._db()
+        try:
+            payment = db.query(Payment).filter(Payment.id == original_id).first()
+            assert payment is not None
+            payment.provider_status = "setup_failed"
+            payment.external_ref = None
+            payment.preference_id = None
+            payment.provider_payload = None
+            db.commit()
+        finally:
+            db.close()
+
+        login_response = self._login(email="pay-retry-mp-fail@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        with patch(
+            "source.services.payment_s.create_checkout_preference",
+            side_effect=PaymentProviderUnavailableError("mercadopago unavailable"),
+        ):
+            response = self.client.post(
+                f"/orders/{order_id}/payments/retry",
+                json={"method": "mercadopago", "currency": "ARS"},
+                headers=self._origin_headers(),
+            )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(
+            response.json()["detail"],
+            "no se pudo inicializar el checkout de Mercado Pago",
+        )
+
+        db = self._db()
+        try:
+            payments = (
+                db.query(Payment)
+                .filter(Payment.order_id == order_id, Payment.method == "mercadopago")
+                .order_by(Payment.id.asc())
+                .all()
+            )
+            self.assertEqual(len(payments), 2)
+            self.assertEqual(payments[0].id, original_id)
+            self.assertEqual(payments[0].status, "cancelled")
+            self.assertEqual(payments[0].provider_status, "setup_failed")
+            self.assertEqual(payments[1].status, "pending")
+            self.assertEqual(payments[1].provider_status, "setup_failed")
+            self.assertIsNone(payments[1].preference_id)
+        finally:
+            db.close()
 
     def test_submit_bank_transfer_receipt_updates_payment_over_http(self) -> None:
         user_id = self._create_user(email="pay-receipt@example.com", verified=True)

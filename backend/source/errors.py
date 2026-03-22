@@ -8,6 +8,7 @@ from source.exceptions import (
     WebhookReplayConflictError,
 )
 from source.services.payment_errors import (
+    PaymentCheckoutInitializationError,
     PaymentProviderAuthError,
     PaymentProviderTimeoutError,
     PaymentProviderUnavailableError,
@@ -31,6 +32,8 @@ def raise_http_error_from_exception(exc: Exception, db: Session | None = None) -
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if isinstance(exc, PaymentProviderValidationError):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if isinstance(exc, PaymentCheckoutInitializationError):
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     if isinstance(exc, PaymentProviderAuthError):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     if isinstance(exc, PaymentProviderTimeoutError):
