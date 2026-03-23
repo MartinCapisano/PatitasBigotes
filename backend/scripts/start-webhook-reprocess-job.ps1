@@ -12,6 +12,8 @@ $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $backendDir = Split-Path -Parent $scriptDir
+$repoDir = Split-Path -Parent $backendDir
+$venvPython = Join-Path $repoDir ".venv\Scripts\python.exe"
 
 $jobArgs = @("-m", "source.jobs.reprocess_failed_webhooks_job")
 if ($Once) {
@@ -33,11 +35,22 @@ if ($MaxDelayMinutes -gt 0) {
     $jobArgs += @("--max-delay-minutes", "$MaxDelayMinutes")
 }
 
+if (Test-Path $venvPython) {
+    $pythonExe = $venvPython
+}
+elseif (Get-Command python -ErrorAction SilentlyContinue) {
+    $pythonExe = "python"
+}
+else {
+    Write-Error "No se encontro Python ni la .venv del proyecto."
+    exit 1
+}
+
 Write-Host "Iniciando worker de reproceso de webhooks failed..."
-Write-Host "Comando: python $($jobArgs -join ' ')"
+Write-Host "Comando: $pythonExe $($jobArgs -join ' ')"
 Push-Location $backendDir
 try {
-    python @jobArgs
+    & $pythonExe @jobArgs
 }
 finally {
     Pop-Location

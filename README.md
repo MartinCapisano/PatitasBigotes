@@ -1,390 +1,318 @@
 # PatitasBigotes
 
-## Backend env vars
+Aplicacion full stack para tienda y turnos, con backend en FastAPI y frontend en React/Vite.
 
-1. Copy `backend/.env.example` to `backend/.env`.
-2. Replace placeholder values with your local configuration.
-3. Never commit `backend/.env` (it is ignored by git).
-4. For Mercado Pago integration, set `MERCADOPAGO_ACCESS_TOKEN` and keep `MERCADOPAGO_ENV=sandbox` for test mode.
-5. JWT defaults for auth are `ACCESS_TOKEN_EXPIRE_MINUTES=120` and `REFRESH_TOKEN_EXPIRE_DAYS=30`.
-6. Set `JWT_ISSUER` consistently between token creation and validation.
-7. For auth emails, configure SMTP (`SMTP_*`) and `MAIL_FROM`.
-8. Set `APP_BASE_URL` so verification/reset links point to your frontend.
-9. Cookie auth config:
-   - `AUTH_COOKIE_ACCESS_NAME` (default `pb_at`)
-   - `AUTH_COOKIE_REFRESH_NAME` (default `pb_rt`)
-   - `AUTH_COOKIE_SAMESITE` (`lax|strict|none`)
-   - `AUTH_COOKIE_SECURE` (`true` in prod HTTPS; `false` in local HTTP)
-   - `AUTH_COOKIE_DOMAIN` (optional)
-   - `AUTH_COOKIE_PATH_ACCESS` (default `/`)
-   - `AUTH_COOKIE_PATH_REFRESH` (default `/auth`)
-10. For CSRF origin checks, set `CORS_ALLOW_ORIGINS` to the exact frontend origin list.
+Este README esta pensado para dejar el proyecto listo para correr en Windows con PowerShell, usando PostgreSQL local. La idea es que una persona pueda clonar el repo, configurar variables, cargar demo data y levantar la app sin depender de conocimiento previo del autor.
 
-## Database Migrations
+## Stack
 
-Alembic is the source of truth for schema changes.
+- Backend: FastAPI, SQLAlchemy, Alembic, PostgreSQL
+- Frontend: React, TypeScript, Vite
+- Auth: cookies HttpOnly + CSRF por origen
+- Pagos: Mercado Pago
 
-Run these commands from `backend/`.
+## Requisitos previos
 
-Apply all pending migrations on a new or empty database:
+- Python 3 instalado y disponible como `py` o `python`
+- Node.js 18+ y `npm`
+- PostgreSQL corriendo en local
+- PowerShell
 
-```bash
-alembic upgrade head
+## Setup rapido
+
+### 1. Clonar el repo
+
+```powershell
+git clone <TU_REPO_URL>
+cd PatitasBigotes
 ```
 
-If an existing database is already aligned with the current schema baseline, mark it without reapplying DDL:
+### 2. Configurar variables de entorno
 
-```bash
-alembic stamp 20260321_01
+Crea estos archivos a partir de los examples:
+
+```powershell
+Copy-Item .\backend\.env.example .\backend\.env
+Copy-Item .\frontend\.env.example .\frontend\.env
 ```
 
-Create a new migration after changing SQLAlchemy models:
+Archivos a editar:
 
-```bash
-alembic revision --autogenerate -m "describe change"
+- `backend/.env`
+- `frontend/.env`
+
+### 3. Reemplazar variables obligatorias en `backend/.env`
+
+Para correr en local, revisa y completa estas variables:
+
+| Variable | Que poner |
+| --- | --- |
+| `DATABASE_URL` | Tu conexion real a PostgreSQL local |
+| `JWT_SECRET` | Un secreto largo y aleatorio |
+| `APP_BASE_URL` | Normalmente `http://localhost:5173` |
+| `CORS_ALLOW_ORIGINS` | Normalmente `http://localhost:5173,http://127.0.0.1:5173` |
+
+Tambien ten presente estas variables con placeholder:
+
+- `MERCADOPAGO_ACCESS_TOKEN`: reemplazar si vas a probar Mercado Pago
+- `MERCADOPAGO_PUBLIC_KEY`: reemplazar si vas a probar Mercado Pago
+- `MERCADOPAGO_WEBHOOK_SECRET`: reemplazar si vas a probar webhooks de Mercado Pago
+- `MERCADOPAGO_NOTIFICATION_URL`: reemplazar si vas a usar webhooks de Mercado Pago desde una URL publica
+- `SMTP_HOST`, `MAIL_FROM` y demas `SMTP_*`: reemplazar si vas a usar mails reales
+
+Si no vas a usar Mercado Pago real ni emails, puedes dejar esos valores para mas adelante y correr el proyecto igual.
+
+### 4. Revisar `frontend/.env`
+
+El archivo `frontend/.env.example` ya trae el valor local esperado:
+
+```env
+VITE_API_BASE_URL=http://localhost:8000
 ```
 
-Notes:
+Si vas a usar backend local en `http://localhost:8000`, normalmente solo necesitas copiar el example sin cambios.
 
-1. `stamp` only records the revision in `alembic_version`; it does not change the schema.
-2. Do not use `stamp` if the live schema diverges from the baseline.
-3. Future schema changes must ship as Alembic revisions, not manual SQL in the README.
+### 5. Instalar dependencias del frontend
 
-## Demo seed
+```powershell
+cd .\frontend
+npm install
+cd ..
+```
 
-Para cargar un admin demo, categorias, productos, variantes y descuentos de muestra:
+### 6. Ejecutar bootstrap del backend
+
+El bootstrap crea `.venv` si hace falta, instala dependencias Python y aplica migraciones:
+
+```powershell
+.\backend\scripts\bootstrap.ps1
+```
+
+Si quieres que al final tambien abra backend y frontend:
+
+```powershell
+.\backend\scripts\bootstrap.ps1 -StartApp
+```
+
+Si quieres dejar explicito que NO se instalaran jobs en Windows Task Scheduler:
+
+```powershell
+.\backend\scripts\bootstrap.ps1 -NoJobs
+```
+
+Si quieres instalar los jobs de automatizacion:
+
+```powershell
+.\backend\scripts\bootstrap.ps1 -InstallJobs
+```
+
+Si ademas quieres cargar datos demo en la base:
+
+```powershell
+.\backend\scripts\bootstrap.ps1 -SeedDemo
+```
+
+Ese flag hace que el bootstrap ejecute las migraciones y luego cargue:
+
+- admin demo
+- categorias
+- productos
+- variantes
+- descuentos
+
+Tambien puedes correr la seed manualmente si prefieres:
 
 ```powershell
 .\backend\scripts\seed-demo.ps1
 ```
 
-Credenciales demo:
+## Modos de uso
 
-1. `admin@demo.com`
-2. `AdminDemo!123`
+### Uso local simple
 
-## Auth cookie contract (backend phase 1)
+Pensado para levantar frontend + backend rapido y probar la app sin dejar automatizaciones residentes en Windows.
 
-Auth endpoints are cookie-based (cookie-only):
-
-1. `POST /auth/login`: sets HttpOnly cookies `pb_at` + `pb_rt`, returns login status metadata (no tokens in body).
-2. `POST /auth/refresh`: reads `pb_rt` cookie, rotates session, rewrites `pb_at` + `pb_rt` cookies.
-3. `POST /auth/logout`: reads `pb_rt` cookie, invalidates refresh session, clears both cookies.
-4. Protected endpoints read access token from `pb_at` cookie.
-
-CSRF policy:
-
-1. Unsafe methods (`POST|PUT|PATCH|DELETE`) require allowed `Origin` or `Referer`.
-2. Allowed origins are derived from `CORS_ALLOW_ORIGINS`.
-3. `POST /payments/webhook/mercadopago` is exempt.
-
-## Frontend auth cookie (phase 2)
-
-Frontend auth now uses backend cookies (`pb_at`, `pb_rt`) with `axios` credentials.
-
-1. `frontend/src/services/http.ts` is configured with `withCredentials: true`.
-2. Frontend no longer stores auth tokens or admin flags in `localStorage`.
-3. Session bootstrap is done with `GET /auth/me` on app load.
-4. Keep host consistency for API base URL:
-   - Use only `localhost` or only `127.0.0.1`.
-   - Do not alternate hosts, because cookies are host-scoped.
-
-## Artefactos generados y carpetas temporales
-
-La raiz del repo no debe guardar logs, bases temporales ni metadata de build.
-
-Convencion oficial:
-
-1. `backend/tmp/logs/`: logs locales del backend, tunnel y procesos auxiliares.
-2. `backend/tmp/tests/`: SQLite temporales y artefactos persistentes de tests.
-3. `backend/tmp/migrations/`: DBs/artefactos locales de validacion Alembic.
-4. `frontend/tmp/logs/`: logs persistidos del frontend local.
-5. `frontend/tmp/tsbuildinfo/`: metadata de TypeScript build mode.
-6. `frontend/dist/`: build generado del frontend.
-
-Reglas:
-
-1. No dejar `*.db` ni `*.log` en la raiz del repo.
-2. No versionar logs, DBs temporales ni `*.tsbuildinfo`.
-3. Si persistes logs locales, deben ir solo a las carpetas listadas arriba.
-
-## -JOBS-
-
-Automatizacion de jobs de backend via Programador de tareas de Windows.
-
-Comando unico:
+Comando sugerido:
 
 ```powershell
-.\backend\scripts\jobs.ps1 <status|enable|disable|reinstall>
+.\backend\scripts\bootstrap.ps1 -SeedDemo -NoJobs
 ```
 
-Comandos principales:
+Si quieres dejarla andando al terminar el bootstrap:
 
-1. Ver estado:
+```powershell
+.\backend\scripts\bootstrap.ps1 -SeedDemo -NoJobs -StartApp
+```
+
+### Uso con automatizacion
+
+Pensado para un uso mas sostenido, donde quieras que los procesos de mantenimiento sigan corriendo aunque no dejes una consola abierta.
+
+Comando sugerido:
+
+```powershell
+.\backend\scripts\bootstrap.ps1 -InstallJobs
+```
+
+Si ademas quieres datos demo para una base de prueba:
+
+```powershell
+.\backend\scripts\bootstrap.ps1 -SeedDemo -InstallJobs
+```
+
+Si ademas quieres abrir backend y frontend al terminar:
+
+```powershell
+.\backend\scripts\bootstrap.ps1 -InstallJobs -StartApp
+```
+
+### Remover automatizacion
+
+Si instalaste jobs en Windows Task Scheduler y luego quieres removerlos:
+
+```powershell
+.\backend\scripts\jobs.ps1 uninstall
+```
+
+Tambien puedes consultar el estado actual:
 
 ```powershell
 .\backend\scripts\jobs.ps1 status
 ```
 
-2. Activar automatizacion:
+## Credenciales demo
 
-```powershell
-.\backend\scripts\jobs.ps1 enable
-```
+Si corriste la demo seed, el admin de prueba queda con:
 
-3. Desactivar automatizacion:
+- Email: `admin@demo.com`
+- Password: `AdminDemo!123`
 
-```powershell
-.\backend\scripts\jobs.ps1 disable
-```
+## Como levantar la app
 
-Estado global:
+### Backend
 
-1. `AUTOMATIZACION: ACTIVADA`: todas las tareas `PatitasBigotes_*` existen y no estan en `Disabled`.
-2. `AUTOMATIZACION: DESACTIVADA`: falta alguna tarea o alguna esta en `Disabled`.
-
-Jobs administrados:
-
-1. `PatitasBigotes_WebhookReprocess` (cada 10 minutos)
-2. `PatitasBigotes_PaymentsReconcile` (cada 4 horas)
-3. `PatitasBigotes_ExpireStockReservations` (cada 15 minutos)
-4. `PatitasBigotes_PruneAuthActionTokens` (diario)
-5. `PatitasBigotes_PruneAuthLoginThrottles` (diario)
-
-Notas de bootstrap:
-
-1. `backend/scripts/bootstrap.ps1` ya no activa jobs automaticamente por default.
-2. `bootstrap.ps1` aplica `alembic upgrade head` por default. Usa `-SkipMigrations` si queres omitir ese paso.
-3. Para bootstrap + jobs en un paso:
-
-```powershell
-.\backend\scripts\bootstrap.ps1 -EnableJobs
-```
-
-## Guest checkout idempotency
-
-`POST /checkout/guest` now requires header `Idempotency-Key`.
-
-Behavior:
-
-1. New key in scope `checkout_guest:<normalized_email>`: creates order (`201`).
-2. Same key + same payload in same scope: replays original response (`201`), no new order.
-3. Same key + different payload in same scope: returns `409 Conflict`.
-4. Same key while the first request is still being processed: returns `409 Conflict`.
-
-Idempotency records are stored in `idempotency_records` and expire after 24 hours.
-
-## Admin sales flow (registrar venta)
-
-Nuevo endpoint recomendado para ventas manuales en admin:
-
-1. `POST /admin/sales`
-   - Crea orden `submitted` para un usuario existente o nuevo.
-   - Opcionalmente registra pago vinculado (`cash` o `bank_transfer`) y deja la orden en `paid`.
-   - Soporta `Idempotency-Key` opcional para evitar duplicados por doble click.
-
-### Legacy
-
-1. `POST /orders/manual/submitted` sigue activo por compatibilidad, pero esta deprecado.
-2. `POST /admin/orders/{order_id}/pay/manual` sigue activo para pagar ordenes existentes.
-
-## Stock reservations expiration job
-
-For production-like latency, reservation expiration should run outside request paths.
-
-Run once:
-
-```bash
-python -m source.jobs.expire_stock_reservations_job --once
-```
-
-Run periodically (default every 60 minutes):
-
-```bash
-python -m source.jobs.expire_stock_reservations_job
-```
-
-Override interval:
-
-```bash
-python -m source.jobs.expire_stock_reservations_job --interval-minutes 240
-```
-
-Override batching behavior:
-
-```bash
-python -m source.jobs.expire_stock_reservations_job --batch-limit 200 --max-batches 20
-```
-
-Or via env var:
-
-```bash
-STOCK_RESERVATIONS_JOB_INTERVAL_MINUTES=240
-STOCK_RESERVATIONS_JOB_BATCH_LIMIT=200
-STOCK_RESERVATIONS_JOB_MAX_BATCHES=20
-```
-
-## Failed webhook reprocess job
-
-If webhook processing fails (`webhook_events.status='failed'`), you can reprocess
-those events in background without waiting for provider retries.
-
-Run once:
-
-```bash
-python -m source.jobs.reprocess_failed_webhooks_job --once
-```
-
-Run periodically (default every 30 minutes, batch 25):
-
-```bash
-python -m source.jobs.reprocess_failed_webhooks_job
-```
-
-Dead-letter + retry policy defaults (small store profile):
-
-1. `WEBHOOK_REPROCESS_INTERVAL_MINUTES=30`
-2. `WEBHOOK_REPROCESS_BATCH_SIZE=25`
-3. `WEBHOOK_REPROCESS_MAX_ATTEMPTS=4`
-4. `WEBHOOK_REPROCESS_BASE_DELAY_MINUTES=30`
-5. `WEBHOOK_REPROCESS_MAX_DELAY_MINUTES=720` (12h cap)
-
-Override runtime values:
-
-```bash
-python -m source.jobs.reprocess_failed_webhooks_job --interval-minutes 30 --batch-size 100 --max-attempts 5 --base-delay-minutes 20 --max-delay-minutes 360
-```
-
-Or via env vars:
-
-```bash
-WEBHOOK_REPROCESS_INTERVAL_MINUTES=30
-WEBHOOK_REPROCESS_BATCH_SIZE=100
-WEBHOOK_REPROCESS_MAX_ATTEMPTS=5
-WEBHOOK_REPROCESS_BASE_DELAY_MINUTES=20
-WEBHOOK_REPROCESS_MAX_DELAY_MINUTES=360
-```
-
-## Pending payments reconciliation job
-
-Reconciles pending Mercadopago payments in batch using `external_ref`.
-Useful when webhooks are delayed/lost and internal state is still `pending`.
-
-Run once:
-
-```bash
-python -m source.jobs.reconcile_pending_payments_job --once
-```
-
-Run periodically (default every 180 minutes, batch 50, max age 24h, min age 15m):
-
-```bash
-python -m source.jobs.reconcile_pending_payments_job
-```
-
-Override runtime values:
-
-```bash
-python -m source.jobs.reconcile_pending_payments_job --interval-minutes 180 --batch-size 100 --max-age-hours 24 --min-age-minutes 15
-```
-
-Or via env vars:
-
-```bash
-PAYMENTS_RECONCILE_INTERVAL_MINUTES=180
-PAYMENTS_RECONCILE_BATCH_SIZE=100
-PAYMENTS_RECONCILE_MAX_AGE_HOURS=24
-PAYMENTS_RECONCILE_MIN_AGE_MINUTES=15
-```
-
-## Auth action tokens prune job
-
-Run once:
-
-```bash
-python -m source.jobs.prune_auth_action_tokens_job --once
-```
-
-Run periodically (default daily):
-
-```bash
-python -m source.jobs.prune_auth_action_tokens_job
-```
-
-## Pagos MP en local (Uvicorn + ngrok fijo)
-
-### Requisitos
-
-1. Python y dependencias del backend instaladas.
-2. `uvicorn` disponible en PATH (`pip install uvicorn`).
-3. `ngrok` disponible en PATH (Windows: `winget install --id Ngrok.Ngrok -e`).
-4. Cuenta de Mercado Pago Developers con una integracion de prueba.
-5. Credenciales sandbox (`MERCADOPAGO_ACCESS_TOKEN`) y `MERCADOPAGO_WEBHOOK_SECRET`.
-6. Cuentas de prueba de Mercado Pago (comprador/vendedor) para pruebas reales.
-7. `ngrok` vinculado a tu cuenta (`ngrok config add-authtoken <tu_token>`).
-
-### Configuracion inicial de `.env`
-
-1. Copia `backend/.env.example` a `backend/.env`.
-2. Completa:
-   - `MERCADOPAGO_ACCESS_TOKEN=...` (de prueba/sandbox).
-   - `MERCADOPAGO_WEBHOOK_SECRET=...` (de prueba/sandbox).
-   - `MERCADOPAGO_ENV=sandbox`.
-3. Configura tu propia URL publica para webhooks:
-   - `MERCADOPAGO_NOTIFICATION_URL=https://tu-dominio-ngrok.ngrok-free.app/payments/webhook/mercadopago`
-4. El retorno del checkout consulta el estado con `public_status_token` opaco agregado por backend. `external_ref` queda solo para proveedor y reconciliacion interna.
-
-### Arranque local (2 terminales)
-
-Terminal 1 (backend):
+En una terminal desde la raiz del repo:
 
 ```powershell
 .\backend\scripts\start-backend.ps1
 ```
 
-Si quieres persistir la salida local del backend:
+Backend local:
+
+- `http://localhost:8000`
+- health check: `http://localhost:8000/health`
+
+### Frontend
+
+En otra terminal:
 
 ```powershell
-.\backend\scripts\start-backend.ps1 -PersistLogs
+cd .\frontend
+npm run dev
 ```
 
-Logs: `backend/tmp/logs/uvicorn.log`
-
-Terminal 2 (tunnel ngrok fijo):
+Si prefieres abrir ambos desde un solo comando:
 
 ```powershell
-.\backend\scripts\start-tunnel.ps1
+.\backend\scripts\start-app.ps1
 ```
 
-Si quieres persistir la salida del tunnel:
+Frontend local:
 
-```powershell
-.\backend\scripts\start-tunnel.ps1 -PersistLogs
-```
+- `http://localhost:5173`
 
-Logs: `backend/tmp/logs/ngrok.log`
+## Flujo recomendado para alguien que clona por primera vez
 
-El dominio esperado es algo como:
-`https://tu-dominio-ngrok.ngrok-free.app`
+1. Crear `backend/.env` y `frontend/.env` desde los examples.
+2. Editar `backend/.env` con tu `DATABASE_URL` y tu `JWT_SECRET`.
+3. Correr `npm install` en `frontend/`.
+4. Correr `.\backend\scripts\bootstrap.ps1 -SeedDemo -NoJobs -StartApp`.
+5. Si no usaste `-StartApp`, levantar backend con `.\backend\scripts\start-backend.ps1`.
+6. Si no usaste `-StartApp`, levantar frontend con `npm run dev` dentro de `frontend/`.
+7. Entrar al frontend y usar el admin demo si quieres probar datos iniciales.
 
-### Paso manual obligatorio en Mercado Pago (panel web)
+## Variables de entorno
 
-Debes pegar esta URL en:
+### Backend obligatorias para correr local
 
-`Mercado Pago Developers > Tus integraciones > App de prueba > Webhooks/Notificaciones > URL de notificacion`
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `JWT_ALGORITHM`
+- `JWT_ISSUER`
+- `ACCESS_TOKEN_EXPIRE_MINUTES`
+- `REFRESH_TOKEN_EXPIRE_DAYS`
+- `APP_BASE_URL`
+- `CORS_ALLOW_ORIGINS`
+- `AUTH_COOKIE_ACCESS_NAME`
+- `AUTH_COOKIE_REFRESH_NAME`
+- `AUTH_COOKIE_SAMESITE`
+- `AUTH_COOKIE_SECURE`
+- `AUTH_COOKIE_DOMAIN`
+- `AUTH_COOKIE_PATH_ACCESS`
+- `AUTH_COOKIE_PATH_REFRESH`
 
-`https://tu-dominio-ngrok.ngrok-free.app/payments/webhook/mercadopago`
+### Backend opcionales para mails
 
-Despues de guardar la URL, verifica si Mercado Pago muestra un `webhook secret` nuevo para esa configuracion. Si cambio, actualiza tambien `MERCADOPAGO_WEBHOOK_SECRET` en `backend/.env`.
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_USERNAME`
+- `SMTP_PASSWORD`
+- `SMTP_USE_TLS`
+- `MAIL_FROM`
 
-### Nota sobre dominio fijo
+Solo hacen falta si quieres probar verificacion por mail o reset de password por email.
 
-- Con este dominio ngrok fijo no necesitas actualizar la URL por sesion.
-- Solo vuelve a cambiarla si cambias de dominio en ngrok.
+### Backend opcionales para Mercado Pago
 
-### Flujo de verificacion
+- `MERCADOPAGO_ACCESS_TOKEN`
+- `MERCADOPAGO_TIMEOUT_SECONDS`
+- `MERCADOPAGO_SUCCESS_URL`
+- `MERCADOPAGO_FAILURE_URL`
+- `MERCADOPAGO_PENDING_URL`
+- `MERCADOPAGO_NOTIFICATION_URL`
+- `MERCADOPAGO_WEBHOOK_SECRET`
+- `MERCADOPAGO_WEBHOOK_MAX_AGE_SECONDS`
+- `MERCADOPAGO_PUBLIC_KEY`
+- `MERCADOPAGO_ENV`
 
-1. Crear pago sandbox desde la app.
-2. Pagar con comprador de prueba.
-3. Confirmar que el webhook llega a `POST /payments/webhook/mercadopago`.
-4. Confirmar que el estado interno se actualiza (`pending` -> `paid` u otro estado esperado).
+Para pruebas reales de Mercado Pago en local, completa esas variables con credenciales sandbox y una URL publica para webhooks.
+
+### Backend opcionales para jobs
+
+- `WEBHOOK_REPROCESS_INTERVAL_MINUTES`
+- `WEBHOOK_REPROCESS_BATCH_SIZE`
+- `WEBHOOK_REPROCESS_MAX_ATTEMPTS`
+- `WEBHOOK_REPROCESS_BASE_DELAY_MINUTES`
+- `WEBHOOK_REPROCESS_MAX_DELAY_MINUTES`
+- `PAYMENTS_RECONCILE_INTERVAL_MINUTES`
+- `PAYMENTS_RECONCILE_BATCH_SIZE`
+- `PAYMENTS_RECONCILE_MAX_AGE_HOURS`
+- `PAYMENTS_RECONCILE_MIN_AGE_MINUTES`
+- `AUTH_ACTION_TOKENS_PRUNE_INTERVAL_MINUTES`
+- `AUTH_ACTION_TOKENS_PRUNE_OLDER_THAN_DAYS`
+- `AUTH_ACTION_TOKENS_PRUNE_BATCH_SIZE`
+- `AUTH_LOGIN_THROTTLES_PRUNE_INTERVAL_MINUTES`
+- `AUTH_LOGIN_THROTTLES_PRUNE_OLDER_THAN_DAYS`
+- `AUTH_LOGIN_THROTTLES_PRUNE_BATCH_SIZE`
+- `STOCK_RESERVATIONS_JOB_INTERVAL_MINUTES`
+- `STOCK_RESERVATIONS_JOB_BATCH_LIMIT`
+- `STOCK_RESERVATIONS_JOB_MAX_BATCHES`
+
+## Notas importantes de auth local
+
+- El frontend usa cookies del backend con `withCredentials: true`.
+- Usa siempre el mismo host para frontend y backend durante la sesion.
+- No mezcles `localhost` y `127.0.0.1`, porque las cookies son host-scoped.
+
+## Sintesis funcional
+
+El proyecto cubre una tienda con catalogo, carrito, checkout y gestion de ordenes, junto con un flujo de turnos y un panel administrativo para operar productos, descuentos, ventas, pagos y reservas.
+
+Tambien incluye autenticacion por cookies HttpOnly con CSRF, integracion con Mercado Pago, procesamiento de webhooks, manejo de reservas de stock, datos demo para prueba rapida y scripts de bootstrap/arranque para uso local en Windows.
+
+## Agregados operativos
+
+- Bootstrap de entorno con creacion de `.venv`, instalacion de dependencias y migraciones.
+- Seed demo opcional con credenciales de administrador de prueba.
+- Arranque separado o combinado de backend y frontend con `-StartApp`.
+- Jobs opcionales para automatizacion local y comando para desinstalarlos cuando ya no se usen.

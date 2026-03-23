@@ -10,9 +10,10 @@ $ErrorActionPreference = 'Stop'
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $backendDir = Split-Path -Parent $scriptDir
+$repoDir = Split-Path -Parent $backendDir
 
 if ([string]::IsNullOrWhiteSpace($PythonExe)) {
-    $venvPython = Join-Path $backendDir '.venv\Scripts\python.exe'
+    $venvPython = Join-Path $repoDir '.venv\Scripts\python.exe'
     if (Test-Path $venvPython) {
         $PythonExe = $venvPython
     }
@@ -25,44 +26,31 @@ switch ($Job) {
     'webhook_reprocess' {
         $jobArgs = @(
             '-m', 'source.jobs.reprocess_failed_webhooks_job',
-            '--once',
-            '--batch-size', '25',
-            '--max-attempts', '4',
-            '--base-delay-minutes', '30',
-            '--max-delay-minutes', '720'
+            '--once'
         )
     }
     'payments_reconcile' {
         $jobArgs = @(
             '-m', 'source.jobs.reconcile_pending_payments_job',
-            '--once',
-            '--batch-size', '50',
-            '--max-age-hours', '24',
-            '--min-age-minutes', '15'
+            '--once'
         )
     }
     'expire_stock_reservations' {
         $jobArgs = @(
             '-m', 'source.jobs.expire_stock_reservations_job',
-            '--once',
-            '--batch-limit', '200',
-            '--max-batches', '20'
+            '--once'
         )
     }
     'prune_auth_action_tokens' {
         $jobArgs = @(
             '-m', 'source.jobs.prune_auth_action_tokens_job',
-            '--once',
-            '--older-than-days', '7',
-            '--batch-size', '500'
+            '--once'
         )
     }
     'prune_auth_login_throttles' {
         $jobArgs = @(
             '-m', 'source.jobs.prune_auth_login_throttles_job',
-            '--once',
-            '--older-than-days', '14',
-            '--batch-size', '1000'
+            '--once'
         )
     }
     default {

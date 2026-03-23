@@ -3,8 +3,12 @@ param(
     [switch]$SkipVenv,
     [switch]$SkipInstall,
     [switch]$SkipMigrations,
+    [switch]$SeedDemo,
+    [Alias('InstallJobs')]
     [switch]$EnableJobs,
-    [switch]$ForceJobs
+    [switch]$NoJobs,
+    [switch]$ForceJobs,
+    [switch]$StartApp
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,9 +28,19 @@ $requirementsPath = Join-Path $backendDir 'requirements.txt'
 $requirementsDevPath = Join-Path $backendDir 'requirements-dev.txt'
 $envPath = Join-Path $backendDir '.env'
 $installJobsScript = Join-Path $scriptDir 'install-jobs.ps1'
+$seedDemoScript = Join-Path $scriptDir 'seed-demo.ps1'
+$startAppScript = Join-Path $scriptDir 'start-app.ps1'
 
 Write-Host "Repo:    $repoDir"
 Write-Host "Backend: $backendDir"
+
+if ($EnableJobs -and $NoJobs) {
+    throw 'Use only one of -EnableJobs/-InstallJobs or -NoJobs.'
+}
+
+if ($ForceJobs -and -not $EnableJobs) {
+    throw '-ForceJobs requires -EnableJobs or -InstallJobs.'
+}
 
 if (-not $SkipVenv) {
     if (-not (Test-Path $venvPython)) {
@@ -77,6 +91,26 @@ if (-not $SkipMigrations) {
         Pop-Location
     }
 }
+else {
+    Write-Step 'Skipping database migrations'
+}
+
+if ($SeedDemo) {
+    if (-not (Test-Path $seedDemoScript)) {
+        throw "Missing demo seed script: $seedDemoScript"
+    }
+    if ($SkipMigrations) {
+        Write-Step 'Demo seed requested with -SkipMigrations'
+        Write-Host 'Assuming the target database schema is already up to date.'
+    }
+
+    Write-Step 'Loading demo seed data'
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $seedDemoScript
+    Write-Host 'Demo credentials: admin@demo.com / AdminDemo!123'
+}
+else {
+    Write-Step 'Skipping demo seed (use -SeedDemo to load demo data)'
+}
 
 if ($EnableJobs) {
     if (-not (Test-Path $installJobsScript)) {
@@ -90,9 +124,25 @@ if ($EnableJobs) {
         & powershell -NoProfile -ExecutionPolicy Bypass -File $installJobsScript
     }
 }
+elseif ($NoJobs) {
+    Write-Step 'Skipping scheduled jobs by explicit choice (-NoJobs)'
+}
 else {
-    Write-Step 'Skipping scheduled jobs (use -EnableJobs to install)'
+    Write-Step 'Skipping scheduled jobs (use -InstallJobs or -EnableJobs to install, or -NoJobs to make it explicit)'
+}
+
+if ($StartApp) {
+    if (-not (Test-Path $startAppScript)) {
+        throw "Missing app start script: $startAppScript"
+    }
+    Write-Step 'Starting backend and frontend'
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $startAppScript
 }
 
 Write-Step 'Bootstrap completed'
-Write-Host 'Next step: run backend/scripts/start-backend.ps1'
+if ($StartApp) {
+    Write-Host 'App launch requested via -StartApp.'
+}
+else {
+    Write-Host 'Next step: run backend/scripts/start-backend.ps1'
+}

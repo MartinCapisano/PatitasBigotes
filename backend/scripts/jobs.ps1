@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet('status','enable','disable','reinstall')]
+    [ValidateSet('status','enable','disable','reinstall','uninstall')]
     [string]$Command,
     [string]$TaskPrefix = 'PatitasBigotes'
 )
@@ -63,6 +63,7 @@ function Show-Status {
     Write-Host 'Comandos:'
     Write-Host "  Activar:    .\backend\scripts\jobs.ps1 enable"
     Write-Host "  Desactivar: .\backend\scripts\jobs.ps1 disable"
+    Write-Host "  Desinstalar:.\backend\scripts\jobs.ps1 uninstall"
     Write-Host "  Estado:     .\backend\scripts\jobs.ps1 status"
 }
 
@@ -94,6 +95,16 @@ switch ($Command) {
         }
 
         & powershell -NoProfile -ExecutionPolicy Bypass -File $installScript -TaskPrefix $TaskPrefix -Force
+        Show-Status
+    }
+    'uninstall' {
+        foreach ($job in $jobDefinitions) {
+            $taskName = "${TaskPrefix}_$($job.Name)"
+            $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            if ($task) {
+                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+            }
+        }
         Show-Status
     }
 }
