@@ -8,7 +8,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-DB_PATH = BACKEND_DIR / "tmp" / "test_guest_checkout_idempotency.db"
+DB_PATH = BACKEND_DIR / "tmp" / "tests" / "test_guest_checkout_idempotency.db"
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{DB_PATH.as_posix()}")
 
 from source.db.models import Base, IdempotencyRecord

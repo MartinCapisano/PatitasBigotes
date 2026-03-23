@@ -50,6 +50,19 @@ Notes:
 2. Do not use `stamp` if the live schema diverges from the baseline.
 3. Future schema changes must ship as Alembic revisions, not manual SQL in the README.
 
+## Demo seed
+
+Para cargar un admin demo, categorias, productos, variantes y descuentos de muestra:
+
+```powershell
+.\backend\scripts\seed-demo.ps1
+```
+
+Credenciales demo:
+
+1. `admin@demo.com`
+2. `AdminDemo!123`
+
 ## Auth cookie contract (backend phase 1)
 
 Auth endpoints are cookie-based (cookie-only):
@@ -75,6 +88,25 @@ Frontend auth now uses backend cookies (`pb_at`, `pb_rt`) with `axios` credentia
 4. Keep host consistency for API base URL:
    - Use only `localhost` or only `127.0.0.1`.
    - Do not alternate hosts, because cookies are host-scoped.
+
+## Artefactos generados y carpetas temporales
+
+La raiz del repo no debe guardar logs, bases temporales ni metadata de build.
+
+Convencion oficial:
+
+1. `backend/tmp/logs/`: logs locales del backend, tunnel y procesos auxiliares.
+2. `backend/tmp/tests/`: SQLite temporales y artefactos persistentes de tests.
+3. `backend/tmp/migrations/`: DBs/artefactos locales de validacion Alembic.
+4. `frontend/tmp/logs/`: logs persistidos del frontend local.
+5. `frontend/tmp/tsbuildinfo/`: metadata de TypeScript build mode.
+6. `frontend/dist/`: build generado del frontend.
+
+Reglas:
+
+1. No dejar `*.db` ni `*.log` en la raiz del repo.
+2. No versionar logs, DBs temporales ni `*.tsbuildinfo`.
+3. Si persistes logs locales, deben ir solo a las carpetas listadas arriba.
 
 ## -JOBS-
 
@@ -310,11 +342,27 @@ Terminal 1 (backend):
 .\backend\scripts\start-backend.ps1
 ```
 
+Si quieres persistir la salida local del backend:
+
+```powershell
+.\backend\scripts\start-backend.ps1 -PersistLogs
+```
+
+Logs: `backend/tmp/logs/uvicorn.log`
+
 Terminal 2 (tunnel ngrok fijo):
 
 ```powershell
 .\backend\scripts\start-tunnel.ps1
 ```
+
+Si quieres persistir la salida del tunnel:
+
+```powershell
+.\backend\scripts\start-tunnel.ps1 -PersistLogs
+```
+
+Logs: `backend/tmp/logs/ngrok.log`
 
 El dominio esperado es algo como:
 `https://tu-dominio-ngrok.ngrok-free.app`
