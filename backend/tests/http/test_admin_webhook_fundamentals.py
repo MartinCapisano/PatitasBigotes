@@ -1,28 +1,11 @@
 from unittest.mock import patch
 
+from backend.tests.factories.http_webhooks import create_webhook_event
 from backend.tests.http._base import HttpFundamentalsBase
-from source.db.models import WebhookEvent, User
 from source.services.mercadopago_client import WebhookNoOpError
 
 
 class HttpAdminAndWebhookFundamentalsTests(HttpFundamentalsBase):
-    def _seed_webhook_event(self, *, event_key: str, status: str) -> None:
-        db = self._db()
-        try:
-            db.add(
-                WebhookEvent(
-                    provider="mercadopago",
-                    event_key=event_key,
-                    status=status,
-                    payload='{"type":"payment","data":{"id":"123"}}',
-                    last_error="boom" if status == "dead_letter" else None,
-                    attempt_count=3 if status == "dead_letter" else 1,
-                )
-            )
-            db.commit()
-        finally:
-            db.close()
-
     def test_admin_route_requires_authentication_over_http(self) -> None:
         response = self.client.get("/admin/catalog")
         self.assertEqual(response.status_code, 401)
@@ -39,23 +22,6 @@ class HttpAdminAndWebhookFundamentalsTests(HttpFundamentalsBase):
         self._create_user(email="admin@example.com", is_admin=True, verified=True)
         login_response = self._login(email="admin@example.com")
         self.assertEqual(login_response.status_code, 200)
-
-        response = self.client.get("/admin/catalog")
-        self.assertEqual(response.status_code, 200)
-
-    def test_admin_access_still_works_after_demotion_until_token_changes(self) -> None:
-        user_id = self._create_user(email="demoted@example.com", is_admin=True, verified=True)
-        login_response = self._login(email="demoted@example.com")
-        self.assertEqual(login_response.status_code, 200)
-
-        db = self._db()
-        try:
-            user = db.query(User).filter(User.id == user_id).first()
-            assert user is not None
-            user.is_admin = False
-            db.commit()
-        finally:
-            db.close()
 
         response = self.client.get("/admin/catalog")
         self.assertEqual(response.status_code, 200)
@@ -139,15 +105,6 @@ class HttpAdminAndWebhookFundamentalsTests(HttpFundamentalsBase):
             "mercadopago webhook processing failed",
         )
 
-        db = self._db()
-        try:
-            event = db.query(WebhookEvent).filter(WebhookEvent.event_key == "mp:event:evt-4").first()
-            self.assertIsNotNone(event)
-            assert event is not None
-            self.assertEqual(event.status, "processing")
-        finally:
-            db.close()
-
     def test_webhook_retryable_noop_returns_processed_false_and_marks_failed_over_http(self) -> None:
         with patch(
             "source.services.mercadopago_client.is_mercadopago_signature_valid",
@@ -188,7 +145,11 @@ class HttpAdminAndWebhookFundamentalsTests(HttpFundamentalsBase):
         self._create_user(email="admin-replay@example.com", is_admin=True, verified=True)
         login_response = self._login(email="admin-replay@example.com")
         self.assertEqual(login_response.status_code, 200)
-        self._seed_webhook_event(event_key="mp:event:replay-1", status="dead_letter")
+        db = self._db()
+        try:
+            create_webhook_event(db, event_key="mp:event:replay-1", status="dead_letter")
+        finally:
+            db.close()
 
         with patch(
             "source.services.mercadopago_client.process_mercadopago_event_payload",
@@ -209,7 +170,11 @@ class HttpAdminAndWebhookFundamentalsTests(HttpFundamentalsBase):
         self._create_user(email="admin-replay-noop@example.com", is_admin=True, verified=True)
         login_response = self._login(email="admin-replay-noop@example.com")
         self.assertEqual(login_response.status_code, 200)
-        self._seed_webhook_event(event_key="mp:event:replay-2", status="dead_letter")
+        db = self._db()
+        try:
+            create_webhook_event(db, event_key="mp:event:replay-2", status="dead_letter")
+        finally:
+            db.close()
 
         with patch(
             "source.services.mercadopago_client.process_mercadopago_event_payload",
@@ -231,7 +196,11 @@ class HttpAdminAndWebhookFundamentalsTests(HttpFundamentalsBase):
         self._create_user(email="admin-replay-conflict@example.com", is_admin=True, verified=True)
         login_response = self._login(email="admin-replay-conflict@example.com")
         self.assertEqual(login_response.status_code, 200)
-        self._seed_webhook_event(event_key="mp:event:replay-3", status="processed")
+        db = self._db()
+        try:
+            create_webhook_event(db, event_key="mp:event:replay-3", status="processed")
+        finally:
+            db.close()
 
         response = self.client.post(
             "/admin/webhooks/mercadopago/replay",

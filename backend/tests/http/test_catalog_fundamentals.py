@@ -1,75 +1,14 @@
+from backend.tests.factories.http_catalog import create_catalog, create_hidden_product
 from backend.tests.http._base import HttpFundamentalsBase
-from source.db.models import Category, Product, ProductVariant
 
 
 class HttpCatalogFundamentalsTests(HttpFundamentalsBase):
-    def _seed_catalog(self) -> dict[str, int]:
+    def test_storefront_products_pagination_meta_is_consistent_over_http(self) -> None:
         db = self._db()
         try:
-            cat_a = Category(name="Accesorios")
-            cat_b = Category(name="Alimento")
-            db.add_all([cat_a, cat_b])
-            db.flush()
-
-            p1 = Product(name="Collar A", description="d1", category_id=int(cat_a.id))
-            p2 = Product(name="Correa B", description="d2", category_id=int(cat_a.id))
-            p3 = Product(name="Comida C", description="d3", category_id=int(cat_b.id))
-            db.add_all([p1, p2, p3])
-            db.flush()
-
-            db.add_all(
-                [
-                    ProductVariant(
-                        product_id=int(p1.id),
-                        sku="SKU-A1",
-                        size="S",
-                        color="Red",
-                        price=10000,
-                        stock=2,
-                        is_active=True,
-                    ),
-                    ProductVariant(
-                        product_id=int(p1.id),
-                        sku="SKU-A2",
-                        size="M",
-                        color="Blue",
-                        price=12000,
-                        stock=0,
-                        is_active=False,
-                    ),
-                    ProductVariant(
-                        product_id=int(p2.id),
-                        sku="SKU-B1",
-                        size="U",
-                        color="Black",
-                        price=25000,
-                        stock=0,
-                        is_active=True,
-                    ),
-                    ProductVariant(
-                        product_id=int(p3.id),
-                        sku="SKU-C1",
-                        size="L",
-                        color="Green",
-                        price=40000,
-                        stock=5,
-                        is_active=True,
-                    ),
-                ]
-            )
-            db.commit()
-            return {
-                "category_a": int(cat_a.id),
-                "category_b": int(cat_b.id),
-                "product_1": int(p1.id),
-                "product_2": int(p2.id),
-                "product_3": int(p3.id),
-            }
+            create_catalog(db)
         finally:
             db.close()
-
-    def test_storefront_products_pagination_meta_is_consistent_over_http(self) -> None:
-        self._seed_catalog()
 
         response = self.client.get(
             "/storefront/products",
@@ -91,7 +30,11 @@ class HttpCatalogFundamentalsTests(HttpFundamentalsBase):
         self.assertEqual(len(payload["data"]), 2)
 
     def test_storefront_products_filter_combination_category_and_price_over_http(self) -> None:
-        ids = self._seed_catalog()
+        db = self._db()
+        try:
+            ids = create_catalog(db)
+        finally:
+            db.close()
 
         response = self.client.get(
             "/storefront/products",
@@ -109,7 +52,11 @@ class HttpCatalogFundamentalsTests(HttpFundamentalsBase):
         self.assertEqual(product_ids, [ids["product_1"]])
 
     def test_storefront_products_invalid_range_returns_400_over_http(self) -> None:
-        self._seed_catalog()
+        db = self._db()
+        try:
+            create_catalog(db)
+        finally:
+            db.close()
 
         response = self.client.get(
             "/storefront/products",
@@ -128,7 +75,11 @@ class HttpCatalogFundamentalsTests(HttpFundamentalsBase):
         )
 
     def test_storefront_product_detail_returns_only_public_fields_over_http(self) -> None:
-        ids = self._seed_catalog()
+        db = self._db()
+        try:
+            ids = create_catalog(db)
+        finally:
+            db.close()
 
         response = self.client.get(f"/storefront/products/{ids['product_1']}")
 
@@ -147,7 +98,11 @@ class HttpCatalogFundamentalsTests(HttpFundamentalsBase):
         self.assertNotIn("sku", option_payload)
 
     def test_storefront_products_search_by_name_over_http(self) -> None:
-        ids = self._seed_catalog()
+        db = self._db()
+        try:
+            ids = create_catalog(db)
+        finally:
+            db.close()
 
         response = self.client.get(
             "/storefront/products",
@@ -163,34 +118,10 @@ class HttpCatalogFundamentalsTests(HttpFundamentalsBase):
         self.assertEqual(product_ids, [ids["product_3"]])
 
     def test_storefront_product_detail_404_for_non_visible_product_over_http(self) -> None:
-        self._seed_catalog()
         db = self._db()
         try:
-            hidden_category = Category(name="Hidden")
-            db.add(hidden_category)
-            db.flush()
-
-            hidden_product = Product(
-                name="Hidden Product",
-                description="hidden",
-                category_id=int(hidden_category.id),
-            )
-            db.add(hidden_product)
-            db.flush()
-
-            db.add(
-                ProductVariant(
-                    product_id=int(hidden_product.id),
-                    sku="SKU-HIDDEN-1",
-                    size="U",
-                    color="Gray",
-                    price=9000,
-                    stock=3,
-                    is_active=False,
-                )
-            )
-            db.commit()
-            hidden_product_id = int(hidden_product.id)
+            create_catalog(db)
+            hidden_product_id = create_hidden_product(db)
         finally:
             db.close()
 
@@ -200,7 +131,11 @@ class HttpCatalogFundamentalsTests(HttpFundamentalsBase):
         self.assertEqual(response.json()["detail"], "Product not found")
 
     def test_admin_catalog_returns_categories_products_and_variants_by_product_over_http(self) -> None:
-        self._seed_catalog()
+        db = self._db()
+        try:
+            create_catalog(db)
+        finally:
+            db.close()
         self._create_user(email="catalog-admin@example.com", is_admin=True, verified=True)
         login_response = self._login(email="catalog-admin@example.com")
         self.assertEqual(login_response.status_code, 200)
@@ -220,7 +155,11 @@ class HttpCatalogFundamentalsTests(HttpFundamentalsBase):
         self.assertEqual(payload["variants_by_product"]["1"][1]["sku"], "SKU-A2")
 
     def test_get_products_include_variants_returns_aggregated_shape_over_http(self) -> None:
-        self._seed_catalog()
+        db = self._db()
+        try:
+            create_catalog(db)
+        finally:
+            db.close()
         self._create_user(email="products-admin@example.com", is_admin=True, verified=True)
         login_response = self._login(email="products-admin@example.com")
         self.assertEqual(login_response.status_code, 200)
@@ -248,7 +187,11 @@ class HttpCatalogFundamentalsTests(HttpFundamentalsBase):
         self.assertTrue(meta["include_variants"])
 
     def test_get_products_without_include_variants_keeps_legacy_shape_over_http(self) -> None:
-        self._seed_catalog()
+        db = self._db()
+        try:
+            create_catalog(db)
+        finally:
+            db.close()
         self._create_user(email="products-legacy-admin@example.com", is_admin=True, verified=True)
         login_response = self._login(email="products-legacy-admin@example.com")
         self.assertEqual(login_response.status_code, 200)

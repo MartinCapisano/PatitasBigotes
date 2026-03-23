@@ -12,16 +12,13 @@ if str(BACKEND_DIR) not in sys.path:
 
 from source.db.models import (
     Base,
-    Category,
     Order,
-    OrderItem,
     Payment,
-    Product,
-    ProductVariant,
     StockReservation,
-    User,
 )
 from source.services.stock_reservations_s import expire_active_reservations
+from tests.factories.orders import create_order_graph
+from tests.factories.users import create_user
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -59,95 +56,29 @@ class StockReservationExpirationTests(unittest.TestCase):
     ) -> tuple[int, int, int]:
         session = self.TestSession()
         try:
-            user = User(
+            user = create_user(
+                session,
                 first_name="John",
                 last_name="Doe",
-                email=f"john-{datetime.now(UTC).timestamp()}@example.com",
-                password_hash="!",
+                email_prefix="john",
                 has_account=False,
-                is_admin=False,
             )
-            category = Category(name=f"cat-{datetime.now(UTC).timestamp()}")
-            session.add_all([user, category])
-            session.flush()
-
-            product = Product(
-                name="Test Product",
-                description=None,
-                category_id=category.id,
+            graph = create_order_graph(
+                session,
+                user_id=int(user.id),
+                order_status=order_status,
+                item_qty=item_qty,
+                variant_stock=variant_stock,
+                with_reservation=True,
+                reservation_expires_at=datetime.now(UTC) - timedelta(minutes=1),
+                add_pending_payment=add_pending_payment,
             )
-            session.add(product)
-            session.flush()
-
-            variant = ProductVariant(
-                product_id=product.id,
-                sku=f"SKU-{datetime.now(UTC).timestamp()}",
-                size="M",
-                color="Blue",
-                price=10000,
-                stock=variant_stock,
-                is_active=True,
-            )
-            session.add(variant)
-            session.flush()
-
-            order = Order(
-                user_id=user.id,
-                status=order_status,
-                currency="ARS",
-                subtotal=10000,
-                discount_total=0,
-                total_amount=10000,
-                pricing_frozen=True,
-            )
-            session.add(order)
-            session.flush()
-
-            item = OrderItem(
-                order_id=order.id,
-                product_id=product.id,
-                variant_id=variant.id,
-                quantity=item_qty,
-                unit_price=10000,
-                discount_id=None,
-                discount_amount=0,
-                final_unit_price=10000,
-                line_total=10000 * item_qty,
-            )
-            session.add(item)
-            session.flush()
-
-            reservation = StockReservation(
-                order_id=order.id,
-                order_item_id=item.id,
-                variant_id=variant.id,
-                quantity=item_qty,
-                status="active",
-                expires_at=datetime.now(UTC) - timedelta(minutes=1),
-                reason=None,
-            )
-            session.add(reservation)
-
-            if add_pending_payment:
-                session.add(
-                    Payment(
-                        order_id=order.id,
-                        method="bank_transfer",
-                        status="pending",
-                        amount=int(order.total_amount),
-                        currency="ARS",
-                        idempotency_key=f"pay-{datetime.now(UTC).timestamp()}",
-                        external_ref=None,
-                        provider_status="pending",
-                        provider_payload=None,
-                        receipt_url=None,
-                        expires_at=datetime.now(UTC) + timedelta(hours=1),
-                        paid_at=None,
-                    )
-                )
-
             session.commit()
-            return int(order.id), int(reservation.id), int(variant.id)
+            return (
+                int(graph["order_id"]),
+                int(graph["reservation_id"]),
+                int(graph["variant_id"]),
+            )
         finally:
             session.close()
 

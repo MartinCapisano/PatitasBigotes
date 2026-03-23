@@ -1,6 +1,5 @@
 import sys
 import unittest
-from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,6 +17,7 @@ from source.services.post_commit_actions_s import (
     clear_post_commit_actions,
     dispatch_post_commit_actions,
 )
+from tests.factories.users import create_user
 
 
 class DomainEventsNotificationsTests(unittest.TestCase):
@@ -42,15 +42,14 @@ class DomainEventsNotificationsTests(unittest.TestCase):
     def _seed_user(self, *, is_admin: bool = False, email: str | None = None) -> User:
         db = self.TestSession()
         try:
-            user = User(
+            user = create_user(
+                db,
                 first_name="Jane",
                 last_name="Doe",
-                email=email or f"user-{datetime.now(UTC).timestamp()}@example.com",
-                password_hash="!",
+                email=email,
                 has_account=True,
                 is_admin=is_admin,
             )
-            db.add(user)
             db.commit()
             db.refresh(user)
             db.expunge(user)

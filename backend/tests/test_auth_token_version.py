@@ -21,6 +21,7 @@ from auth.auth_s import (
 from auth.security import create_access_token, decode_access_token
 from source.db.models import Base, User, UserRefreshSession
 from source.dependencies.auth_d import get_current_user
+from tests.factories.users import create_user
 
 
 class AuthTokenVersionTests(unittest.TestCase):
@@ -52,17 +53,13 @@ class AuthTokenVersionTests(unittest.TestCase):
         Base.metadata.create_all(bind=self.engine)
 
     def _create_user(self, db) -> User:
-        user = User(
+        user = create_user(
+            db,
             first_name="Auth",
             last_name="User",
             email="auth.user@example.com",
-            password_hash="!",
-            has_account=True,
-            is_admin=False,
             token_version=1,
         )
-        db.add(user)
-        db.flush()
         return user
 
     def _request_with_access_cookie(self, token: str) -> Request:

@@ -13,21 +13,18 @@ if str(BACKEND_DIR) not in sys.path:
 
 from source.db.models import (
     Base,
-    Category,
     Order,
-    OrderItem,
     Payment,
     PaymentIncident,
-    Product,
-    ProductVariant,
     StockReservation,
-    User,
 )
 from source.services.payment_s import (
     _build_mercadopago_payload,
     apply_mercadopago_normalized_state,
     create_payment_for_order,
 )
+from tests.factories.orders import create_order_graph
+from tests.factories.users import create_user
 
 
 class PaymentsMoneyConsistencyTests(unittest.TestCase):
@@ -52,77 +49,27 @@ class PaymentsMoneyConsistencyTests(unittest.TestCase):
     def _seed_submitted_order_with_reservation(self) -> tuple[int, int]:
         session = self.TestSession()
         try:
-            user = User(
+            user = create_user(
+                session,
                 first_name="Jane",
                 last_name="Doe",
-                email=f"jane-{datetime.now(UTC).timestamp()}@example.com",
-                password_hash="!",
+                email_prefix="jane",
                 has_account=False,
-                is_admin=False,
             )
-            category = Category(name=f"cat-{datetime.now(UTC).timestamp()}")
-            session.add_all([user, category])
-            session.flush()
-
-            product = Product(name="Test Product", description=None, category_id=category.id)
-            session.add(product)
-            session.flush()
-
-            variant = ProductVariant(
-                product_id=product.id,
-                sku=f"SKU-{datetime.now(UTC).timestamp()}",
-                size="M",
-                color="Blue",
-                price=10000,
-                stock=5,
-                is_active=True,
-            )
-            session.add(variant)
-            session.flush()
-
-            order = Order(
-                user_id=user.id,
-                status="submitted",
-                currency="ARS",
-                subtotal=10000,
-                discount_total=0,
-                total_amount=10000,
-                pricing_frozen=True,
-            )
-            session.add(order)
-            session.flush()
-
-            item = OrderItem(
-                order_id=order.id,
-                product_id=product.id,
-                variant_id=variant.id,
-                quantity=1,
-                unit_price=10000,
-                discount_id=None,
-                discount_amount=0,
-                final_unit_price=10000,
-                line_total=10000,
-            )
-            session.add(item)
-            session.flush()
-
-            session.add(
-                StockReservation(
-                    order_id=order.id,
-                    order_item_id=item.id,
-                    variant_id=variant.id,
-                    quantity=1,
-                    status="active",
-                    expires_at=datetime.now(UTC) + timedelta(hours=1),
-                )
+            graph = create_order_graph(
+                session,
+                user_id=int(user.id),
+                order_status="submitted",
+                variant_stock=5,
+                with_reservation=True,
             )
             session.commit()
-            return int(order.id), int(user.id)
+            return int(graph["order_id"]), int(user.id)
         finally:
             session.close()
 
     def test_create_payment_uses_exact_order_total(self) -> None:
-        order_id, user_id = self._seed_submitted_order_with_reservation()
+        order_id, _ = self._seed_submitted_order_with_reservation()
         session = self.TestSession()
         try:
             payment = create_payment_for_order(
@@ -161,7 +108,7 @@ class PaymentsMoneyConsistencyTests(unittest.TestCase):
         self.assertEqual(str(ctx.exception), "invalid mercadopago checkout_url")
 
     def test_webhook_amount_mismatch_raises(self) -> None:
-        order_id, user_id = self._seed_submitted_order_with_reservation()
+        order_id, _ = self._seed_submitted_order_with_reservation()
         session = self.TestSession()
         try:
             payment = Payment(

@@ -10,12 +10,13 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from source.db.models import Base, Turn, User
+from source.db.models import Base, Turn
 from source.services.turns_s import (
     create_turn_for_user,
     list_turns_for_admin,
     update_turn_status_for_admin,
 )
+from tests.factories.users import create_user
 
 
 class TurnsFlowTests(unittest.TestCase):
@@ -40,17 +41,15 @@ class TurnsFlowTests(unittest.TestCase):
     def _seed_user(self) -> int:
         db = self.TestSession()
         try:
-            user = User(
+            user = create_user(
+                db,
                 first_name="Ana",
                 last_name="Lopez",
-                email=f"turns-{datetime.now(UTC).timestamp()}@example.com",
+                email_prefix="turns",
                 phone="1122334455",
-                password_hash="!",
                 has_account=True,
-                is_admin=False,
                 email_verified_at=datetime.now(UTC),
             )
-            db.add(user)
             db.commit()
             return int(user.id)
         finally:
