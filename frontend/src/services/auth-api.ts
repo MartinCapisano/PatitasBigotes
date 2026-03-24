@@ -14,6 +14,17 @@ export async function logout() {
   return response.data.data;
 }
 
+export async function refreshSession() {
+  const response = await http.post<
+    ApiEnvelope<{
+      refreshed: boolean;
+      access_expires_in_seconds: number;
+      access_expires_in_minutes: number;
+    }>
+  >("/auth/refresh");
+  return response.data.data;
+}
+
 export async function getMyProfile() {
   const response = await http.get<ApiEnvelope<MyProfile>>("/auth/me");
   return response.data.data;

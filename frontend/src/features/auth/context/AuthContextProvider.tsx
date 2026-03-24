@@ -6,6 +6,8 @@ export type AuthContextValue = {
   isLoading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
+  sessionExpired: boolean;
+  clearSessionExpiredNotice: () => void;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
 };
@@ -16,6 +18,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -26,6 +29,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!mounted) return;
         setIsAuthenticated(true);
         setIsAdmin(Boolean(profile.is_admin));
+        setSessionExpired(false);
       } catch {
         if (!mounted) return;
         setIsAuthenticated(false);
@@ -44,6 +48,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsAuthenticated(false);
       setIsAdmin(false);
       setIsLoading(false);
+      setSessionExpired(true);
     }
 
     window.addEventListener("pb-auth-unauthorized", handleUnauthorized);
@@ -58,6 +63,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       isAuthenticated,
       isAdmin,
+      sessionExpired,
+      clearSessionExpiredNotice() {
+        setSessionExpired(false);
+      },
       async login(email: string, password: string) {
         setIsLoading(true);
         try {
@@ -76,6 +85,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const adminFlag = Boolean(profile.is_admin);
           setIsAuthenticated(true);
           setIsAdmin(adminFlag);
+          setSessionExpired(false);
           return adminFlag;
         } finally {
           setIsLoading(false);
@@ -89,9 +99,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         setIsAuthenticated(false);
         setIsAdmin(false);
+        setSessionExpired(false);
       }
     }),
-    [isAuthenticated, isAdmin, isLoading]
+    [isAuthenticated, isAdmin, isLoading, sessionExpired]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

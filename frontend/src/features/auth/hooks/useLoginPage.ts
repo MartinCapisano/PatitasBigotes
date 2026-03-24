@@ -21,6 +21,8 @@ export function useLoginPage(login: (email: string, password: string) => Promise
   const infoMessage =
     locationState?.reason === "registered_account_checkout"
       ? "Ese email ya tiene cuenta. Inicia sesion para continuar con tu carrito."
+      : locationState?.reason === "session_expired"
+      ? "Tu sesion expiro o ya no es valida. Ingresa nuevamente para continuar."
       : "";
 
   async function onSubmit(event: FormEvent) {
