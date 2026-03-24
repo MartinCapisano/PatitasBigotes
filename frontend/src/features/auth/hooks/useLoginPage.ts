@@ -23,6 +23,8 @@ export function useLoginPage(login: (email: string, password: string) => Promise
       ? "Ese email ya tiene cuenta. Inicia sesion para continuar con tu carrito."
       : locationState?.reason === "session_expired"
       ? "Tu sesion expiro o ya no es valida. Ingresa nuevamente para continuar."
+      : locationState?.reason === "registration_completed"
+      ? "Cuenta creada. Revisa tu email para verificarla antes de ingresar."
       : "";
 
   async function onSubmit(event: FormEvent) {

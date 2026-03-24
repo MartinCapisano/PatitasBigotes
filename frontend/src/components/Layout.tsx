@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { clearPendingVerificationEmail, readPendingVerificationEmail } from "../features/auth/verification-storage";
 import { cartCount } from "../lib/cart-storage";
 import type { NotificationItem } from "../types";
 import { getUnreadNotificationCount, listNotifications, readAllNotifications, readNotification } from "../services/notifications-api";
@@ -14,6 +15,11 @@ export function Layout() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState("");
+
+  useEffect(() => {
+    setPendingVerificationEmail(readPendingVerificationEmail());
+  }, [location.pathname]);
 
   const loadUnreadCount = useCallback(async () => {
     if (!isAuthenticated) {
@@ -199,6 +205,35 @@ export function Layout() {
                 </Link>
                 <button className="btn btn-small btn-ghost" type="button" onClick={clearSessionExpiredNotice}>
                   Cerrar aviso
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {!isAuthenticated && location.pathname === "/home" && pendingVerificationEmail ? (
+        <div className="container">
+          <div className="card" style={{ marginTop: 16, padding: 16 }}>
+            <div className="admin-inline-actions" style={{ justifyContent: "space-between", gap: 12 }}>
+              <div>
+                <p style={{ margin: 0, fontWeight: 700 }}>Verifica tu email</p>
+                <p className="muted">
+                  Enviamos un email a {pendingVerificationEmail}. Puedes verificar ahora o hacerlo mas tarde.
+                </p>
+              </div>
+              <div className="admin-inline-actions">
+                <Link className="btn btn-small" to="/verify-email">
+                  Verificar
+                </Link>
+                <button
+                  className="btn btn-small btn-ghost"
+                  type="button"
+                  onClick={() => {
+                    clearPendingVerificationEmail();
+                    setPendingVerificationEmail("");
+                  }}
+                >
+                  Omitir
                 </button>
               </div>
             </div>

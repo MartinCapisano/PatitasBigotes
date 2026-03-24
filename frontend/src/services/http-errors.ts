@@ -8,7 +8,7 @@ export type AuthUiErrorKind =
   | "server"
   | "unknown";
 
-export type ErrorContext = "login" | "checkout" | "profile" | "turns" | "generic";
+export type ErrorContext = "login" | "register" | "forgot-password" | "email-verify" | "checkout" | "profile" | "turns" | "generic";
 
 export class AuthFlowError extends Error {
   code: "login_ok_profile_failed" | "session_bootstrap_failed";
@@ -135,6 +135,54 @@ export function toUserMessage(error: unknown, context: ErrorContext): string {
       return "Error interno del servidor. Intenta nuevamente en unos minutos.";
     }
     return "No se pudo iniciar sesion.";
+  }
+
+  if (context === "register") {
+    if (classified.kind === "csrf") {
+      return "Origen no permitido. Revisa URL del frontend/backend.";
+    }
+    if (classified.kind === "network") {
+      return "No se pudo conectar con el servidor para crear tu cuenta.";
+    }
+    if (classified.kind === "server") {
+      return "Error interno del servidor. Intenta nuevamente en unos minutos.";
+    }
+    if (classified.detail) {
+      return classified.detail;
+    }
+    return "No se pudo crear la cuenta.";
+  }
+
+  if (context === "forgot-password") {
+    if (classified.kind === "csrf") {
+      return "Origen no permitido. Revisa URL del frontend/backend.";
+    }
+    if (classified.kind === "network") {
+      return "No se pudo conectar con el servidor para enviar el email de recuperacion.";
+    }
+    if (classified.kind === "server") {
+      return "Error interno del servidor. Intenta nuevamente en unos minutos.";
+    }
+    if (classified.detail) {
+      return classified.detail;
+    }
+    return "No se pudo solicitar la recuperacion de password.";
+  }
+
+  if (context === "email-verify") {
+    if (classified.kind === "csrf") {
+      return "Origen no permitido. Revisa URL del frontend/backend.";
+    }
+    if (classified.kind === "network") {
+      return "No se pudo conectar con el servidor para enviar o reenviar el email de verificacion.";
+    }
+    if (classified.kind === "server") {
+      return "Error interno del servidor. Intenta nuevamente en unos minutos.";
+    }
+    if (classified.detail) {
+      return classified.detail;
+    }
+    return "No se pudo gestionar la verificacion del email.";
   }
 
   if (context === "checkout") {

@@ -1,5 +1,6 @@
 import { useAuth } from "../auth/AuthContext";
 import { useLoginPage } from "../features/auth";
+import { Link } from "react-router-dom";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -34,6 +35,12 @@ export function LoginPage() {
         <button className="btn" type="submit" disabled={loginPage.loading}>
           {loginPage.loading ? "Ingresando..." : "Entrar"}
         </button>
+        <Link className="btn btn-ghost" to="/forgot-password">
+          Has olvidado la contrasenia?
+        </Link>
+        <p className="muted">
+          No tienes cuenta? <Link className="link-back" to="/register">Crear cuenta</Link>
+        </p>
       </form>
     </section>
   );

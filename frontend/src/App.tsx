@@ -7,12 +7,15 @@ import { AdminPage } from "./pages/AdminPage";
 import { CategoriesPage } from "./pages/CategoriesPage";
 import { CheckoutPage } from "./pages/CheckoutPage";
 import { ContactPage } from "./pages/ContactPage";
+import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { GroomingPage } from "./pages/GroomingPage";
 import { LoginPage } from "./pages/LoginPage";
 import { PaymentReturnPage } from "./pages/PaymentReturnPage";
 import { ProductDetailPage } from "./pages/ProductDetailPage";
 import { ProfilePage } from "./pages/ProfilePage";
+import { RegisterPage } from "./pages/RegisterPage";
 import { StorefrontPage } from "./pages/StorefrontPage";
+import { VerifyEmailPage } from "./pages/VerifyEmailPage";
 
 export function App() {
   return (
@@ -30,6 +33,9 @@ export function App() {
           <Route path="/payments/pending" element={<PaymentReturnPage variant="pending" />} />
           <Route path="/products/:productId" element={<ProductDetailPage />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
 
           <Route element={<ProtectedRoute />}>
             <Route path="/profile" element={<ProfilePage />} />

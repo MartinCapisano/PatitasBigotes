@@ -9,6 +9,37 @@ export async function login(email: string, password: string) {
   return response.data.data;
 }
 
+export async function register(payload: {
+  first_name: string;
+  last_name: string;
+  email: string;
+  password: string;
+}) {
+  const response = await http.post<ApiEnvelope<{ registered: boolean }>>("/auth/register", payload);
+  return response.data.data;
+}
+
+export async function requestPasswordReset(email: string) {
+  const response = await http.post<ApiEnvelope<{ requested: boolean }>>("/auth/password/reset/request", {
+    email
+  });
+  return response.data.data;
+}
+
+export async function requestEmailVerification(email: string) {
+  const response = await http.post<ApiEnvelope<{ requested: boolean }>>("/auth/email/verify/request", {
+    email
+  });
+  return response.data.data;
+}
+
+export async function confirmEmailVerification(token: string) {
+  const response = await http.post<ApiEnvelope<{ verified: boolean }>>("/auth/email/verify/confirm", {
+    token
+  });
+  return response.data.data;
+}
+
 export async function logout() {
   const response = await http.post<ApiEnvelope<{ logged_out: boolean }>>("/auth/logout");
   return response.data.data;
