@@ -41,8 +41,8 @@ export function StorefrontPage() {
         </button>
       </form>
 
-      <div className="search-row">
-        <label>
+      <div className="search-row storefront-filters-row">
+        <label className="storefront-filter-field">
           Ordenar por
           <select
             className="input"
@@ -56,7 +56,7 @@ export function StorefrontPage() {
             <option value="name">Alfabetico</option>
           </select>
         </label>
-        <label>
+        <label className="storefront-filter-field">
           Direccion
           <select
             className="input"
@@ -70,7 +70,7 @@ export function StorefrontPage() {
             <option value="desc">Descendente</option>
           </select>
         </label>
-        <label>
+        <label className="storefront-filter-field">
           Por pagina
           <select
             className="input"
@@ -90,44 +90,6 @@ export function StorefrontPage() {
 
       {storefront.loading && <p>Cargando...</p>}
       {storefront.error && <p className="error">{storefront.error}</p>}
-      {!storefront.loading && !storefront.error && (
-        <div className="admin-inline-actions">
-          <p className="muted">
-            Mostrando {storefront.pageInfo.from}-{storefront.pageInfo.to} de {storefront.total}
-          </p>
-          <button className="btn btn-small btn-ghost" type="button" onClick={() => storefront.setPage(1)} disabled={storefront.page <= 1}>
-            {"<<"}
-          </button>
-          <button
-            className="btn btn-small btn-ghost"
-            type="button"
-            onClick={() => storefront.setPage((prev) => Math.max(1, prev - 1))}
-            disabled={storefront.page <= 1}
-          >
-            Anterior
-          </button>
-          <p className="muted">
-            Pagina {storefront.page} / {storefront.totalPages}
-          </p>
-          <button
-            className="btn btn-small btn-ghost"
-            type="button"
-            onClick={() => storefront.setPage((prev) => Math.min(storefront.totalPages, prev + 1))}
-            disabled={storefront.page >= storefront.totalPages}
-          >
-            Siguiente
-          </button>
-          <button
-            className="btn btn-small btn-ghost"
-            type="button"
-            onClick={() => storefront.setPage(storefront.totalPages)}
-            disabled={storefront.page >= storefront.totalPages}
-          >
-            {">>"}
-          </button>
-        </div>
-      )}
-
       <div className="products-grid products-grid-home">
         {storefront.products.map((product) => (
           <article className="card product-card-home" key={product.id}>
@@ -137,7 +99,11 @@ export function StorefrontPage() {
               <div className="image-placeholder">Sin imagen</div>
             )}
             <p className="category">{product.category_name ?? "Sin categoria"}</p>
-            <h2>{product.name}</h2>
+            <h2>
+              <Link className="product-title-link" to={`/products/${product.id}`}>
+                {product.name}
+              </Link>
+            </h2>
             {product.has_discount && product.min_var_price_original !== null && product.min_var_price_original !== undefined ? (
               <p className="price">
                 <span className="price-original">{formatArs(product.min_var_price_original)}</span>{" "}
@@ -147,12 +113,35 @@ export function StorefrontPage() {
               <p className="price">{formatArs(product.min_var_price_final ?? product.min_var_price)}</p>
             )}
             {!product.in_stock && <p className="warning">Sin stock por ahora</p>}
-            <Link className="btn btn-small" to={`/products/${product.id}`}>
-              Ver detalle
-            </Link>
           </article>
         ))}
       </div>
+
+      {!storefront.loading && !storefront.error && (
+        <div className="admin-inline-actions" style={{ marginTop: 16, justifyContent: "center" }}>
+          <button
+            className="btn btn-small btn-ghost"
+            type="button"
+            onClick={() => storefront.setPage((prev) => Math.max(1, prev - 1))}
+            disabled={storefront.page <= 1}
+            aria-label="Pagina anterior"
+          >
+            {"<"}
+          </button>
+          <p className="muted">
+            Mostrando {storefront.pageInfo.from}-{storefront.pageInfo.to} de {storefront.total} | Pagina {storefront.page} / {storefront.totalPages}
+          </p>
+          <button
+            className="btn btn-small btn-ghost"
+            type="button"
+            onClick={() => storefront.setPage((prev) => Math.min(storefront.totalPages, prev + 1))}
+            disabled={storefront.page >= storefront.totalPages}
+            aria-label="Pagina siguiente"
+          >
+            {">"}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

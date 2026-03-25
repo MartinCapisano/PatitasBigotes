@@ -5,15 +5,15 @@ export function ProfilePage() {
 
   return (
     <section>
-      <h1 className="page-title">Mi cuenta</h1>
+      <h1 className="page-title">Mi perfil</h1>
       <p className="page-subtitle">Administra tu cuenta desde el menu.</p>
       <div className="account-menu">
         <button
-          className={`btn btn-small ${profilePage.section === "summary" ? "" : "btn-ghost"}`}
+          className={`btn btn-small ${profilePage.section === "profile" ? "" : "btn-ghost"}`}
           type="button"
-          onClick={() => profilePage.setSection("summary")}
+          onClick={() => profilePage.setSection("profile")}
         >
-          Resumen
+          Mi perfil
         </button>
         <button
           className={`btn btn-small ${profilePage.section === "history" ? "" : "btn-ghost"}`}
@@ -22,64 +22,92 @@ export function ProfilePage() {
         >
           Historial de compras
         </button>
-        <button
-          className={`btn btn-small ${profilePage.section === "edit" ? "" : "btn-ghost"}`}
-          type="button"
-          onClick={() => profilePage.setSection("edit")}
-        >
-          Editar perfil
-        </button>
       </div>
       {profilePage.loading ? (
         <p>Cargando perfil...</p>
       ) : (
         <>
-          {profilePage.section === "summary" && profilePage.profile && (
+          {profilePage.section === "profile" && profilePage.profile && (
             <article className="card auth-wrap">
               <p><strong>Nombre:</strong> {profilePage.profile.first_name} {profilePage.profile.last_name}</p>
-              <p><strong>Email:</strong> {profilePage.profile.email}</p>
-              <p><strong>Telefono:</strong> {profilePage.profile.phone || "-"}</p>
               <p className="muted">
                 Estado email: {profilePage.profile.email_verified ? "Verificado" : "No verificado"}
               </p>
-              <div className="checkout-actions">
-                <button className="btn btn-small" type="button" onClick={() => profilePage.setSection("edit")}>
-                  Ir a editar perfil
-                </button>
-              </div>
-            </article>
-          )}
-
-          {profilePage.section === "edit" && (
-            <article className="card auth-wrap">
-              {profilePage.profile && (
-                <p className="muted">
-                  Estado email: {profilePage.profile.email_verified ? "Verificado" : "No verificado"}
-                </p>
+              {!profilePage.profile.email_verified && (
+                <div className="checkout-actions">
+                  <button
+                    className="btn btn-small btn-ghost"
+                    type="button"
+                    onClick={() => void profilePage.onRequestEmailVerification()}
+                    disabled={profilePage.verificationLoading}
+                  >
+                    {profilePage.verificationLoading ? "Enviando..." : "Verificar"}
+                  </button>
+                </div>
               )}
-              <form className="auth-form" onSubmit={profilePage.onSubmit}>
-                <label>
-                  Nombre
-                  <input className="input" value={profilePage.firstName} onChange={(event) => profilePage.setFirstName(event.target.value)} required />
-                </label>
-                <label>
-                  Apellido
-                  <input className="input" value={profilePage.lastName} onChange={(event) => profilePage.setLastName(event.target.value)} required />
-                </label>
-                <label>
-                  Telefono
-                  <input className="input" value={profilePage.phone} onChange={(event) => profilePage.setPhone(event.target.value)} required />
-                </label>
-                <label>
-                  Email
-                  <input className="input" type="email" value={profilePage.email} onChange={(event) => profilePage.setEmail(event.target.value)} required />
-                </label>
-                <button className="btn" type="submit" disabled={profilePage.saving}>
-                  {profilePage.saving ? "Guardando..." : "Guardar cambios"}
-                </button>
-              </form>
-              {profilePage.error && <p className="error">{profilePage.error}</p>}
-              {profilePage.success && <p className="success">{profilePage.success}</p>}
+              <div className="checkout-row">
+                <div>
+                  <strong>Email:</strong>
+                  {profilePage.editingField === "email" ? (
+                    <input
+                      className="input"
+                      type="email"
+                      value={profilePage.email}
+                      onChange={(event) => profilePage.setEmail(event.target.value)}
+                      required
+                    />
+                  ) : (
+                    <p>{profilePage.profile.email}</p>
+                  )}
+                </div>
+                <div className="admin-inline-actions">
+                  {profilePage.editingField === "email" ? (
+                    <>
+                      <button className="btn btn-small" type="button" onClick={() => void profilePage.onSaveField("email")} disabled={profilePage.saving}>
+                        {profilePage.saving ? "Guardando..." : "Guardar"}
+                      </button>
+                      <button className="btn btn-small btn-ghost" type="button" onClick={profilePage.onCancelEditing}>
+                        Cancelar
+                      </button>
+                    </>
+                  ) : (
+                    <button className="btn btn-small btn-ghost" type="button" onClick={() => profilePage.onStartEditing("email")}>
+                      Editar
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="checkout-row">
+                <div>
+                  <strong>Telefono:</strong>
+                  {profilePage.editingField === "phone" ? (
+                    <input
+                      className="input"
+                      value={profilePage.phone}
+                      onChange={(event) => profilePage.setPhone(event.target.value)}
+                      required
+                    />
+                  ) : (
+                    <p>{profilePage.profile.phone || "-"}</p>
+                  )}
+                </div>
+                <div className="admin-inline-actions">
+                  {profilePage.editingField === "phone" ? (
+                    <>
+                      <button className="btn btn-small" type="button" onClick={() => void profilePage.onSaveField("phone")} disabled={profilePage.saving}>
+                        {profilePage.saving ? "Guardando..." : "Guardar"}
+                      </button>
+                      <button className="btn btn-small btn-ghost" type="button" onClick={profilePage.onCancelEditing}>
+                        Cancelar
+                      </button>
+                    </>
+                  ) : (
+                    <button className="btn btn-small btn-ghost" type="button" onClick={() => profilePage.onStartEditing("phone")}>
+                      Editar
+                    </button>
+                  )}
+                </div>
+              </div>
             </article>
           )}
 
@@ -114,6 +142,8 @@ export function ProfilePage() {
               ))}
             </div>
           )}
+          {profilePage.error && <p className="error">{profilePage.error}</p>}
+          {profilePage.success && <p className="success">{profilePage.success}</p>}
         </>
       )}
     </section>

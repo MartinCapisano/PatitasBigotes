@@ -1,22 +1,25 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import type { MyOrder, MyProfile } from "../../../types";
-import { getMyOrders, getMyProfile, updateMyProfile } from "../../../services/auth-api";
+import { getMyOrders, getMyProfile, requestEmailVerification, updateMyProfile } from "../../../services/auth-api";
 import { toUserMessage } from "../../../services/http-errors";
+import { savePendingVerificationEmail } from "../../auth/verification-storage";
 
 export function useProfilePage() {
-  const [section, setSection] = useState<"summary" | "history" | "edit">("summary");
+  const navigate = useNavigate();
+  const [section, setSection] = useState<"profile" | "history">("profile");
   const [profile, setProfile] = useState<MyProfile | null>(null);
   const [orders, setOrders] = useState<MyOrder[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersError, setOrdersError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [verificationLoading, setVerificationLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [editingField, setEditingField] = useState<"phone" | "email" | null>(null);
 
   async function loadProfile() {
     setLoading(true);
@@ -24,8 +27,6 @@ export function useProfilePage() {
     try {
       const data = await getMyProfile();
       setProfile(data);
-      setFirstName(data.first_name || "");
-      setLastName(data.last_name || "");
       setPhone(data.phone || "");
       setEmail(data.email || "");
     } catch (apiError: unknown) {
@@ -56,8 +57,25 @@ export function useProfilePage() {
     void loadOrders();
   }, [section]);
 
-  async function onSubmit(event: FormEvent) {
-    event.preventDefault();
+  function onStartEditing(field: "phone" | "email") {
+    if (!profile) return;
+    setError("");
+    setSuccess("");
+    setPhone(profile.phone || "");
+    setEmail(profile.email || "");
+    setEditingField(field);
+  }
+
+  function onCancelEditing() {
+    if (profile) {
+      setPhone(profile.phone || "");
+      setEmail(profile.email || "");
+    }
+    setEditingField(null);
+    setError("");
+  }
+
+  async function onSaveField(field: "phone" | "email") {
     if (!profile) return;
     setSaving(true);
     setError("");
@@ -65,22 +83,45 @@ export function useProfilePage() {
     try {
       const previousEmail = profile.email;
       const result = await updateMyProfile({
-        first_name: firstName.trim(),
-        last_name: lastName.trim(),
+        first_name: profile.first_name,
+        last_name: profile.last_name,
         phone: phone.trim(),
         email: email.trim()
       });
       setProfile(result.data);
+      setPhone(result.data.phone || "");
+      setEmail(result.data.email || "");
+      setEditingField(null);
       const verificationSent = Boolean((result.meta as Record<string, unknown>).verification_email_sent);
-      if (verificationSent && previousEmail.trim().toLowerCase() !== email.trim().toLowerCase()) {
-        setSuccess("Perfil actualizado. Como cambiaste el email, te enviamos una verificacion a tu nuevo correo.");
+      if (field === "email" && verificationSent && previousEmail.trim().toLowerCase() !== email.trim().toLowerCase()) {
+        savePendingVerificationEmail(result.data.email || email.trim());
+        setSuccess("Email actualizado. Te enviamos una verificacion a tu nuevo correo.");
+      } else if (field === "email") {
+        setSuccess("Email actualizado.");
       } else {
-        setSuccess("Perfil actualizado.");
+        setSuccess("Telefono actualizado.");
       }
     } catch (apiError: unknown) {
       setError(toUserMessage(apiError, "profile"));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function onRequestEmailVerification() {
+    if (!profile || !profile.email || verificationLoading) return;
+    setVerificationLoading(true);
+    setError("");
+    setSuccess("");
+    try {
+      await requestEmailVerification(profile.email);
+      savePendingVerificationEmail(profile.email);
+      setSuccess("Te enviamos un email de verificacion a tu correo actual.");
+      navigate("/verify-email");
+    } catch (apiError: unknown) {
+      setError(toUserMessage(apiError, "email-verify"));
+    } finally {
+      setVerificationLoading(false);
     }
   }
 
@@ -93,16 +134,17 @@ export function useProfilePage() {
     ordersError,
     loading,
     saving,
+    verificationLoading,
     error,
     success,
-    firstName,
-    setFirstName,
-    lastName,
-    setLastName,
     phone,
     setPhone,
     email,
     setEmail,
-    onSubmit
+    editingField,
+    onStartEditing,
+    onCancelEditing,
+    onSaveField,
+    onRequestEmailVerification
   };
 }
