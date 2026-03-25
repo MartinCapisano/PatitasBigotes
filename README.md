@@ -18,6 +18,41 @@ Este README esta pensado para dejar el proyecto listo para correr en Windows con
 - PostgreSQL corriendo en local
 - PowerShell
 
+## Minimo indispensable para probar local
+
+Para levantar la app y recorrer los flujos principales en local, necesitas:
+
+- PostgreSQL corriendo
+- una base de datos creada para el proyecto
+- `backend/.env` con una `DATABASE_URL` valida
+- `frontend/.env` con `VITE_API_BASE_URL=http://localhost:8000`
+- dependencias instaladas
+- migraciones aplicadas
+
+Lo mas simple para dejar eso listo es:
+
+```powershell
+Copy-Item .\backend\.env.example .\backend\.env
+Copy-Item .\frontend\.env.example .\frontend\.env
+.\backend\scripts\bootstrap.ps1 -SeedDemo -NoJobs
+```
+
+Con eso:
+
+- se crea `.venv` si hace falta
+- se instalan dependencias
+- se aplican migraciones
+- se cargan datos demo
+
+Para una prueba local basica NO necesitas:
+
+- Mercado Pago configurado
+- SMTP real para mails
+- webhooks
+- jobs de Windows Task Scheduler
+
+Si no configuras Mercado Pago o SMTP, igual puedes probar catalogo, auth base, admin, carrito, checkout local y flujo cash.
+
 ## Setup rapido
 
 ### 1. Clonar el repo
@@ -186,6 +221,28 @@ Si corriste la demo seed, el admin de prueba queda con:
 
 - Email: `admin@demo.com`
 - Password: `AdminDemo!123`
+
+## Crear admin manualmente
+
+Si no quieres depender del admin demo, hoy la forma correcta de crear un admin adicional es:
+
+1. Crear primero el usuario de manera normal desde la app.
+2. Verificar que ese usuario exista en la tabla `users`.
+3. Promoverlo manualmente en la base de datos marcando `is_admin = true`.
+
+Ejemplo SQL:
+
+```sql
+UPDATE users
+SET is_admin = true
+WHERE email = 'alguien@dominio.com';
+```
+
+Recomendaciones:
+
+- Hazlo solo en entornos controlados o por una persona autorizada.
+- Conviene que el usuario ya tenga su email verificado antes de promoverlo.
+- Este proyecto no expone una pantalla ni endpoint publico para crear admins desde la aplicacion.
 
 ## Como levantar la app
 
