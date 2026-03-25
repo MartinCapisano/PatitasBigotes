@@ -1,4 +1,4 @@
-import type { AdminOrder } from "../../../services/admin-orders-api";
+import type { AdminPayment } from "../../../services/admin-orders-api";
 import type { AdminSearchUser } from "../../../services/admin-sales-api";
 
 export function RegisterPaymentSection(props: {
@@ -23,14 +23,13 @@ export function RegisterPaymentSection(props: {
   pendingSelectedUser: AdminSearchUser | null;
   onTogglePendingUser: (user: AdminSearchUser, checked: boolean) => void;
   onConfirmPendingUser: () => void;
-  orders: AdminOrder[];
-  ordersLoading: boolean;
-  ordersError: string;
-  selectedOrderId: number | null;
-  setSelectedOrderId: (value: number) => void;
-  selectedOrder: AdminOrder | null;
-  method: "cash" | "bank_transfer";
-  setMethod: (value: "cash" | "bank_transfer") => void;
+  pendingPayments: AdminPayment[];
+  pendingPaymentsLoading: boolean;
+  pendingPaymentsError: string;
+  selectedPaymentId: number | null;
+  setSelectedPaymentId: (value: number) => void;
+  selectedPayment: AdminPayment | null;
+  selectedMethod: "cash" | "bank_transfer" | null;
   paidAmount: string;
   setPaidAmount: (value: string) => void;
   changeAmount: string;
@@ -68,14 +67,13 @@ export function RegisterPaymentSection(props: {
     pendingSelectedUser,
     onTogglePendingUser,
     onConfirmPendingUser,
-    orders,
-    ordersLoading,
-    ordersError,
-    selectedOrderId,
-    setSelectedOrderId,
-    selectedOrder,
-    method,
-    setMethod,
+    pendingPayments,
+    pendingPaymentsLoading,
+    pendingPaymentsError,
+    selectedPaymentId,
+    setSelectedPaymentId,
+    selectedPayment,
+    selectedMethod,
     paidAmount,
     setPaidAmount,
     changeAmount,
@@ -119,32 +117,33 @@ export function RegisterPaymentSection(props: {
       </section>
 
       <section className="admin-sales-block">
-        <h3>Ordenes submitted del cliente</h3>
-        {ordersLoading ? (
-          <p className="muted">Cargando ordenes...</p>
-        ) : orders.length === 0 ? (
-          <p className="muted">No hay ordenes submitted para este cliente.</p>
+        <h3>Pagos manuales pendientes del cliente</h3>
+        {pendingPaymentsLoading ? (
+          <p className="muted">Cargando pagos pendientes...</p>
+        ) : pendingPayments.length === 0 ? (
+          <p className="muted">No hay pagos manuales pendientes para este cliente.</p>
         ) : (
           <div className="admin-scroll-list admin-search-results-list">
-            {orders.map((order) => (
-              <label className="admin-user-search-row" key={order.id}>
+            {pendingPayments.map((payment) => (
+              <label className="admin-user-search-row" key={payment.id}>
                 <span className="admin-discount-product-check">
                   <input
                     type="checkbox"
-                    checked={selectedOrderId === order.id}
+                    checked={selectedPaymentId === payment.id}
                     onChange={(event) => {
-                      if (event.target.checked) setSelectedOrderId(order.id);
+                      if (event.target.checked) setSelectedPaymentId(payment.id);
                     }}
                   />
-                  <span>Orden #{order.id}</span>
+                  <span>Pago #{payment.id} | Orden #{payment.order_id}</span>
                 </span>
-                <span className="muted">Estado: {order.status}</span>
-                <span className="muted">Total: {formatArs(order.total_amount)}</span>
+                <span className="muted">Metodo: {payment.method === "cash" ? "Efectivo" : "Transferencia"}</span>
+                <span className="muted">Estado: {payment.status}</span>
+                <span className="muted">Monto pendiente: {formatArs(payment.amount)}</span>
               </label>
             ))}
           </div>
         )}
-        {ordersError && <p className="error">{ordersError}</p>}
+        {pendingPaymentsError && <p className="error">{pendingPaymentsError}</p>}
       </section>
 
       <section className="admin-sales-block">
@@ -152,10 +151,18 @@ export function RegisterPaymentSection(props: {
         <div className="admin-sales-fields">
           <label>
             Metodo
-            <select className="input" value={method} onChange={(e) => setMethod(e.target.value as "cash" | "bank_transfer")}>
-              <option value="cash">Efectivo</option>
-              <option value="bank_transfer">Transferencia</option>
-            </select>
+            <input
+              className="input"
+              value={
+                selectedMethod === "cash"
+                  ? "Efectivo"
+                  : selectedMethod === "bank_transfer"
+                  ? "Transferencia"
+                  : ""
+              }
+              readOnly
+              placeholder="Selecciona un pago pendiente"
+            />
           </label>
           <label>
             Monto pagado (ARS)
@@ -168,7 +175,7 @@ export function RegisterPaymentSection(props: {
               onChange={(e) => setPaidAmount(e.target.value)}
             />
           </label>
-          {method === "cash" && (
+          {selectedMethod === "cash" && (
             <label>
               Vuelto (ARS)
               <input
@@ -182,7 +189,7 @@ export function RegisterPaymentSection(props: {
             </label>
           )}
           <label>
-            Referencia de pago (nro. transaccion/comprobante) {method === "bank_transfer" ? "(obligatoria)" : "(opcional)"}
+            Referencia de pago (nro. transaccion/comprobante) {selectedMethod === "bank_transfer" ? "(obligatoria)" : "(opcional)"}
             <input className="input" value={paymentRef} onChange={(e) => setPaymentRef(e.target.value)} />
           </label>
         </div>
@@ -259,7 +266,7 @@ export function RegisterPaymentSection(props: {
         </div>
       )}
 
-      {showConfirmModal && selectedOrder && selectedUser && (
+      {showConfirmModal && selectedPayment && selectedUser && selectedMethod && (
         <div className="admin-modal-overlay" role="dialog" aria-modal="true">
           <div className="card admin-modal">
             <div className="admin-modal-header">
@@ -269,12 +276,13 @@ export function RegisterPaymentSection(props: {
               </button>
             </div>
             <p className="muted">
-              Orden #{selectedOrder.id} | Cliente: {selectedUser.first_name} {selectedUser.last_name}
+              Orden #{selectedPayment.order_id} | Cliente: {selectedUser.first_name} {selectedUser.last_name}
             </p>
-            <p className="muted">Total orden: {formatArs(selectedOrder.total_amount)}</p>
-            <p className="muted">Metodo: {method === "cash" ? "Efectivo" : "Transferencia"}</p>
+            <p className="muted">Pago pendiente: #{selectedPayment.id}</p>
+            <p className="muted">Total orden: {formatArs(selectedPayment.amount)}</p>
+            <p className="muted">Metodo: {selectedMethod === "cash" ? "Efectivo" : "Transferencia"}</p>
             <p className="muted">Monto pagado: {paidAmount}</p>
-            {method === "cash" && <p className="muted">Vuelto: {changeAmount}</p>}
+            {selectedMethod === "cash" && <p className="muted">Vuelto: {changeAmount}</p>}
             {paymentRef.trim() && <p className="muted">Referencia: {paymentRef.trim()}</p>}
             <div className="admin-inline-actions">
               <button className="btn" type="button" onClick={() => void onConfirmPayment()} disabled={saving}>

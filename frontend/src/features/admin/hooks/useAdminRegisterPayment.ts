@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { searchAdminUsers, type AdminSearchUser } from "../../../services/admin-sales-api";
-import { listAdminOrders, registerAdminOrderManualPayment, type AdminOrder } from "../../../services/admin-orders-api";
+import { listAdminPayments, registerAdminOrderManualPayment, type AdminPayment } from "../../../services/admin-orders-api";
 import { toUserMessage } from "../../../services/http-errors";
 import type { AdminSection } from "../types";
 
@@ -56,12 +56,11 @@ export function useAdminRegisterPayment(params: { adminSection: AdminSection }) 
   const [searchResults, setSearchResults] = useState<AdminSearchUser[]>([]);
   const [pendingSelectedUser, setPendingSelectedUser] = useState<AdminSearchUser | null>(null);
 
-  const [orders, setOrders] = useState<AdminOrder[]>([]);
-  const [ordersLoading, setOrdersLoading] = useState(false);
-  const [ordersError, setOrdersError] = useState("");
-  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [pendingPayments, setPendingPayments] = useState<AdminPayment[]>([]);
+  const [pendingPaymentsLoading, setPendingPaymentsLoading] = useState(false);
+  const [pendingPaymentsError, setPendingPaymentsError] = useState("");
+  const [selectedPaymentId, setSelectedPaymentId] = useState<number | null>(null);
 
-  const [method, setMethod] = useState<"cash" | "bank_transfer">("cash");
   const [paidAmount, setPaidAmount] = useState("");
   const [changeAmount, setChangeAmount] = useState("0");
   const [paymentRef, setPaymentRef] = useState("");
@@ -70,10 +69,14 @@ export function useAdminRegisterPayment(params: { adminSection: AdminSection }) 
   const [success, setSuccess] = useState("");
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
-  const selectedOrder = useMemo(
-    () => orders.find((row) => row.id === selectedOrderId) ?? null,
-    [orders, selectedOrderId]
+  const selectedPayment = useMemo(
+    () => pendingPayments.find((row) => row.id === selectedPaymentId) ?? null,
+    [pendingPayments, selectedPaymentId]
   );
+
+  const selectedMethod = (selectedPayment?.method === "cash" || selectedPayment?.method === "bank_transfer")
+    ? selectedPayment.method
+    : null;
 
   useEffect(() => {
     if (adminSection !== "registrar_pago") return;
@@ -110,31 +113,36 @@ export function useAdminRegisterPayment(params: { adminSection: AdminSection }) 
   }, [adminSection, showUserSearch, searchFirstName, searchLastName, searchEmail, searchDni, searchPhone]);
 
   useEffect(() => {
-    async function loadSubmittedOrdersForUser() {
+    async function loadPendingPaymentsForUser() {
       if (!selectedUser) {
-        setOrders([]);
-        setSelectedOrderId(null);
+        setPendingPayments([]);
+        setSelectedPaymentId(null);
         return;
       }
-      setOrdersLoading(true);
-      setOrdersError("");
+      setPendingPaymentsLoading(true);
+      setPendingPaymentsError("");
       try {
-        const rows = await listAdminOrders({
-          status: "submitted",
+        const rows = await listAdminPayments({
+          status: "pending",
           limit: 500,
           sort_by: "created_at",
           sort_dir: "desc"
         });
-        const userRows = rows.filter((row) => Number(row.user_id) === Number(selectedUser.id));
-        setOrders(userRows);
-        setSelectedOrderId(userRows[0]?.id ?? null);
+        const userRows = rows.filter(
+          (row) =>
+            Number(row.user_id) === Number(selectedUser.id) &&
+            row.order_status === "submitted" &&
+            (row.method === "cash" || row.method === "bank_transfer")
+        );
+        setPendingPayments(userRows);
+        setSelectedPaymentId(userRows[0]?.id ?? null);
       } catch (apiError: unknown) {
-        setOrdersError(toUserMessage(apiError, "generic"));
+        setPendingPaymentsError(toUserMessage(apiError, "generic"));
       } finally {
-        setOrdersLoading(false);
+        setPendingPaymentsLoading(false);
       }
     }
-    void loadSubmittedOrdersForUser();
+    void loadPendingPaymentsForUser();
   }, [selectedUser]);
 
   function openUserSearchModal() {
@@ -161,8 +169,8 @@ export function useAdminRegisterPayment(params: { adminSection: AdminSection }) 
 
   function onClearSelectedUser() {
     setSelectedUser(null);
-    setSelectedOrderId(null);
-    setOrders([]);
+    setSelectedPaymentId(null);
+    setPendingPayments([]);
     setError("");
     setSuccess("");
   }
@@ -173,15 +181,15 @@ export function useAdminRegisterPayment(params: { adminSection: AdminSection }) 
       setError("Selecciona un usuario.");
       return;
     }
-    if (!selectedOrder) {
-      setError("Selecciona una orden submitted.");
+    if (!selectedPayment || !selectedMethod) {
+      setError("Selecciona un pago manual pendiente.");
       return;
     }
     const normalized = normalizePaymentAmountsForOrder({
       paidRaw: paidAmount,
-      changeRaw: method === "cash" ? changeAmount : "0",
-      totalCents: Number(selectedOrder.total_amount || 0),
-      method
+      changeRaw: selectedMethod === "cash" ? changeAmount : "0",
+      totalCents: Number(selectedPayment.amount || 0),
+      method: selectedMethod
     });
     if (!normalized) {
       setError("Monto pagado invalido.");
@@ -189,8 +197,8 @@ export function useAdminRegisterPayment(params: { adminSection: AdminSection }) 
     }
     const paid = normalized.paidCents;
     const change = normalized.changeCents;
-    if (method === "cash") {
-      if (paid - change !== Number(selectedOrder.total_amount || 0)) {
+    if (selectedMethod === "cash") {
+      if (paid - change !== Number(selectedPayment.amount || 0)) {
         setError("Monto pagado menos vuelto debe ser igual al total de la orden.");
         return;
       }
@@ -199,7 +207,7 @@ export function useAdminRegisterPayment(params: { adminSection: AdminSection }) 
         setError("La referencia de pago es obligatoria para transferencia.");
         return;
       }
-      if (paid !== Number(selectedOrder.total_amount || 0)) {
+      if (paid !== Number(selectedPayment.amount || 0)) {
         setError("Monto pagado debe coincidir con el total de la orden.");
         return;
       }
@@ -208,16 +216,16 @@ export function useAdminRegisterPayment(params: { adminSection: AdminSection }) 
   }
 
   async function onConfirmPayment() {
-    if (!selectedOrder) return;
+    if (!selectedPayment || !selectedMethod) return;
     if (saving) return;
     setSaving(true);
     setError("");
     setSuccess("");
     const normalized = normalizePaymentAmountsForOrder({
       paidRaw: paidAmount,
-      changeRaw: method === "cash" ? changeAmount : "0",
-      totalCents: Number(selectedOrder.total_amount || 0),
-      method
+      changeRaw: selectedMethod === "cash" ? changeAmount : "0",
+      totalCents: Number(selectedPayment.amount || 0),
+      method: selectedMethod
     });
     if (!normalized) {
       setError("Monto pagado invalido.");
@@ -226,10 +234,10 @@ export function useAdminRegisterPayment(params: { adminSection: AdminSection }) 
     }
     try {
       const result = await registerAdminOrderManualPayment({
-        order_id: selectedOrder.id,
-        method,
+        order_id: selectedPayment.order_id,
+        method: selectedMethod,
         paid_amount: normalized.paidCents,
-        change_amount: method === "cash" ? normalized.changeCents : undefined,
+        change_amount: selectedMethod === "cash" ? normalized.changeCents : undefined,
         payment_ref: paymentRef.trim() || undefined
       });
       setSuccess(`Pago registrado. Orden #${result.order.id} ahora en estado ${result.order.status}.`);
@@ -237,8 +245,8 @@ export function useAdminRegisterPayment(params: { adminSection: AdminSection }) 
       setPaidAmount("");
       setChangeAmount("0");
       setPaymentRef("");
-      setOrders((prev) => prev.filter((order) => order.id !== result.order.id));
-      setSelectedOrderId(null);
+      setPendingPayments((prev) => prev.filter((payment) => payment.id !== selectedPayment.id));
+      setSelectedPaymentId(null);
     } catch (apiError: unknown) {
       setError(toUserMessage(apiError, "generic"));
     } finally {
@@ -268,14 +276,13 @@ export function useAdminRegisterPayment(params: { adminSection: AdminSection }) 
     pendingSelectedUser,
     onTogglePendingUser,
     onConfirmPendingUser,
-    orders,
-    ordersLoading,
-    ordersError,
-    selectedOrderId,
-    setSelectedOrderId,
-    selectedOrder,
-    method,
-    setMethod,
+    pendingPayments,
+    pendingPaymentsLoading,
+    pendingPaymentsError,
+    selectedPaymentId,
+    setSelectedPaymentId,
+    selectedPayment,
+    selectedMethod,
     paidAmount,
     setPaidAmount,
     changeAmount,

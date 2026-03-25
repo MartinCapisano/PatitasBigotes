@@ -69,7 +69,7 @@ class PaymentsMoneyConsistencyTests(unittest.TestCase):
             session.close()
 
     def test_create_payment_uses_exact_order_total(self) -> None:
-        order_id, _ = self._seed_submitted_order_with_reservation()
+        order_id, user_id = self._seed_submitted_order_with_reservation()
         session = self.TestSession()
         try:
             payment = create_payment_for_order(
@@ -86,6 +86,26 @@ class PaymentsMoneyConsistencyTests(unittest.TestCase):
         self.assertEqual(payment["amount"], 10000)
         self.assertIn("provider_payload_data", payment)
         self.assertIsInstance(payment["provider_payload_data"], dict)
+
+    def test_create_cash_payment_has_no_expiration(self) -> None:
+        order_id, user_id = self._seed_submitted_order_with_reservation()
+        session = self.TestSession()
+        try:
+            payment = create_payment_for_order(
+                order_id=order_id,
+                method="cash",
+                db=session,
+                user_id=user_id,
+                idempotency_key=f"idemp-cash-{datetime.now(UTC).timestamp()}",
+                currency="ARS",
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        self.assertEqual(payment["method"], "cash")
+        self.assertEqual(payment["status"], "pending")
+        self.assertIsNone(payment["expires_at"])
 
     def test_build_mercadopago_payload_rejects_invalid_checkout_url(self) -> None:
         with patch(

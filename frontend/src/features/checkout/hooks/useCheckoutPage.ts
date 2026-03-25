@@ -49,9 +49,15 @@ export function useCheckoutPage(params: { authLoading: boolean; isAuthenticated:
       }
       clearCart();
       if (result.payment) {
-        setSuccess(
-          `Compra enviada. Orden #${result.order.id} (${result.order.status}). Pago #${result.payment.id} creado por ${result.payment.method}.`
-        );
+        if (result.payment.method === "cash") {
+          setSuccess(
+            `Compra enviada. Orden #${result.order.id} en estado ${result.order.status}. El pago en efectivo quedo pendiente de cobro y confirmacion presencial.`
+          );
+        } else {
+          setSuccess(
+            `Compra enviada. Orden #${result.order.id} (${result.order.status}). Pago #${result.payment.id} creado por ${result.payment.method}.`
+          );
+        }
       } else {
         setSuccess(`Compra enviada. Orden #${result.order.id} en estado ${result.order.status}. Pago acordado en efectivo.`);
       }

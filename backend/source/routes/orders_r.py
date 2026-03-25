@@ -473,6 +473,7 @@ def admin_register_manual_payment(
             paid_amount=int(payload.paid_amount),
             method=payload.method,
             change_amount=payload.change_amount,
+            allow_create_if_missing=False,
             db=db,
         )
         updated_order = get_order_for_admin(order_id=order_id, db=db)

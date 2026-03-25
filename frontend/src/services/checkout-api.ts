@@ -27,7 +27,7 @@ type OrderData = {
 
 type PaymentData = {
   id: number;
-  method: "bank_transfer" | "mercadopago";
+  method: "bank_transfer" | "mercadopago" | "cash";
   status: string;
   amount: number;
   currency: string;
@@ -128,7 +128,7 @@ export async function submitGuestCheckoutFromCart(
     customer,
     items: toCheckoutItems(items),
     website: "",
-    payment_method: paymentMethod === "cash" ? null : paymentMethod
+    payment_method: paymentMethod
   };
   const response = await http.post<GuestCheckoutEnvelope>("/checkout/guest", payload, {
     headers: {
@@ -158,9 +158,6 @@ export async function submitAuthenticatedCheckoutFromCart(
   const submitted = await http.patch<OrderEnvelope>(`/orders/${orderId}/status`, {
     status: "submitted"
   });
-  if (paymentMethod === "cash") {
-    return { order: submitted.data.data, payment: null };
-  }
   const paymentResponse = await http.post<{ data: PaymentData }>(
     `/orders/${orderId}/payments`,
     {

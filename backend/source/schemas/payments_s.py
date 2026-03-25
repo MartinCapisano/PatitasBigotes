@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class CreateOrderPaymentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    method: Literal["bank_transfer", "mercadopago"]
+    method: Literal["bank_transfer", "mercadopago", "cash"]
     currency: Literal["ARS"] | None = Field(
         default=None,
     )

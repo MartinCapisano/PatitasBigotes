@@ -1202,7 +1202,7 @@ def create_payment_for_order(
             )
         return _payment_to_dict(active_pending_payment)
 
-    expires_at = now + timedelta(minutes=expires_in_minutes)
+    expires_at = None if method == "cash" else now + timedelta(minutes=expires_in_minutes)
     payment = Payment(
         order_id=order.id,
         method=method,
@@ -1383,6 +1383,7 @@ def confirm_manual_payment_for_order(
     paid_amount: int,
     method: str = "bank_transfer",
     change_amount: int | None = None,
+    allow_create_if_missing: bool = False,
     db: Session,
 ) -> dict:
     expire_active_reservations_for_order(
@@ -1452,6 +1453,17 @@ def confirm_manual_payment_for_order(
         .order_by(Payment.created_at.desc(), Payment.id.desc())
         .first()
     )
+    pending_payment = (
+        db.query(Payment)
+        .filter(
+            Payment.order_id == order.id,
+            Payment.status == "pending",
+            Payment.method == normalized_method,
+        )
+        .with_for_update()
+        .order_by(Payment.created_at.desc(), Payment.id.desc())
+        .first()
+    )
     if order.status == "paid":
         if (
             existing_paid_by_ref is not None
@@ -1460,10 +1472,13 @@ def confirm_manual_payment_for_order(
             return _payment_to_dict(existing_paid_by_ref)
         raise ValueError("order already paid with a different payment_ref")
 
+    if pending_payment is None and not allow_create_if_missing:
+        raise ValueError("pending payment not found for order and method")
+
     consume_reservations_for_paid_order(order_id=order.id, db=db)
 
     now = datetime.now(UTC)
-    payment = existing_paid_by_ref
+    payment = pending_payment or existing_paid_by_ref
     if payment is None:
         payment = Payment(
             order_id=order.id,
@@ -1482,13 +1497,14 @@ def confirm_manual_payment_for_order(
         )
         db.add(payment)
     else:
-        payment.method = payment.method or normalized_method
+        payment.method = normalized_method
         payment.status = "paid"
         payment.amount = received_total
         payment.change_amount = normalized_change_amount
         payment.currency = order.currency or payment.currency or "ARS"
         payment.external_ref = normalized_ref
         payment.provider_status = "manual_confirmed"
+        payment.expires_at = None
         payment.paid_at = now
 
     payment.provider_payload = _serialize_provider_payload(

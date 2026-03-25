@@ -186,6 +186,37 @@ class HttpCheckoutFundamentalsTests(HttpFundamentalsBase):
         self.assertEqual(payload["payment"]["provider_status"], "preference_created")
         self.assertIsNotNone(payload["payment"]["provider_payload_data"]["checkout"]["checkout_url"])
 
+    def test_guest_checkout_cash_creates_pending_payment_without_expiration_over_http(self) -> None:
+        variant_id = self._seed_variant()
+
+        with patch("source.routes.orders_r.enforce_public_guest_checkout_limits", return_value=None):
+            response = self.client.post(
+                "/checkout/guest",
+                json={
+                    "customer": {
+                        "email": "guest-cash@example.com",
+                        "first_name": "Guest",
+                        "last_name": "Cash",
+                        "phone": "1122334455",
+                    },
+                    "items": [{"variant_id": variant_id, "quantity": 1}],
+                    "payment_method": "cash",
+                    "website": None,
+                },
+                headers={
+                    **self._origin_headers(),
+                    "Idempotency-Key": "guest-cash-key-1",
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()["data"]
+        self.assertEqual(payload["order"]["status"], "submitted")
+        self.assertIsNotNone(payload["payment"])
+        self.assertEqual(payload["payment"]["method"], "cash")
+        self.assertEqual(payload["payment"]["status"], "pending")
+        self.assertIsNone(payload["payment"]["expires_at"])
+
     def test_replace_draft_groups_duplicate_variants_over_http(self) -> None:
         db = self._db()
         try:
@@ -294,6 +325,43 @@ class HttpCheckoutFundamentalsTests(HttpFundamentalsBase):
         )
         self.assertEqual(submit_response.status_code, 200)
         self.assertEqual(submit_response.json()["data"]["status"], "submitted")
+
+    def test_authenticated_order_payment_accepts_cash_and_keeps_pending_without_expiration_over_http(self) -> None:
+        db = self._db()
+        try:
+            variants = create_catalog_with_variants(db)
+        finally:
+            db.close()
+        self._create_user(email="draft-cash@example.com", verified=True)
+        login_response = self._login(email="draft-cash@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        replace_response = self.client.put(
+            "/orders/draft/items",
+            json={"items": [{"variant_id": variants["variant_a"], "quantity": 1}]},
+            headers=self._origin_headers(),
+        )
+        self.assertEqual(replace_response.status_code, 200)
+        order_id = int(replace_response.json()["data"]["id"])
+
+        submit_response = self.client.patch(
+            f"/orders/{order_id}/status",
+            json={"status": "submitted"},
+            headers=self._origin_headers(),
+        )
+        self.assertEqual(submit_response.status_code, 200)
+
+        payment_response = self.client.post(
+            f"/orders/{order_id}/payments",
+            json={"method": "cash", "currency": "ARS", "expires_in_minutes": 60},
+            headers={**self._origin_headers(), "Idempotency-Key": "logged-cash-payment-1"},
+        )
+
+        self.assertEqual(payment_response.status_code, 201)
+        payload = payment_response.json()["data"]
+        self.assertEqual(payload["method"], "cash")
+        self.assertEqual(payload["status"], "pending")
+        self.assertIsNone(payload["expires_at"])
 
     def test_update_order_status_rejects_paid_transition_over_http(self) -> None:
         user_id = self._create_user(email="status-admin@example.com", is_admin=True, verified=True)
@@ -444,6 +512,99 @@ class HttpCheckoutFundamentalsTests(HttpFundamentalsBase):
         self.assertEqual(payload["order"]["status"], "paid")
         self.assertEqual(payload["payment"]["method"], "cash")
         self.assertEqual(payload["payment"]["change_amount"], 2000)
+
+    def test_admin_register_manual_payment_reuses_existing_cash_pending_payment_over_http(self) -> None:
+        variant_id = self._seed_variant()
+        self._create_user(email="cash-owner@example.com", verified=True)
+        admin_user_id = self._create_user(email="admin-register-cash@example.com", is_admin=True, verified=True)
+        self.assertGreater(admin_user_id, 0)
+
+        owner_login = self._login(email="cash-owner@example.com")
+        self.assertEqual(owner_login.status_code, 200)
+
+        draft_response = self.client.put(
+            "/orders/draft/items",
+            json={"items": [{"variant_id": variant_id, "quantity": 1}]},
+            headers=self._origin_headers(),
+        )
+        self.assertEqual(draft_response.status_code, 200)
+        order_id = int(draft_response.json()["data"]["id"])
+
+        submit_response = self.client.patch(
+            f"/orders/{order_id}/status",
+            json={"status": "submitted"},
+            headers=self._origin_headers(),
+        )
+        self.assertEqual(submit_response.status_code, 200)
+
+        pending_response = self.client.post(
+            f"/orders/{order_id}/payments",
+            json={"method": "cash", "currency": "ARS", "expires_in_minutes": 60},
+            headers={**self._origin_headers(), "Idempotency-Key": "cash-pending-admin-confirm"},
+        )
+        self.assertEqual(pending_response.status_code, 201)
+        pending_payment = pending_response.json()["data"]
+        self.assertEqual(pending_payment["status"], "pending")
+
+        admin_login = self._login(email="admin-register-cash@example.com")
+        self.assertEqual(admin_login.status_code, 200)
+
+        confirm_response = self.client.post(
+            f"/admin/orders/{order_id}/payments/manual",
+            json={
+                "method": "cash",
+                "paid_amount": 12000,
+                "change_amount": 2000,
+            },
+            headers=self._origin_headers(),
+        )
+
+        self.assertEqual(confirm_response.status_code, 200)
+        payload = confirm_response.json()["data"]
+        self.assertEqual(payload["order"]["status"], "paid")
+        self.assertEqual(payload["payment"]["id"], pending_payment["id"])
+        self.assertEqual(payload["payment"]["method"], "cash")
+        self.assertEqual(payload["payment"]["status"], "paid")
+        self.assertEqual(payload["payment"]["change_amount"], 2000)
+
+    def test_admin_register_manual_payment_rejects_order_without_pending_payment_over_http(self) -> None:
+        variant_id = self._seed_variant()
+        self._create_user(email="no-pending-owner@example.com", verified=True)
+        self._create_user(email="admin-no-pending@example.com", is_admin=True, verified=True)
+
+        owner_login = self._login(email="no-pending-owner@example.com")
+        self.assertEqual(owner_login.status_code, 200)
+
+        draft_response = self.client.put(
+            "/orders/draft/items",
+            json={"items": [{"variant_id": variant_id, "quantity": 1}]},
+            headers=self._origin_headers(),
+        )
+        self.assertEqual(draft_response.status_code, 200)
+        order_id = int(draft_response.json()["data"]["id"])
+
+        submit_response = self.client.patch(
+            f"/orders/{order_id}/status",
+            json={"status": "submitted"},
+            headers=self._origin_headers(),
+        )
+        self.assertEqual(submit_response.status_code, 200)
+
+        admin_login = self._login(email="admin-no-pending@example.com")
+        self.assertEqual(admin_login.status_code, 200)
+
+        confirm_response = self.client.post(
+            f"/admin/orders/{order_id}/payments/manual",
+            json={
+                "method": "cash",
+                "paid_amount": 12000,
+                "change_amount": 2000,
+            },
+            headers=self._origin_headers(),
+        )
+
+        self.assertEqual(confirm_response.status_code, 400)
+        self.assertEqual(confirm_response.json()["detail"], "pending payment not found for order and method")
 
     def test_admin_sale_rejects_change_for_bank_transfer_over_http(self) -> None:
         variant_id = self._seed_variant()
