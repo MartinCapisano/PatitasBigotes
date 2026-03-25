@@ -1,5 +1,7 @@
 import { useState } from "react";
 import type { AdminCategory, AdminProduct, AdminVariant, AdminDiscount } from "../services";
+import { AdminActionsMenu } from "./shared/AdminActionsMenu";
+import { AdminExpandButton } from "./shared/AdminExpandButton";
 
 export function DiscountsSection(props: {
   discountsError: string;
@@ -249,14 +251,12 @@ export function DiscountsSection(props: {
           {discounts.map((discount) => (
             <article className="card" key={discount.id}>
               <div className="admin-catalog-row">
-                <button
-                  className="admin-expand-btn"
-                  type="button"
-                  onClick={() => toggleDiscountExpanded(discount.id)}
-                  aria-label={expandedDiscounts[discount.id] ? "Contraer descuento" : "Expandir descuento"}
-                >
-                  {expandedDiscounts[discount.id] ? "v" : ">"}
-                </button>
+                <AdminExpandButton
+                  expanded={!!expandedDiscounts[discount.id]}
+                  onToggle={() => toggleDiscountExpanded(discount.id)}
+                  expandLabel="Expandir descuento"
+                  collapseLabel="Contraer descuento"
+                />
                 <p>
                   <strong>{discount.name}</strong>
                 </p>
@@ -265,26 +265,18 @@ export function DiscountsSection(props: {
                 </p>
                 <p className="muted">{formatDiscountScope(discount)}</p>
                 <p className="muted">{discount.is_active ? "Activo" : "Inactivo"}</p>
-                <div className="admin-product-menu-wrap">
-                  <button
-                    className="btn btn-small btn-ghost"
-                    type="button"
-                    onClick={() => setOpenDiscountMenuId((prev) => (prev === discount.id ? null : discount.id))}
-                    aria-label="Opciones de descuento"
-                  >
-                    ...
+                <AdminActionsMenu
+                  isOpen={openDiscountMenuId === discount.id}
+                  onToggle={() => setOpenDiscountMenuId((prev) => (prev === discount.id ? null : discount.id))}
+                  label="Opciones de descuento"
+                >
+                  <button className="btn btn-small btn-ghost" type="button" onClick={() => void onToggleDiscountActive(discount)}>
+                    {discount.is_active ? "Desactivar" : "Activar"}
                   </button>
-                  {openDiscountMenuId === discount.id && (
-                    <div className="admin-product-menu">
-                      <button className="btn btn-small btn-ghost" type="button" onClick={() => void onToggleDiscountActive(discount)}>
-                        {discount.is_active ? "Desactivar" : "Activar"}
-                      </button>
-                      <button className="btn btn-small btn-danger" type="button" onClick={() => void onDeleteDiscount(discount.id)}>
-                        Eliminar
-                      </button>
-                    </div>
-                  )}
-                </div>
+                  <button className="btn btn-small btn-danger" type="button" onClick={() => void onDeleteDiscount(discount.id)}>
+                    Eliminar
+                  </button>
+                </AdminActionsMenu>
               </div>
 
               {expandedDiscounts[discount.id] ? (

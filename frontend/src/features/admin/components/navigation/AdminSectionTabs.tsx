@@ -1,0 +1,1 @@
+export { AdminSectionTabs } from "../AdminSectionTabs";

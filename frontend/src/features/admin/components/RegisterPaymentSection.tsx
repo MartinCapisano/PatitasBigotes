@@ -1,5 +1,6 @@
 import type { AdminPayment } from "../../../services/admin-orders-api";
 import type { AdminSearchUser } from "../../../services/admin-sales-api";
+import { AdminUserSearchModal } from "./shared/AdminUserSearchModal";
 
 export function RegisterPaymentSection(props: {
   selectedUser: AdminSearchUser | null;
@@ -203,68 +204,27 @@ export function RegisterPaymentSection(props: {
       {error && <p className="error">{error}</p>}
       {success && <p className="success">{success}</p>}
 
-      {showUserSearch && (
-        <div className="admin-modal-overlay" role="dialog" aria-modal="true">
-          <div className="card admin-modal">
-            <div className="admin-modal-header">
-              <h3>Buscar usuario existente</h3>
-              <button className="btn btn-small btn-ghost" type="button" onClick={closeUserSearchModal}>
-                X
-              </button>
-            </div>
-            <div className="admin-search-toolbar">
-              <label className="admin-search-field">
-                Nombre
-                <input className="input" value={searchFirstName} onChange={(e) => setSearchFirstName(e.target.value)} />
-              </label>
-              <label className="admin-search-field">
-                Apellido
-                <input className="input" value={searchLastName} onChange={(e) => setSearchLastName(e.target.value)} />
-              </label>
-              <label className="admin-search-field">
-                Email
-                <input className="input" value={searchEmail} onChange={(e) => setSearchEmail(e.target.value)} />
-              </label>
-              <label className="admin-search-field">
-                DNI
-                <input className="input" value={searchDni} onChange={(e) => setSearchDni(e.target.value)} />
-              </label>
-              <label className="admin-search-field">
-                Telefono
-                <input className="input" value={searchPhone} onChange={(e) => setSearchPhone(e.target.value)} />
-              </label>
-            </div>
-            {searchLoading && <p className="muted">Buscando...</p>}
-            {searchError && <p className="error">{searchError}</p>}
-            <div className="admin-scroll-list admin-search-results-list">
-              {searchResults.map((user) => (
-                <div className="admin-user-search-row" key={user.id}>
-                  <label className="admin-discount-product-check">
-                    <input
-                      type="checkbox"
-                      checked={pendingSelectedUser?.id === user.id}
-                      onChange={(event) => onTogglePendingUser(user, event.target.checked)}
-                    />
-                    <span>#{user.id} {user.first_name} {user.last_name}</span>
-                  </label>
-                  <p className="muted">Email: {user.email}</p>
-                  <p className="muted">DNI: {user.dni || "-"} | Tel: {user.phone || "-"}</p>
-                </div>
-              ))}
-            </div>
-            <p className="muted">
-              {pendingSelectedUser
-                ? `Seleccion temporal: #${pendingSelectedUser.id} - ${pendingSelectedUser.first_name} ${pendingSelectedUser.last_name}`
-                : "Seleccion temporal: -"}
-            </p>
-            <div className="admin-inline-actions">
-              <button className="btn btn-small" type="button" onClick={onConfirmPendingUser} disabled={!pendingSelectedUser}>
-                Seleccionar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AdminUserSearchModal
+        title="Buscar usuario existente"
+        show={showUserSearch}
+        onClose={closeUserSearchModal}
+        searchFirstName={searchFirstName}
+        setSearchFirstName={setSearchFirstName}
+        searchLastName={searchLastName}
+        setSearchLastName={setSearchLastName}
+        searchEmail={searchEmail}
+        setSearchEmail={setSearchEmail}
+        searchDni={searchDni}
+        setSearchDni={setSearchDni}
+        searchPhone={searchPhone}
+        setSearchPhone={setSearchPhone}
+        searchLoading={searchLoading}
+        searchError={searchError}
+        searchResults={searchResults}
+        pendingSelectedUser={pendingSelectedUser}
+        onTogglePendingUser={onTogglePendingUser}
+        onConfirmPendingUser={onConfirmPendingUser}
+      />
 
       {showConfirmModal && selectedPayment && selectedUser && selectedMethod && (
         <div className="admin-modal-overlay" role="dialog" aria-modal="true">

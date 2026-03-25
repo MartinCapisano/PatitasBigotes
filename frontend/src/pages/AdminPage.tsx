@@ -1,5 +1,8 @@
 import { useState } from "react";
 import {
+  ADMIN_SALES_SECTIONS,
+  ADMIN_VIEW_SECTIONS,
+  type AdminMode,
   type AdminSection,
   formatArs,
   useAdminCatalog,
@@ -12,6 +15,7 @@ import {
 } from "../features/admin";
 import {
   AdminSectionTabs,
+  CategoriesSection,
   CatalogSection,
   DiscountsSection,
   OrdersPaymentsSection,
@@ -22,7 +26,11 @@ import {
 } from "../features/admin/components";
 
 export function AdminPage() {
-  const [adminSection, setAdminSection] = useState<AdminSection>("catalogo");
+  const [adminMode, setAdminMode] = useState<AdminMode>("ver");
+  const [viewSection, setViewSection] = useState<AdminSection>("catalogo");
+  const [salesSection, setSalesSection] = useState<AdminSection>("registrar_venta");
+
+  const adminSection = adminMode === "ver" ? viewSection : salesSection;
 
   const catalog = useAdminCatalog();
   const turns = useAdminTurns(adminSection);
@@ -43,12 +51,68 @@ export function AdminPage() {
     variantsByProduct: catalog.variantsByProduct
   });
   const registerPayment = useAdminRegisterPayment({ adminSection });
+  const productsCountByCategory = Object.fromEntries(
+    catalog.productsSorted.reduce<Array<[string, number]>>((acc, product) => {
+      const categoryName = String(product.category || "Sin categoria");
+      const current = acc.find(([name]) => name === categoryName);
+      if (current) {
+        current[1] += 1;
+      } else {
+        acc.push([categoryName, 1]);
+      }
+      return acc;
+    }, [])
+  );
 
   return (
     <section>
       <h1 className="page-title">Panel Admin</h1>
-      <p className="page-subtitle">Elegi que queres gestionar: catalogo, descuentos, turnos, ordenes, pagos, incidencias de pago, registrar venta o registrar pago.</p>
-      <AdminSectionTabs adminSection={adminSection} onSelect={setAdminSection} />
+      <p className="page-subtitle">Trabaja el panel por bloques: ver para gestionar y revisar, venta para operar cobros, ventas e incidencias.</p>
+      <div className="account-menu">
+        <button
+          className={`btn btn-small ${adminMode === "ver" ? "" : "btn-ghost"}`}
+          type="button"
+          onClick={() => setAdminMode("ver")}
+        >
+          Ver
+        </button>
+        <button
+          className={`btn btn-small ${adminMode === "venta" ? "" : "btn-ghost"}`}
+          type="button"
+          onClick={() => setAdminMode("venta")}
+        >
+          Venta
+        </button>
+      </div>
+      <AdminSectionTabs
+        adminSection={adminSection}
+        sections={adminMode === "ver" ? ADMIN_VIEW_SECTIONS : ADMIN_SALES_SECTIONS}
+        onSelect={(section) => {
+          if (ADMIN_VIEW_SECTIONS.includes(section)) {
+            setViewSection(section);
+            setAdminMode("ver");
+            return;
+          }
+          setSalesSection(section);
+          setAdminMode("venta");
+        }}
+      />
+
+      {adminSection === "categorias" && (
+        <CategoriesSection
+          categories={catalog.categories}
+          productsCountByCategory={productsCountByCategory}
+          error={catalog.error}
+          editingCategoryId={catalog.editingCategoryId}
+          setEditingCategoryId={catalog.setEditingCategoryId}
+          editCategoryName={catalog.editCategoryName}
+          setEditCategoryName={catalog.setEditCategoryName}
+          openCategoryMenuId={catalog.openCategoryMenuId}
+          setOpenCategoryMenuId={catalog.setOpenCategoryMenuId}
+          onStartCategoryEdit={catalog.onStartCategoryEdit}
+          onSaveCategoryEdit={catalog.onSaveCategoryEdit}
+        />
+      )}
 
       {adminSection === "descuentos" && (
         <DiscountsSection

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { AdminCategory, AdminProduct, AdminVariant } from "../services";
+import { AdminActionsMenu } from "./shared/AdminActionsMenu";
+import { AdminExpandButton } from "./shared/AdminExpandButton";
 
 function ProductRow(props: {
   product: AdminProduct;
@@ -97,40 +99,30 @@ function ProductRow(props: {
   return (
     <article className="card" key={product.id}>
       <div className="admin-catalog-row">
-        <button
-          className="admin-expand-btn"
-          type="button"
-          onClick={() => toggleProductExpanded(product.id)}
-          aria-label={expandedProducts[product.id] ? "Contraer producto" : "Expandir producto"}
-        >
-          {expandedProducts[product.id] ? "v" : ">"}
-        </button>
+        <AdminExpandButton
+          expanded={!!expandedProducts[product.id]}
+          onToggle={() => toggleProductExpanded(product.id)}
+          expandLabel="Expandir producto"
+          collapseLabel="Contraer producto"
+        />
         <p>
           <strong>{product.name}</strong>
         </p>
         <p className="muted">{product.category || "-"}</p>
         <p className="muted">{formatArs(product.min_var_price)}</p>
         <p className="muted">{product.active ? "Activo" : "Inactivo"}</p>
-        <div className="admin-product-menu-wrap">
-          <button
-            className="btn btn-small btn-ghost"
-            type="button"
-            onClick={() => setOpenProductMenuId((prev) => (prev === product.id ? null : product.id))}
-            aria-label="Opciones de producto"
-          >
-            ...
+        <AdminActionsMenu
+          isOpen={openProductMenuId === product.id}
+          onToggle={() => setOpenProductMenuId((prev) => (prev === product.id ? null : product.id))}
+          label="Opciones de producto"
+        >
+          <button className="btn btn-small btn-ghost" type="button" onClick={() => onStartEdit(product)}>
+            Editar
           </button>
-          {openProductMenuId === product.id && (
-            <div className="admin-product-menu">
-              <button className="btn btn-small btn-ghost" type="button" onClick={() => onStartEdit(product)}>
-                Editar
-              </button>
-              <button className="btn btn-small btn-danger" type="button" onClick={() => void onDeleteProduct(product.id)}>
-                Eliminar
-              </button>
-            </div>
-          )}
-        </div>
+          <button className="btn btn-small btn-danger" type="button" onClick={() => void onDeleteProduct(product.id)}>
+            Eliminar
+          </button>
+        </AdminActionsMenu>
       </div>
 
       {editingProductId === product.id && (
@@ -481,19 +473,8 @@ export function CatalogSection(props: {
           <button className="btn btn-small btn-ghost" type="button" onClick={() => setShowCreateProductForm((v) => !v)}>
             {showCreateProductForm ? "Ocultar crear producto" : "Agregar producto"}
           </button>
-          <button className="btn btn-small btn-ghost" type="button" onClick={() => setShowCreateCategoryForm((v) => !v)}>
-            {showCreateCategoryForm ? "Ocultar categoria" : "Agregar categoria"}
-          </button>
           <button className="btn btn-small btn-ghost" type="button" onClick={onOpenAddStockModal}>
             Agregar stock
-          </button>
-          <button
-            className="btn btn-small btn-danger"
-            type="button"
-            onClick={onOpenDeleteCategoryModal}
-            title="Eliminar categoria"
-          >
-            Eliminar categoria
           </button>
         </div>
 

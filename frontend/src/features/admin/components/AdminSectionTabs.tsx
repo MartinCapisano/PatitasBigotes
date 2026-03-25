@@ -2,35 +2,38 @@ import type { AdminSection } from "../types";
 
 export function AdminSectionTabs(props: {
   adminSection: AdminSection;
+  sections: AdminSection[];
   onSelect: (section: AdminSection) => void;
 }) {
-  const { adminSection, onSelect } = props;
+  const { adminSection, sections, onSelect } = props;
   return (
     <div className="admin-section-tabs">
-      <button className={`btn btn-small ${adminSection === "catalogo" ? "" : "btn-ghost"}`} type="button" onClick={() => onSelect("catalogo")}>
-        Catalogo
-      </button>
-      <button className={`btn btn-small ${adminSection === "descuentos" ? "" : "btn-ghost"}`} type="button" onClick={() => onSelect("descuentos")}>
-        Descuentos
-      </button>
-      <button className={`btn btn-small ${adminSection === "turnos" ? "" : "btn-ghost"}`} type="button" onClick={() => onSelect("turnos")}>
-        Turnos
-      </button>
-      <button className={`btn btn-small ${adminSection === "ordenes" ? "" : "btn-ghost"}`} type="button" onClick={() => onSelect("ordenes")}>
-        Ordenes
-      </button>
-      <button className={`btn btn-small ${adminSection === "pagos" ? "" : "btn-ghost"}`} type="button" onClick={() => onSelect("pagos")}>
-        Pagos
-      </button>
-      <button className={`btn btn-small ${adminSection === "incidencias_pago" ? "" : "btn-ghost"}`} type="button" onClick={() => onSelect("incidencias_pago")}>
-        Incidencias pago
-      </button>
-      <button className={`btn btn-small ${adminSection === "registrar_venta" ? "" : "btn-ghost"}`} type="button" onClick={() => onSelect("registrar_venta")}>
-        Registrar venta
-      </button>
-      <button className={`btn btn-small ${adminSection === "registrar_pago" ? "" : "btn-ghost"}`} type="button" onClick={() => onSelect("registrar_pago")}>
-        Registrar pago
-      </button>
+      {sections.map((section) => (
+        <button
+          key={section}
+          className={`btn btn-small ${adminSection === section ? "" : "btn-ghost"}`}
+          type="button"
+          onClick={() => onSelect(section)}
+        >
+          {section === "categorias"
+            ? "Categorias"
+            : section === "catalogo"
+            ? "Catalogo"
+            : section === "descuentos"
+            ? "Descuentos"
+            : section === "turnos"
+            ? "Turnos"
+            : section === "ordenes"
+            ? "Ordenes"
+            : section === "pagos"
+            ? "Pagos"
+            : section === "incidencias_pago"
+            ? "Incidencias"
+            : section === "registrar_venta"
+            ? "Registrar venta"
+            : "Registrar pago"}
+        </button>
+      ))}
     </div>
   );
 }

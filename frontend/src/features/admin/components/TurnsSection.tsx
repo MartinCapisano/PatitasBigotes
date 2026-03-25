@@ -1,5 +1,7 @@
 import { useState } from "react";
 import type { AdminTurn } from "../services";
+import { AdminActionsMenu } from "./shared/AdminActionsMenu";
+import { AdminExpandButton } from "./shared/AdminExpandButton";
 
 export function TurnsSection(props: {
   turns: AdminTurn[];
@@ -51,46 +53,36 @@ export function TurnsSection(props: {
           {turns.map((turn) => (
             <article className="card" key={turn.id}>
               <div className="admin-catalog-row">
-                <button
-                  className="admin-expand-btn"
-                  type="button"
-                  onClick={() => toggleTurnExpanded(turn.id)}
-                  aria-label={expandedTurns[turn.id] ? "Contraer turno" : "Expandir turno"}
-                >
-                  {expandedTurns[turn.id] ? "v" : ">"}
-                </button>
+                <AdminExpandButton
+                  expanded={!!expandedTurns[turn.id]}
+                  onToggle={() => toggleTurnExpanded(turn.id)}
+                  expandLabel="Expandir turno"
+                  collapseLabel="Contraer turno"
+                />
                 <p>
                   <strong>{turn.customer.first_name || ""} {turn.customer.last_name || ""}</strong>
                 </p>
                 <p className="muted">{turn.customer.phone || "-"}</p>
                 <p className="muted">{turn.notes || turn.scheduled_at || "-"}</p>
                 <p className="muted">{turn.status}</p>
-                <div className="admin-product-menu-wrap">
-                  <button
-                    className="btn btn-small btn-ghost"
-                    type="button"
-                    onClick={() => setOpenTurnMenuId((prev) => (prev === turn.id ? null : turn.id))}
-                    aria-label="Opciones de turno"
-                  >
-                    ...
-                  </button>
-                  {openTurnMenuId === turn.id && (
-                    <div className="admin-product-menu">
-                      {turn.status === "pending" ? (
-                        <>
-                          <button className="btn btn-small btn-ghost" type="button" onClick={() => void onUpdateTurnStatus(turn.id, "confirmed")}>
-                            Confirmar
-                          </button>
-                          <button className="btn btn-small btn-danger" type="button" onClick={() => void onUpdateTurnStatus(turn.id, "cancelled")}>
-                            Cancelar
-                          </button>
-                        </>
-                      ) : (
-                        <p className="muted" style={{ margin: 0 }}>Sin acciones</p>
-                      )}
-                    </div>
+                <AdminActionsMenu
+                  isOpen={openTurnMenuId === turn.id}
+                  onToggle={() => setOpenTurnMenuId((prev) => (prev === turn.id ? null : turn.id))}
+                  label="Opciones de turno"
+                >
+                  {turn.status === "pending" ? (
+                    <>
+                      <button className="btn btn-small btn-ghost" type="button" onClick={() => void onUpdateTurnStatus(turn.id, "confirmed")}>
+                        Confirmar
+                      </button>
+                      <button className="btn btn-small btn-danger" type="button" onClick={() => void onUpdateTurnStatus(turn.id, "cancelled")}>
+                        Cancelar
+                      </button>
+                    </>
+                  ) : (
+                    <p className="muted" style={{ margin: 0 }}>Sin acciones</p>
                   )}
-                </div>
+                </AdminActionsMenu>
               </div>
 
               {expandedTurns[turn.id] ? (

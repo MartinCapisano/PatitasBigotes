@@ -50,6 +50,14 @@ export async function deleteAdminCategory(categoryId: number): Promise<AdminCate
   return response.data.data;
 }
 
+export async function patchAdminCategory(
+  categoryId: number,
+  payload: { name?: string }
+): Promise<AdminCategory> {
+  const response = await http.patch<{ data: AdminCategory }>(`/categories/${categoryId}`, payload);
+  return response.data.data;
+}
+
 export async function createAdminProduct(payload: {
   name: string;
   description: string | null;

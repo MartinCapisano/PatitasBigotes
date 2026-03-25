@@ -1,0 +1,1 @@
+export { DiscountsSection } from "../../DiscountsSection";

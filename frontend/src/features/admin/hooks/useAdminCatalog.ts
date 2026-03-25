@@ -9,6 +9,7 @@ import {
   deleteAdminCategory,
   deleteAdminProduct,
   getAdminCatalog,
+  patchAdminCategory,
   patchAdminProduct,
   patchAdminVariant
 } from "../../../services/admin-catalog-api";
@@ -75,6 +76,9 @@ export function useAdminCatalog() {
   const [showCreateCategoryForm, setShowCreateCategoryForm] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [creatingCategory, setCreatingCategory] = useState(false);
+  const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
+  const [editCategoryName, setEditCategoryName] = useState("");
+  const [openCategoryMenuId, setOpenCategoryMenuId] = useState<number | null>(null);
   const [catalogCategoryFilter, setCatalogCategoryFilter] = useState<string>("all");
   const [showAddStockModal, setShowAddStockModal] = useState(false);
   const [stockProductId, setStockProductId] = useState("");
@@ -190,6 +194,38 @@ export function useAdminCatalog() {
       setError("No se pudo eliminar la categoria.");
     } finally {
       setDeletingCategory(false);
+    }
+  }
+
+  function onStartCategoryEdit(category: AdminCategory) {
+    setOpenCategoryMenuId(null);
+    setEditingCategoryId(category.id);
+    setEditCategoryName(category.name);
+    setError("");
+  }
+
+  async function onSaveCategoryEdit() {
+    if (!editingCategoryId) return;
+    const normalizedName = editCategoryName.trim();
+    if (!normalizedName) {
+      setError("Nombre de categoria requerido.");
+      return;
+    }
+    setError("");
+    try {
+      const previousCategory = categories.find((category) => category.id === editingCategoryId) ?? null;
+      await patchAdminCategory(editingCategoryId, { name: normalizedName });
+      setEditingCategoryId(null);
+      setEditCategoryName("");
+      await loadAll();
+      if (previousCategory && catalogCategoryFilter === previousCategory.name) {
+        setCatalogCategoryFilter(normalizedName);
+      }
+      if (newCategory === previousCategory?.name) {
+        setNewCategory(normalizedName);
+      }
+    } catch {
+      setError("No se pudo actualizar la categoria.");
     }
   }
 
@@ -454,6 +490,14 @@ export function useAdminCatalog() {
 
   return {
     categories,
+    editingCategoryId,
+    setEditingCategoryId,
+    editCategoryName,
+    setEditCategoryName,
+    openCategoryMenuId,
+    setOpenCategoryMenuId,
+    onStartCategoryEdit,
+    onSaveCategoryEdit,
     productsSorted,
     productsByCategory,
     visibleProducts,
