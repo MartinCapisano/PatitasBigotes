@@ -8,7 +8,7 @@ import { getUnreadNotificationCount, listNotifications, readAllNotifications, re
 
 export function Layout() {
   const location = useLocation();
-  const { isAuthenticated, logout, sessionExpired, clearSessionExpiredNotice } = useAuth();
+  const { isAuthenticated, logout } = useAuth();
   const currentCartCount = cartCount();
   const isAdminRoute = location.pathname.startsWith("/admin");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -192,25 +192,6 @@ export function Layout() {
           </nav>
         </div>
       </header>
-      {sessionExpired && !isAuthenticated ? (
-        <div className="container">
-          <div className="card" style={{ marginTop: 16, padding: 16 }}>
-            <div className="admin-inline-actions" style={{ justifyContent: "space-between", gap: 12 }}>
-              <p className="error" style={{ margin: 0 }}>
-                Tu sesion expiro o ya no es valida. Ingresa nuevamente para continuar.
-              </p>
-              <div className="admin-inline-actions">
-                <Link className="btn btn-small" to="/login" onClick={clearSessionExpiredNotice}>
-                  Ingresar
-                </Link>
-                <button className="btn btn-small btn-ghost" type="button" onClick={clearSessionExpiredNotice}>
-                  Cerrar aviso
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
       {!isAuthenticated && location.pathname === "/home" && pendingVerificationEmail ? (
         <div className="container">
           <div className="card" style={{ marginTop: 16, padding: 16 }}>

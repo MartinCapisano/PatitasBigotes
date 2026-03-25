@@ -3,7 +3,7 @@ import { useLoginPage } from "../features/auth";
 import { Link } from "react-router-dom";
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, clearSessionExpiredNotice } = useAuth();
   const loginPage = useLoginPage(login);
 
   return (
@@ -35,6 +35,9 @@ export function LoginPage() {
         <button className="btn" type="submit" disabled={loginPage.loading}>
           {loginPage.loading ? "Ingresando..." : "Entrar"}
         </button>
+        <Link className="btn btn-ghost" to="/home" onClick={clearSessionExpiredNotice}>
+          Continuar sin iniciar sesion
+        </Link>
         <Link className="btn btn-ghost" to="/forgot-password">
           Has olvidado la contrasenia?
         </Link>
