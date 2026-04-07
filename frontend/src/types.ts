@@ -89,3 +89,16 @@ export type MyOrder = {
   created_at: string;
   items: MyOrderItem[];
 };
+
+export type MyPayment = {
+  id: number;
+  order_id: number;
+  method: "bank_transfer" | "mercadopago" | "cash";
+  status: "pending" | "paid" | "cancelled" | "expired";
+  amount: number;
+  currency: string;
+  receipt_url: string | null;
+  external_ref: string | null;
+  created_at: string;
+  paid_at: string | null;
+};

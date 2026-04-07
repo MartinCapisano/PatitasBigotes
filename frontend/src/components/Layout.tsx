@@ -2,14 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { clearPendingVerificationEmail, readPendingVerificationEmail } from "../features/auth/verification-storage";
-import { cartCount } from "../lib/cart-storage";
+import { cartCount, subscribeToCartUpdates } from "../lib/cart-storage";
 import type { NotificationItem } from "../types";
 import { getUnreadNotificationCount, listNotifications, readAllNotifications, readNotification } from "../services/notifications-api";
 
 export function Layout() {
   const location = useLocation();
   const { isAuthenticated, logout } = useAuth();
-  const currentCartCount = cartCount();
+  const [currentCartCount, setCurrentCartCount] = useState(() => cartCount());
   const isAdminRoute = location.pathname.startsWith("/admin");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -20,6 +20,20 @@ export function Layout() {
   useEffect(() => {
     setPendingVerificationEmail(readPendingVerificationEmail());
   }, [location.pathname]);
+
+  useEffect(() => {
+    function syncCartCount() {
+      setCurrentCartCount(cartCount());
+    }
+
+    syncCartCount();
+    const unsubscribe = subscribeToCartUpdates(syncCartCount);
+    window.addEventListener("storage", syncCartCount);
+    return () => {
+      unsubscribe();
+      window.removeEventListener("storage", syncCartCount);
+    };
+  }, []);
 
   const loadUnreadCount = useCallback(async () => {
     if (!isAuthenticated) {

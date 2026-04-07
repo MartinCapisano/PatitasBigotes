@@ -149,7 +149,3 @@ def build_resolve_refund_payload(*, reason: str, amount: int | None = None) -> d
     if amount is not None:
         payload["amount"] = amount
     return payload
-
-
-def build_receipt_payload(*, receipt_url: str) -> dict[str, str]:
-    return {"receipt_url": receipt_url}

@@ -20,7 +20,6 @@ from source.schemas.payments_s import (
     CreateOrderPaymentRequest,
     PaymentIncidentResolveNoRefundRequest,
     PaymentIncidentResolveRefundRequest,
-    SubmitBankTransferReceiptRequest,
 )
 from source.schemas.products_s import (
     CreateCategoryRequest,
@@ -64,7 +63,6 @@ __all__ = [
     "CreateDiscountRequest",
     "CreateOrderPaymentRequest",
     "AdminWebhookReplayRequest",
-    "SubmitBankTransferReceiptRequest",
     "PaymentIncidentResolveRefundRequest",
     "PaymentIncidentResolveNoRefundRequest",
     "CreateCategoryRequest",

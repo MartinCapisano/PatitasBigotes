@@ -1,6 +1,13 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { clearCart, readCart } from "../../../lib/cart-storage";
+import {
+  clearCart,
+  decrementCartItem,
+  incrementCartItem,
+  readCart,
+  removeCartItem,
+  type CartItem
+} from "../../../lib/cart-storage";
 import {
   getMercadoPagoCheckoutUrl,
   redirectToMercadoPago,
@@ -13,8 +20,7 @@ import { classifyHttpError, toUserMessage } from "../../../services/http-errors"
 export function useCheckoutPage(params: { authLoading: boolean; isAuthenticated: boolean }) {
   const { authLoading, isAuthenticated } = params;
   const navigate = useNavigate();
-  const items = readCart();
-  const total = items.reduce((sum, item) => sum + item.unit_price * item.quantity, 0);
+  const [items, setItems] = useState<CartItem[]>(() => readCart());
   const [guestFirstName, setGuestFirstName] = useState("");
   const [guestLastName, setGuestLastName] = useState("");
   const [guestEmail, setGuestEmail] = useState("");
@@ -23,6 +29,38 @@ export function useCheckoutPage(params: { authLoading: boolean; isAuthenticated:
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const total = useMemo(
+    () => items.reduce((sum, item) => sum + item.unit_price * item.quantity, 0),
+    [items]
+  );
+
+  function clearCheckoutMessages() {
+    setError("");
+    setSuccess("");
+  }
+
+  function onIncrementItem(variantId: number, quantity: number) {
+    if (loading) return;
+    if (quantity >= 10) {
+      setSuccess("");
+      setError("La cantidad maxima por producto en checkout es 10.");
+      return;
+    }
+    setItems(incrementCartItem(variantId, 10));
+    clearCheckoutMessages();
+  }
+
+  function onDecrementItem(variantId: number, quantity: number) {
+    if (loading || quantity <= 1) return;
+    setItems(decrementCartItem(variantId));
+    clearCheckoutMessages();
+  }
+
+  function onRemoveItem(variantId: number) {
+    if (loading) return;
+    setItems(removeCartItem(variantId));
+    clearCheckoutMessages();
+  }
 
   async function onFinalizeCheckout() {
     if (items.length === 0 || loading || authLoading) return;
@@ -99,6 +137,9 @@ export function useCheckoutPage(params: { authLoading: boolean; isAuthenticated:
     loading,
     error,
     success,
+    onIncrementItem,
+    onDecrementItem,
+    onRemoveItem,
     onFinalizeCheckout
   };
 }

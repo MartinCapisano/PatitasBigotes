@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from source.dependencies.auth_d import get_current_user, get_current_user_id, require_admin
@@ -14,6 +15,7 @@ from source.services.payment_s import (
     list_payments_for_admin,
     list_pending_bank_transfer_payments_for_admin,
 )
+from source.services.payment_receipts_s import resolve_receipt_path
 from source.services.refund_s import (
     create_mercadopago_refund,
     list_payment_incidents_for_admin,
@@ -112,6 +114,18 @@ def list_admin_payment_incidents(
     except Exception as exc:
         raise_http_error_from_exception(exc, db=db)
     return {"data": rows}
+
+
+@router.get("/receipts/{stored_filename}")
+def get_admin_receipt_file(
+    stored_filename: str,
+    _: dict = Depends(require_admin),
+):
+    try:
+        path, media_type = resolve_receipt_path(stored_filename)
+    except Exception as exc:
+        raise_http_error_from_exception(exc)
+    return FileResponse(path=path, media_type=media_type, filename=path.name)
 
 
 @router.post("/admin/payment-incidents/{incident_id}/resolve-refund", status_code=status.HTTP_201_CREATED)

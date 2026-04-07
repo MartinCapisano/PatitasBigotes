@@ -26,6 +26,14 @@ export async function requestPasswordReset(email: string) {
   return response.data.data;
 }
 
+export async function confirmPasswordReset(token: string, newPassword: string) {
+  const response = await http.post<ApiEnvelope<{ password_reset: boolean }>>("/auth/password/reset/confirm", {
+    token,
+    new_password: newPassword
+  });
+  return response.data.data;
+}
+
 export async function requestEmailVerification(email: string) {
   const response = await http.post<ApiEnvelope<{ requested: boolean }>>("/auth/email/verify/request", {
     email

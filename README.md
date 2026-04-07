@@ -4,6 +4,8 @@ Aplicacion full stack para tienda y turnos, con backend en FastAPI y frontend en
 
 Este README esta pensado para dejar el proyecto listo para correr en Windows con PowerShell, usando PostgreSQL local. La idea es que una persona pueda clonar el repo, configurar variables, cargar demo data y levantar la app sin depender de conocimiento previo del autor.
 
+Los tests son para desarrollo y validacion tecnica; no se ejecutan automaticamente al instalar o levantar la app.
+
 ## Stack
 
 - Backend: FastAPI, SQLAlchemy, Alembic, PostgreSQL

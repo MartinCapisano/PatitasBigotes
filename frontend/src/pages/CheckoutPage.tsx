@@ -31,12 +31,42 @@ export function CheckoutPage() {
           <div className="card">
             {checkout.items.map((item) => (
               <div key={`${item.product_id}-${item.variant_id}`} className="checkout-row">
-                <div>
+                <div className="checkout-row-main">
                   <strong>{item.product_name}</strong>
                   <p className="muted">Opcion: {item.option_label}</p>
+                  <p className="muted">Precio unitario: {formatArs(item.unit_price)}</p>
                 </div>
-                <div>
-                  <p>{item.quantity} x {formatArs(item.unit_price)}</p>
+                <div className="checkout-row-side">
+                  <div className="checkout-qty-controls">
+                    <button
+                      className="btn btn-small btn-ghost"
+                      type="button"
+                      onClick={() => checkout.onDecrementItem(item.variant_id, item.quantity)}
+                      disabled={checkout.loading || item.quantity <= 1}
+                      aria-label={`Disminuir cantidad de ${item.product_name}`}
+                    >
+                      -
+                    </button>
+                    <span className="checkout-qty-value">{item.quantity}</span>
+                    <button
+                      className="btn btn-small btn-ghost"
+                      type="button"
+                      onClick={() => checkout.onIncrementItem(item.variant_id, item.quantity)}
+                      disabled={checkout.loading || item.quantity >= 10}
+                      aria-label={`Aumentar cantidad de ${item.product_name}`}
+                    >
+                      +
+                    </button>
+                  </div>
+                  <p className="muted">Subtotal linea: {formatArs(item.unit_price * item.quantity)}</p>
+                  <button
+                    className="btn btn-small btn-ghost"
+                    type="button"
+                    onClick={() => checkout.onRemoveItem(item.variant_id)}
+                    disabled={checkout.loading}
+                  >
+                    Eliminar
+                  </button>
                 </div>
               </div>
             ))}
@@ -72,6 +102,11 @@ export function CheckoutPage() {
                 </label>
               </div>
             )}
+            <div className="checkout-actions">
+              <Link className="btn btn-small btn-ghost" to="/home">
+                Seguir comprando
+              </Link>
+            </div>
             <div className="checkout-actions">
               <button
                 className="btn"

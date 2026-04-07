@@ -437,6 +437,30 @@ a {
   padding: 0.65rem 0;
 }
 
+.checkout-row-main {
+  min-width: 0;
+}
+
+.checkout-row-side {
+  min-width: 190px;
+  display: grid;
+  justify-items: end;
+  gap: 0.45rem;
+  text-align: right;
+}
+
+.checkout-qty-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.checkout-qty-value {
+  min-width: 1.8rem;
+  text-align: center;
+  font-weight: 800;
+}
+
 .checkout-total {
   font-size: 1.4rem;
   font-weight: 800;
@@ -876,6 +900,16 @@ a {
 
   .checkout-grid {
     grid-template-columns: 1fr;
+  }
+
+  .checkout-row {
+    flex-direction: column;
+  }
+
+  .checkout-row-side {
+    min-width: 0;
+    justify-items: start;
+    text-align: left;
   }
 
   .product-detail-layout {

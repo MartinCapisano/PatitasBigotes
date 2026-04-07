@@ -2,7 +2,6 @@ from unittest.mock import patch
 
 from backend.tests.factories.http_payments import (
     build_create_payment_payload,
-    build_receipt_payload,
     build_resolve_refund_payload,
     create_payment_incident,
     create_public_mercadopago_payment,
@@ -181,14 +180,15 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
 
         response = self.client.post(
             f"/orders/{order_id}/payments/{payment_id}/bank-transfer/receipt",
-            json=build_receipt_payload(receipt_url="https://example.com/receipt-1.jpg"),
+            files={"file": ("receipt-1.jpg", b"fake-jpeg-content", "image/jpeg")},
             headers=self._origin_headers(),
         )
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()["data"]
-        self.assertEqual(payload["receipt_url"], "https://example.com/receipt-1.jpg")
-        self.assertEqual(payload["provider_payload_data"]["receipt"]["url"], "https://example.com/receipt-1.jpg")
+        self.assertIn("/receipts/payment-", payload["receipt_url"])
+        self.assertEqual(payload["provider_payload_data"]["receipt"]["url"], payload["receipt_url"])
+        self.assertEqual(payload["provider_payload_data"]["receipt"]["content_type"], "image/jpeg")
 
     def test_resolve_payment_incident_refund_success_over_http(self) -> None:
         db = self._db()

@@ -3,9 +3,11 @@
 from datetime import datetime, timedelta, UTC
 import hashlib
 import json
+from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 import uuid
 
+from fastapi import UploadFile
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -32,6 +34,11 @@ from source.services.refund_s import (
 from source.services.domain_events_s import publish_domain_event
 from source.services.mercadopago_client import create_checkout_preference
 from source.services.money_s import parse_amount_to_cents
+from source.services.payment_receipts_s import (
+    delete_stored_receipt_by_filename,
+    extract_managed_receipt_filename,
+    save_receipt_upload,
+)
 from source.services.stock_reservations_s import (
     consume_reservations_for_paid_order,
     expire_active_reservations_for_order,
@@ -1636,13 +1643,9 @@ def submit_bank_transfer_receipt(
     order_id: int,
     payment_id: int,
     user_id: int,
-    receipt_url: str,
+    file: UploadFile,
     db: Session,
 ) -> dict:
-    normalized_receipt_url = str(receipt_url or "").strip()
-    if not normalized_receipt_url:
-        raise ValueError("receipt_url is required")
-
     payment = (
         db.query(Payment)
         .join(Order, Payment.order_id == Order.id)
@@ -1661,15 +1664,32 @@ def submit_bank_transfer_receipt(
     if str(payment.status) != "pending":
         raise ValueError("receipt can only be submitted for pending bank_transfer payments")
 
-    payload = _deserialize_provider_payload(payment.provider_payload) or {}
-    payload["receipt"] = {
-        "url": normalized_receipt_url,
-        "submitted_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-    }
-    payment.receipt_url = normalized_receipt_url
-    payment.provider_payload = _serialize_provider_payload(payload)
-    db.flush()
-    db.refresh(payment)
+    previous_managed_filename = extract_managed_receipt_filename(payment.receipt_url)
+    saved_receipt: dict | None = None
+    try:
+        saved_receipt = save_receipt_upload(payment_id=int(payment.id), file=file)
+        payload = _deserialize_provider_payload(payment.provider_payload) or {}
+        payload["receipt"] = {
+            "url": str(saved_receipt["url"]),
+            "submitted_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "original_filename": str(saved_receipt["original_filename"]),
+            "stored_filename": str(saved_receipt["stored_filename"]),
+            "content_type": str(saved_receipt["content_type"]),
+            "size_bytes": int(saved_receipt["size_bytes"]),
+        }
+        payment.receipt_url = str(saved_receipt["url"])
+        payment.provider_payload = _serialize_provider_payload(payload)
+        db.flush()
+        db.refresh(payment)
+    except Exception:
+        if saved_receipt is not None:
+            delete_stored_receipt_by_filename(str(saved_receipt.get("stored_filename")))
+        raise
+
+    new_stored_filename = str(saved_receipt["stored_filename"])
+    if previous_managed_filename and previous_managed_filename != new_stored_filename:
+        delete_stored_receipt_by_filename(previous_managed_filename)
+
     return _payment_to_dict(payment)
 
 

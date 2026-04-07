@@ -8,7 +8,16 @@ export type AuthUiErrorKind =
   | "server"
   | "unknown";
 
-export type ErrorContext = "login" | "register" | "forgot-password" | "email-verify" | "checkout" | "profile" | "turns" | "generic";
+export type ErrorContext =
+  | "login"
+  | "register"
+  | "forgot-password"
+  | "reset-password"
+  | "email-verify"
+  | "checkout"
+  | "profile"
+  | "turns"
+  | "generic";
 
 export class AuthFlowError extends Error {
   code: "login_ok_profile_failed" | "session_bootstrap_failed";
@@ -167,6 +176,25 @@ export function toUserMessage(error: unknown, context: ErrorContext): string {
       return classified.detail;
     }
     return "No se pudo solicitar la recuperacion de password.";
+  }
+
+  if (context === "reset-password") {
+    if (classified.kind === "csrf") {
+      return "Origen no permitido. Revisa URL del frontend/backend.";
+    }
+    if (classified.kind === "network") {
+      return "No se pudo conectar con el servidor para restablecer tu password.";
+    }
+    if (classified.kind === "server") {
+      return "Error interno del servidor. Intenta nuevamente en unos minutos.";
+    }
+    if (classified.kind === "validation" || classified.kind === "forbidden" || classified.kind === "conflict") {
+      return "No pudimos restablecer la password con este enlace. Solicita uno nuevo.";
+    }
+    if (classified.detail) {
+      return classified.detail;
+    }
+    return "No se pudo restablecer la password.";
   }
 
   if (context === "email-verify") {

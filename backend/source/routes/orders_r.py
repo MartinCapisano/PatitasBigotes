@@ -1,6 +1,6 @@
 ﻿from datetime import datetime, timedelta, UTC
 
-from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Header, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from source.dependencies.auth_d import get_current_user, get_current_user_id, require_admin
@@ -12,7 +12,6 @@ from source.schemas import (
     CreateOrderPaymentRequest,
     PublicGuestCheckoutRequest,
     ReplaceDraftItemsRequest,
-    SubmitBankTransferReceiptRequest,
     UpdateOrderStatusRequest,
 )
 from source.services.orders_s import (
@@ -592,7 +591,7 @@ def retry_order_payment(
 def submit_bank_transfer_payment_receipt(
     order_id: int,
     payment_id: int,
-    payload: SubmitBankTransferReceiptRequest,
+    file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db_transactional),
 ):
@@ -602,7 +601,7 @@ def submit_bank_transfer_payment_receipt(
             order_id=order_id,
             payment_id=payment_id,
             user_id=user_id,
-            receipt_url=payload.receipt_url,
+            file=file,
             db=db,
         )
     except Exception as exc:
