@@ -15,6 +15,7 @@ export type ErrorContext =
   | "reset-password"
   | "email-verify"
   | "checkout"
+  | "payment-return"
   | "profile"
   | "turns"
   | "generic";
@@ -114,6 +115,34 @@ export function classifyHttpError(error: unknown): ClassifiedHttpError {
     return { kind: "server", status, detail, isNetwork: false };
   }
   return { kind: "unknown", status, detail, isNetwork: false };
+}
+
+function retryPaymentMessage(detail: string | null): string | null {
+  if (detail === "retry not allowed: order cancelled") {
+    return "La orden ya fue cancelada y ya no admite reintentos de pago.";
+  }
+  if (detail === "retry not allowed: order cancelled because stock reservation expired") {
+    return "La orden ya fue cancelada porque vencio la reserva de stock.";
+  }
+  if (detail === "retry not allowed: order is no longer submitted") {
+    return "La orden ya no esta disponible para reintentar el pago.";
+  }
+  if (detail === "retry not allowed: stock reservation expired") {
+    return "La reserva de stock vencio. Ya no podemos reintentar este pago.";
+  }
+  if (detail === "retry not allowed: payment state changed") {
+    return "Este pago ya no puede reintentarse desde aqui.";
+  }
+  if (detail === "retry not allowed: order already paid") {
+    return "La orden ya fue abonada y no necesita un nuevo intento.";
+  }
+  if (detail === "retry failed: mercadopago checkout unavailable") {
+    return "No pudimos generar un nuevo checkout de Mercado Pago. Intenta nuevamente en unos minutos.";
+  }
+  if (detail === "order not found" || detail === "payment not found") {
+    return "No encontramos la compra que intentas pagar.";
+  }
+  return null;
 }
 
 export function toUserMessage(error: unknown, context: ErrorContext): string {
@@ -226,12 +255,36 @@ export function toUserMessage(error: unknown, context: ErrorContext): string {
     return "No se pudo finalizar la compra.";
   }
 
+  if (context === "payment-return") {
+    if (classified.kind === "network") {
+      return "No se pudo conectar con el servidor para consultar el pago.";
+    }
+    if (classified.kind === "csrf") {
+      return "Origen no permitido para consultar el pago.";
+    }
+    const retryMessage = retryPaymentMessage(classified.detail);
+    if (retryMessage) {
+      return retryMessage;
+    }
+    if (classified.detail === "public_status_token is required") {
+      return "No encontramos el identificador publico del pago.";
+    }
+    if (classified.detail) {
+      return classified.detail;
+    }
+    return "No se pudo consultar el estado actualizado del pago.";
+  }
+
   if (context === "profile") {
     if (classified.kind === "network") {
       return "No se pudo conectar con el servidor para cargar o actualizar tu perfil.";
     }
     if (classified.kind === "csrf") {
       return "Origen no permitido para actualizar tu perfil.";
+    }
+    const retryMessage = retryPaymentMessage(classified.detail);
+    if (retryMessage) {
+      return retryMessage;
     }
     if (classified.detail) {
       return classified.detail;

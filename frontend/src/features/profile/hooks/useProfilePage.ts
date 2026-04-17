@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { MyOrder, MyPayment, MyProfile } from "../../../types";
+import { getMercadoPagoCheckoutUrl, redirectToMercadoPago } from "../../../services/checkout-api";
 import { getMyOrders, getMyProfile, requestEmailVerification, updateMyProfile } from "../../../services/auth-api";
 import { toUserMessage } from "../../../services/http-errors";
-import { listMyOrderPayments, uploadBankTransferReceipt } from "../../../services/payments-api";
+import { listMyOrderPayments, retryMyOrderMercadoPago, uploadBankTransferReceipt } from "../../../services/payments-api";
 import { savePendingVerificationEmail } from "../../auth/verification-storage";
 
 const MAX_RECEIPT_SIZE_BYTES = 10 * 1024 * 1024;
 const ALLOWED_RECEIPT_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "application/pdf"]);
+const RETRYABLE_MERCADOPAGO_STATUSES = new Set(["cancelled", "expired"]);
 
 export function useProfilePage() {
   const navigate = useNavigate();
@@ -20,12 +22,14 @@ export function useProfilePage() {
   const [saving, setSaving] = useState(false);
   const [verificationLoading, setVerificationLoading] = useState(false);
   const [receiptUploadingPaymentId, setReceiptUploadingPaymentId] = useState<number | null>(null);
+  const [retryingPaymentId, setRetryingPaymentId] = useState<number | null>(null);
   const [paymentsByOrderId, setPaymentsByOrderId] = useState<Record<number, MyPayment[]>>({});
   const [receiptFiles, setReceiptFiles] = useState<Record<number, File | null>>({});
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [receiptError, setReceiptError] = useState("");
   const [receiptSuccess, setReceiptSuccess] = useState("");
+  const [retryError, setRetryError] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [editingField, setEditingField] = useState<"phone" | "email" | null>(null);
@@ -53,14 +57,8 @@ export function useProfilePage() {
     async function loadOrders() {
       if (section !== "history") return;
       setOrdersLoading(true);
-      setOrdersError("");
       try {
-        const data = await getMyOrders();
-        setOrders(data);
-        const paymentsByOrderEntries = await Promise.all(
-          data.map(async (order) => [order.id, await listMyOrderPayments(order.id)] as const)
-        );
-        setPaymentsByOrderId(Object.fromEntries(paymentsByOrderEntries));
+        await refreshOrders();
       } catch (apiError: unknown) {
         setOrdersError(toUserMessage(apiError, "profile"));
       } finally {
@@ -69,6 +67,30 @@ export function useProfilePage() {
     }
     void loadOrders();
   }, [section]);
+
+  async function refreshOrders() {
+    setOrdersError("");
+    const nextOrders = await getMyOrders();
+    setOrders(nextOrders);
+    const paymentsByOrderEntries = await Promise.all(
+      nextOrders.map(async (order) => [order.id, await listMyOrderPayments(order.id)] as const)
+    );
+    const nextPaymentsByOrderId = Object.fromEntries(paymentsByOrderEntries);
+    setPaymentsByOrderId(nextPaymentsByOrderId);
+    return {
+      orders: nextOrders,
+      paymentsByOrderId: nextPaymentsByOrderId,
+    };
+  }
+
+  async function refreshOrderPayments(orderId: number) {
+    const payments = await listMyOrderPayments(orderId);
+    setPaymentsByOrderId((prev) => ({
+      ...prev,
+      [orderId]: payments
+    }));
+    return payments;
+  }
 
   function onStartEditing(field: "phone" | "email") {
     if (!profile) return;
@@ -144,6 +166,73 @@ export function useProfilePage() {
     setReceiptFiles((prev) => ({ ...prev, [paymentId]: file }));
   }
 
+  function onContinueMercadoPagoPayment(payment: MyPayment) {
+    setRetryError("");
+    const checkoutUrl = getMercadoPagoCheckoutUrl(payment);
+    if (!checkoutUrl) {
+      setRetryError("No pudimos obtener el nuevo enlace de pago.");
+      return;
+    }
+    try {
+      redirectToMercadoPago(checkoutUrl);
+    } catch {
+      setRetryError("No pudimos redirigirte automaticamente. Puedes continuar el pago desde este boton.");
+    }
+  }
+
+  function isRetryableMercadoPagoPayment(payment: MyPayment) {
+    return (
+      payment.method === "mercadopago" &&
+      (
+        RETRYABLE_MERCADOPAGO_STATUSES.has(payment.status) ||
+        (payment.status === "pending" && payment.provider_status === "setup_failed")
+      )
+    );
+  }
+
+  async function onRetryMercadoPago(orderId: number, paymentId: number) {
+    if (retryingPaymentId !== null) return;
+
+    setRetryingPaymentId(paymentId);
+    setRetryError("");
+    setReceiptError("");
+    setReceiptSuccess("");
+    try {
+      const freshData = await refreshOrders();
+      const freshOrder = freshData.orders.find((order) => order.id === orderId) ?? null;
+      const freshPayment =
+        (freshData.paymentsByOrderId[orderId] ?? []).find((payment) => payment.id === paymentId) ?? null;
+
+      if (!freshOrder || freshOrder.status !== "submitted") {
+        setRetryError("La orden ya no esta disponible para reintentar el pago.");
+        return;
+      }
+      if (!freshPayment || !isRetryableMercadoPagoPayment(freshPayment)) {
+        setRetryError("Este pago ya no puede reintentarse desde aqui.");
+        return;
+      }
+
+      const updatedPayment = await retryMyOrderMercadoPago(orderId);
+      const refreshedPayments = await refreshOrderPayments(orderId);
+      const paymentForRedirect =
+        refreshedPayments.find((payment) => payment.id === updatedPayment.id) ?? updatedPayment;
+      const checkoutUrl = getMercadoPagoCheckoutUrl(paymentForRedirect);
+      if (!checkoutUrl) {
+        setRetryError("No pudimos obtener el nuevo enlace de pago.");
+        return;
+      }
+      try {
+        redirectToMercadoPago(checkoutUrl);
+      } catch {
+        setRetryError("No pudimos redirigirte automaticamente. Puedes continuar el pago desde este boton.");
+      }
+    } catch (apiError: unknown) {
+      setRetryError(toUserMessage(apiError, "profile"));
+    } finally {
+      setRetryingPaymentId(null);
+    }
+  }
+
   async function onUploadReceipt(orderId: number, paymentId: number) {
     const file = receiptFiles[paymentId] ?? null;
     if (!file || receiptUploadingPaymentId !== null) return;
@@ -192,12 +281,14 @@ export function useProfilePage() {
     saving,
     verificationLoading,
     receiptUploadingPaymentId,
+    retryingPaymentId,
     paymentsByOrderId,
     receiptFiles,
     error,
     success,
     receiptError,
     receiptSuccess,
+    retryError,
     phone,
     setPhone,
     email,
@@ -208,6 +299,9 @@ export function useProfilePage() {
     onSaveField,
     onRequestEmailVerification,
     onSelectReceiptFile,
-    onUploadReceipt
+    onUploadReceipt,
+    isRetryableMercadoPagoPayment,
+    onRetryMercadoPago,
+    onContinueMercadoPagoPayment
   };
 }

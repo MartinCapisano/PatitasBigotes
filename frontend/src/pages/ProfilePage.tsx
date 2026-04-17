@@ -177,6 +177,32 @@ export function ProfilePage() {
                               </button>
                             </div>
                           )}
+                          {profilePage.isRetryableMercadoPagoPayment(payment) && order.status === "submitted" && (
+                            <div className="auth-form" style={{ minWidth: 280 }}>
+                              <p className="muted">Este pago no pudo completarse. Puedes generar un nuevo checkout.</p>
+                              <button
+                                className="btn btn-small"
+                                type="button"
+                                onClick={() => void profilePage.onRetryMercadoPago(order.id, payment.id)}
+                                disabled={profilePage.retryingPaymentId !== null}
+                              >
+                                {profilePage.retryingPaymentId === payment.id ? "Redirigiendo..." : "Reintentar pago"}
+                              </button>
+                            </div>
+                          )}
+                          {payment.method === "mercadopago" && payment.status === "pending" && order.status === "submitted" && payment.provider_payload_data?.checkout?.checkout_url && (
+                            <div className="auth-form" style={{ minWidth: 280 }}>
+                              <p className="muted">Ya tienes un checkout activo para este intento.</p>
+                              <button
+                                className="btn btn-small btn-ghost"
+                                type="button"
+                                onClick={() => profilePage.onContinueMercadoPagoPayment(payment)}
+                                disabled={profilePage.retryingPaymentId !== null}
+                              >
+                                Continuar pago
+                              </button>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -189,6 +215,7 @@ export function ProfilePage() {
           {profilePage.success && <p className="success">{profilePage.success}</p>}
           {profilePage.receiptError && <p className="error">{profilePage.receiptError}</p>}
           {profilePage.receiptSuccess && <p className="success">{profilePage.receiptSuccess}</p>}
+          {profilePage.retryError && <p className="error">{profilePage.retryError}</p>}
         </>
       )}
     </section>

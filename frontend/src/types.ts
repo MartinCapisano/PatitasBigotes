@@ -99,6 +99,61 @@ export type MyPayment = {
   currency: string;
   receipt_url: string | null;
   external_ref: string | null;
+  preference_id?: string | null;
+  public_status_token?: string | null;
+  provider_status?: string | null;
+  provider_payload_data?: {
+    checkout?: {
+      checkout_url?: string | null;
+      init_point?: string | null;
+      sandbox_init_point?: string | null;
+      public_status_token?: string | null;
+    };
+  };
   created_at: string;
   paid_at: string | null;
+};
+
+export type PublicOrderBlockingReason =
+  | "order_paid"
+  | "order_cancelled"
+  | "payment_pending"
+  | "payment_not_retryable"
+  | "stock_reservation_expired"
+  | "checkout_unavailable";
+
+export type PublicOrderSnapshotItem = {
+  product_name: string | null;
+  variant_label: string;
+  quantity: number;
+  line_total: number;
+};
+
+export type PublicOrderSnapshotOrder = {
+  status: "draft" | "submitted" | "paid" | "cancelled";
+  total_amount: number;
+  currency: string;
+  items: PublicOrderSnapshotItem[];
+};
+
+export type PublicOrderSnapshotPayment = {
+  method: "bank_transfer" | "mercadopago" | "cash";
+  status: "pending" | "paid" | "cancelled" | "expired";
+  amount: number;
+  currency: string;
+  checkout_url: string | null;
+};
+
+export type PublicOrderSnapshotFlags = {
+  can_continue_payment: boolean;
+  can_retry_payment: boolean;
+  is_order_open: boolean;
+  is_payment_terminal: boolean;
+};
+
+export type PublicOrderSnapshot = {
+  order: PublicOrderSnapshotOrder;
+  payment: PublicOrderSnapshotPayment;
+  flags: PublicOrderSnapshotFlags;
+  blocking_reason: PublicOrderBlockingReason | null;
 };

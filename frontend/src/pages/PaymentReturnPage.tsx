@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { type PaymentReturnVariant, usePaymentReturnStatus } from "../features/checkout";
+import type { PublicOrderBlockingReason } from "../types";
 
 const CONTENT: Record<PaymentReturnVariant, { title: string; subtitle: string }> = {
   success: {
@@ -16,9 +17,40 @@ const CONTENT: Record<PaymentReturnVariant, { title: string; subtitle: string }>
   }
 };
 
+const BLOCKING_REASON_MESSAGE: Record<PublicOrderBlockingReason, string> = {
+  order_paid: "La orden ya fue abonada.",
+  order_cancelled: "La orden fue cancelada y ya no admite pagos.",
+  payment_pending: "El pago sigue pendiente. Reconsulta el estado en unos segundos.",
+  payment_not_retryable: "Este pago ya no puede reintentarse desde aqui.",
+  stock_reservation_expired: "La reserva de stock vencio. Ya no podemos reintentar este pago.",
+  checkout_unavailable: "No pudimos recuperar el enlace de Mercado Pago para este intento.",
+};
+
+function formatAmount(amount: number, currency: string) {
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: currency || "ARS",
+    maximumFractionDigits: 0,
+  }).format(amount / 100);
+}
+
 export function PaymentReturnPage({ variant }: { variant: PaymentReturnVariant }) {
-  const { location, status, loading, error, loadStatus } = usePaymentReturnStatus();
+  const {
+    location,
+    status,
+    snapshot,
+    loading,
+    retrying,
+    error,
+    retryError,
+    loadStatus,
+    onContinuePayment,
+    onRetryPayment
+  } = usePaymentReturnStatus();
   const { title, subtitle } = CONTENT[variant];
+  const blockingMessage = snapshot?.blocking_reason
+    ? BLOCKING_REASON_MESSAGE[snapshot.blocking_reason]
+    : null;
 
   return (
     <section>
@@ -26,22 +58,49 @@ export function PaymentReturnPage({ variant }: { variant: PaymentReturnVariant }
       <p className="page-subtitle">{subtitle}</p>
       {loading && <p className="muted">Consultando estado de pago...</p>}
       {error && <p className="error">{error}</p>}
-      {status && (
+      {snapshot ? (
+        <div className="card">
+          <p><strong>Estado del pago:</strong> {snapshot.payment.status}</p>
+          <p className="muted">Estado de orden: {snapshot.order.status}</p>
+          <p><strong>Total:</strong> {formatAmount(snapshot.order.total_amount, snapshot.order.currency)}</p>
+          {snapshot.order.items.length > 0 && (
+            <div>
+              <p><strong>Detalle:</strong></p>
+              {snapshot.order.items.map((item, index) => (
+                <p className="muted" key={`${item.product_name ?? "producto"}-${item.variant_label}-${index}`}>
+                  {item.quantity} x {item.product_name ?? "Producto"} ({item.variant_label}) - {formatAmount(item.line_total, snapshot.order.currency)}
+                </p>
+              ))}
+            </div>
+          )}
+          {blockingMessage && <p className="muted">{blockingMessage}</p>}
+        </div>
+      ) : status && (
         <div className="card">
           <p><strong>Estado del pago:</strong> {status.status}</p>
           <p className="muted">Estado de orden: {status.order_status ?? "-"}</p>
         </div>
       )}
-      {location.search && (
-        <p className="muted">Parametros de retorno: {location.search}</p>
-      )}
+      {retryError && <p className="error">{retryError}</p>}
       <div className="checkout-actions">
         <button className="btn btn-small btn-ghost" type="button" onClick={() => void loadStatus()} disabled={loading}>
           Reconsultar estado
         </button>
-        <Link className="btn btn-small" to="/checkout">
-          Volver al checkout
-        </Link>
+        {snapshot?.flags.can_continue_payment && (
+          <button className="btn btn-small" type="button" onClick={onContinuePayment} disabled={loading || retrying}>
+            Continuar pago
+          </button>
+        )}
+        {snapshot?.flags.can_retry_payment && (
+          <button className="btn btn-small" type="button" onClick={() => void onRetryPayment()} disabled={loading || retrying}>
+            {retrying ? "Redirigiendo..." : "Reintentar pago"}
+          </button>
+        )}
+        {!snapshot && location.search && (
+          <Link className="btn btn-small" to="/checkout">
+            Volver al checkout
+          </Link>
+        )}
         <Link className="btn btn-small btn-ghost" to="/home">
           Ir a tienda
         </Link>
