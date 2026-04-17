@@ -1,14 +1,17 @@
 from unittest.mock import patch
 
+from backend.tests.factories.orders import create_order_graph
 from backend.tests.factories.http_payments import (
     build_create_payment_payload,
     build_resolve_refund_payload,
     create_payment_incident,
     create_public_mercadopago_payment,
+    create_public_mercadopago_payment_graph,
     create_retryable_payment,
     create_submitted_order_with_reservation_for_user,
 )
 from backend.tests.http._base import HttpFundamentalsBase
+from source.db.models import StockReservation
 
 
 class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
@@ -104,6 +107,150 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["detail"], "payment not found")
 
+    def test_get_public_order_snapshot_by_payment_token_returns_pending_checkout_over_http(self) -> None:
+        db = self._db()
+        try:
+            graph = create_public_mercadopago_payment_graph(
+                db,
+                status="pending",
+                checkout_url="https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-public-snapshot",
+            )
+        finally:
+            db.close()
+
+        response = self.client.get(
+            f"/public/orders/by-payment-token?public_status_token={graph['public_status_token']}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["data"]
+        self.assertEqual(payload["order"]["status"], "submitted")
+        self.assertEqual(payload["payment"]["status"], "pending")
+        self.assertEqual(payload["payment"]["method"], "mercadopago")
+        self.assertEqual(
+            payload["payment"]["checkout_url"],
+            "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-public-snapshot",
+        )
+        self.assertTrue(payload["flags"]["can_continue_payment"])
+        self.assertFalse(payload["flags"]["can_retry_payment"])
+        self.assertTrue(payload["flags"]["is_order_open"])
+        self.assertFalse(payload["flags"]["is_payment_terminal"])
+        self.assertIsNone(payload["blocking_reason"])
+        self.assertNotIn("id", payload["order"])
+        self.assertNotIn("customer", payload["order"])
+        self.assertNotIn("email", payload["order"])
+        self.assertNotIn("phone", payload["order"])
+        self.assertNotIn("dni", payload["order"])
+        self.assertNotIn("external_ref", payload["payment"])
+        self.assertNotIn("idempotency_key", payload["payment"])
+        self.assertNotIn("provider_payload", payload["payment"])
+        self.assertNotIn("preference_id", payload["payment"])
+
+    def test_get_public_order_snapshot_by_payment_token_marks_retryable_cancelled_payment_over_http(self) -> None:
+        db = self._db()
+        try:
+            graph = create_public_mercadopago_payment_graph(db, status="cancelled")
+        finally:
+            db.close()
+
+        response = self.client.get(
+            f"/public/orders/by-payment-token?public_status_token={graph['public_status_token']}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["data"]
+        self.assertEqual(payload["payment"]["status"], "cancelled")
+        self.assertFalse(payload["flags"]["can_continue_payment"])
+        self.assertTrue(payload["flags"]["can_retry_payment"])
+        self.assertTrue(payload["flags"]["is_order_open"])
+        self.assertTrue(payload["flags"]["is_payment_terminal"])
+        self.assertIsNone(payload["blocking_reason"])
+
+    def test_get_public_order_snapshot_by_payment_token_marks_paid_order_blocked_over_http(self) -> None:
+        db = self._db()
+        try:
+            graph = create_public_mercadopago_payment_graph(db, status="paid", order_status="paid")
+        finally:
+            db.close()
+
+        response = self.client.get(
+            f"/public/orders/by-payment-token?public_status_token={graph['public_status_token']}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["data"]
+        self.assertEqual(payload["order"]["status"], "paid")
+        self.assertFalse(payload["flags"]["can_continue_payment"])
+        self.assertFalse(payload["flags"]["can_retry_payment"])
+        self.assertFalse(payload["flags"]["is_order_open"])
+        self.assertTrue(payload["flags"]["is_payment_terminal"])
+        self.assertEqual(payload["blocking_reason"], "order_paid")
+
+    def test_get_public_order_snapshot_by_payment_token_marks_cancelled_order_blocked_over_http(self) -> None:
+        db = self._db()
+        try:
+            graph = create_public_mercadopago_payment_graph(db, status="cancelled", order_status="cancelled")
+        finally:
+            db.close()
+
+        response = self.client.get(
+            f"/public/orders/by-payment-token?public_status_token={graph['public_status_token']}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["data"]
+        self.assertEqual(payload["order"]["status"], "cancelled")
+        self.assertFalse(payload["flags"]["can_continue_payment"])
+        self.assertFalse(payload["flags"]["can_retry_payment"])
+        self.assertFalse(payload["flags"]["is_order_open"])
+        self.assertTrue(payload["flags"]["is_payment_terminal"])
+        self.assertEqual(payload["blocking_reason"], "order_cancelled")
+
+    def test_get_public_order_snapshot_by_payment_token_prefers_new_pending_attempt_over_http(self) -> None:
+        db = self._db()
+        try:
+            graph = create_public_mercadopago_payment_graph(db, status="cancelled")
+            create_retryable_payment(
+                db,
+                order_id=int(graph["order_id"]),
+                method="mercadopago",
+                status="pending",
+                provider_payload={
+                    "checkout": {
+                        "checkout_url": "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-public-retry",
+                    }
+                },
+            )
+        finally:
+            db.close()
+
+        response = self.client.get(
+            f"/public/orders/by-payment-token?public_status_token={graph['public_status_token']}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["data"]
+        self.assertEqual(payload["payment"]["status"], "pending")
+        self.assertEqual(
+            payload["payment"]["checkout_url"],
+            "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-public-retry",
+        )
+        self.assertTrue(payload["flags"]["can_continue_payment"])
+        self.assertFalse(payload["flags"]["can_retry_payment"])
+        self.assertIsNone(payload["blocking_reason"])
+
+    def test_get_public_order_snapshot_by_payment_token_requires_token_over_http(self) -> None:
+        response = self.client.get("/public/orders/by-payment-token")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "public_status_token is required")
+
+    def test_get_public_order_snapshot_by_payment_token_unknown_token_returns_404_over_http(self) -> None:
+        response = self.client.get("/public/orders/by-payment-token?public_status_token=missing-public-token")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "payment not found")
+
     def test_retry_payment_creates_new_attempt_after_cancelled_over_http(self) -> None:
         user_id = self._create_user(email="pay-retry@example.com", verified=True)
         db = self._db()
@@ -154,8 +301,183 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
             headers=self._origin_headers(),
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"], "latest payment attempt is not retryable")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "retry not allowed: payment state changed")
+
+    def test_retry_mercadopago_creates_new_checkout_after_cancelled_over_http(self) -> None:
+        user_id = self._create_user(email="pay-retry-mp@example.com", verified=True)
+        db = self._db()
+        try:
+            order_id = create_submitted_order_with_reservation_for_user(db, user_id=user_id)
+            create_retryable_payment(
+                db,
+                order_id=order_id,
+                method="mercadopago",
+                status="cancelled",
+            )
+        finally:
+            db.close()
+        login_response = self._login(email="pay-retry-mp@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        with patch(
+            "source.services.payment_s.create_checkout_preference",
+            return_value={
+                "id": "pref-retry-mp",
+                "init_point": "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-retry-mp",
+            },
+        ):
+            response = self.client.post(
+                f"/orders/{order_id}/payments/retry",
+                json=build_create_payment_payload(method="mercadopago"),
+                headers=self._origin_headers(),
+            )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()["data"]
+        self.assertEqual(payload["method"], "mercadopago")
+        self.assertEqual(payload["status"], "pending")
+        self.assertEqual(payload["preference_id"], "pref-retry-mp")
+        self.assertEqual(
+            payload["provider_payload_data"]["checkout"]["checkout_url"],
+            "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-retry-mp",
+        )
+
+    def test_retry_payment_rejects_cancelled_order_over_http(self) -> None:
+        user_id = self._create_user(email="pay-retry-order-cancelled@example.com", verified=True)
+        db = self._db()
+        try:
+            graph = create_order_graph(
+                db,
+                user_id=user_id,
+                order_status="cancelled",
+                with_reservation=False,
+                add_pending_payment=False,
+            )
+            create_retryable_payment(
+                db,
+                order_id=int(graph["order_id"]),
+                method="mercadopago",
+                status="cancelled",
+            )
+        finally:
+            db.close()
+        login_response = self._login(email="pay-retry-order-cancelled@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        response = self.client.post(
+            f"/orders/{graph['order_id']}/payments/retry",
+            json=build_create_payment_payload(method="mercadopago"),
+            headers=self._origin_headers(),
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "retry not allowed: order cancelled")
+
+    def test_retry_payment_rejects_order_cancelled_by_reservation_expiration_over_http(self) -> None:
+        user_id = self._create_user(email="pay-retry-reservation-expired@example.com", verified=True)
+        db = self._db()
+        try:
+            graph = create_order_graph(
+                db,
+                user_id=user_id,
+                order_status="cancelled",
+                with_reservation=True,
+                reservation_status="expired",
+            )
+            payment_id = create_retryable_payment(
+                db,
+                order_id=int(graph["order_id"]),
+                method="mercadopago",
+                status="cancelled",
+            )
+            stock_reservation = (
+                db.query(StockReservation)
+                .filter(StockReservation.order_id == int(graph["order_id"]))
+                .first()
+            )
+            self.assertIsNotNone(stock_reservation)
+            assert stock_reservation is not None
+            stock_reservation.reason = "reservation_expired"
+            db.commit()
+        finally:
+            db.close()
+        login_response = self._login(email="pay-retry-reservation-expired@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        response = self.client.post(
+            f"/orders/{graph['order_id']}/payments/retry",
+            json=build_create_payment_payload(method="mercadopago"),
+            headers=self._origin_headers(),
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json()["detail"],
+            "retry not allowed: order cancelled because stock reservation expired",
+        )
+
+    def test_retry_payment_rejects_paid_order_over_http(self) -> None:
+        user_id = self._create_user(email="pay-retry-paid-order@example.com", verified=True)
+        db = self._db()
+        try:
+            graph = create_order_graph(
+                db,
+                user_id=user_id,
+                order_status="paid",
+                with_reservation=False,
+            )
+            create_retryable_payment(
+                db,
+                order_id=int(graph["order_id"]),
+                method="mercadopago",
+                status="cancelled",
+            )
+        finally:
+            db.close()
+        login_response = self._login(email="pay-retry-paid-order@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        response = self.client.post(
+            f"/orders/{graph['order_id']}/payments/retry",
+            json=build_create_payment_payload(method="mercadopago"),
+            headers=self._origin_headers(),
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "retry not allowed: order already paid")
+
+    def test_retry_mercadopago_returns_checkout_unavailable_on_provider_failure_over_http(self) -> None:
+        user_id = self._create_user(email="pay-retry-provider-fail@example.com", verified=True)
+        db = self._db()
+        try:
+            order_id = create_submitted_order_with_reservation_for_user(db, user_id=user_id)
+            create_retryable_payment(
+                db,
+                order_id=order_id,
+                method="mercadopago",
+                status="cancelled",
+            )
+        finally:
+            db.close()
+        login_response = self._login(email="pay-retry-provider-fail@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        with patch(
+            "source.services.payment_s.create_checkout_preference",
+            side_effect=RuntimeError("boom"),
+        ):
+            response = self.client.post(
+                f"/orders/{order_id}/payments/retry",
+                json=build_create_payment_payload(method="mercadopago"),
+                headers=self._origin_headers(),
+            )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(
+            response.json()["detail"],
+            "retry failed: mercadopago checkout unavailable",
+        )
 
     def test_submit_bank_transfer_receipt_updates_payment_over_http(self) -> None:
         user_id = self._create_user(email="pay-receipt@example.com", verified=True)

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from source.exceptions import (
     OrderStatusTransitionError,
+    PaymentRetryConflictError,
     RegisteredAccountCheckoutConflictError,
     WebhookReplayConflictError,
 )
@@ -23,6 +24,8 @@ def raise_http_error_from_exception(exc: Exception, db: Session | None = None) -
     if isinstance(exc, LookupError):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if isinstance(exc, OrderStatusTransitionError):
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if isinstance(exc, PaymentRetryConflictError):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if isinstance(exc, RegisteredAccountCheckoutConflictError):
         raise HTTPException(status_code=409, detail=str(exc)) from exc

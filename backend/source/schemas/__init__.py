@@ -11,6 +11,7 @@ from source.schemas.discounts_s import CreateDiscountRequest, UpdateDiscountRequ
 from source.schemas.orders_s import (
     AdminRegisterPaymentRequest,
     CreateAdminSaleRequest,
+    PublicOrderSnapshotResponse,
     PublicGuestCheckoutRequest,
     ReplaceDraftItemsRequest,
     UpdateOrderStatusRequest,
@@ -49,6 +50,7 @@ __all__ = [
     "UpdateOrderStatusRequest",
     "ReplaceDraftItemsRequest",
     "PublicGuestCheckoutRequest",
+    "PublicOrderSnapshotResponse",
     "CreateUserRequest",
     "CreateGuestUserRequest",
     "ResolveUserRequest",

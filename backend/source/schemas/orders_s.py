@@ -75,3 +75,51 @@ class CreateAdminSaleRequest(BaseModel):
     items: list[ManualOrderItemRequest] = Field(min_length=1)
     register_payment: bool = False
     payment: AdminSalesPaymentRequest | None = None
+
+
+class PublicOrderSnapshotItemResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    product_name: str | None
+    variant_label: str
+    quantity: int
+    line_total: int
+
+
+class PublicOrderSnapshotOrderResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["draft", "submitted", "paid", "cancelled"]
+    total_amount: int
+    currency: str
+    items: list[PublicOrderSnapshotItemResponse]
+
+
+class PublicOrderSnapshotPaymentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    method: Literal["bank_transfer", "mercadopago", "cash"]
+    status: Literal["pending", "paid", "cancelled", "expired"]
+    amount: int
+    currency: str
+    checkout_url: str | None = None
+
+
+class PublicOrderSnapshotFlagsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    can_continue_payment: bool
+    can_retry_payment: bool
+    is_order_open: bool
+    is_payment_terminal: bool
+
+
+class PublicOrderSnapshotResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    order: PublicOrderSnapshotOrderResponse
+    payment: PublicOrderSnapshotPaymentResponse
+    flags: PublicOrderSnapshotFlagsResponse
+    blocking_reason: Literal[
+        "order_paid",
+        "order_cancelled",
+        "payment_pending",
+        "payment_not_retryable",
+        "stock_reservation_expired",
+        "checkout_unavailable",
+    ] | None = None

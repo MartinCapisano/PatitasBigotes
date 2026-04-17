@@ -10,6 +10,7 @@ from source.schemas import (
     AdminRegisterPaymentRequest,
     CreateAdminSaleRequest,
     CreateOrderPaymentRequest,
+    PublicOrderSnapshotResponse,
     PublicGuestCheckoutRequest,
     ReplaceDraftItemsRequest,
     UpdateOrderStatusRequest,
@@ -22,6 +23,7 @@ from source.services.orders_s import (
     get_order_reservations_for_user,
     get_or_create_draft_order,
     get_order_for_user,
+    get_public_order_snapshot_by_payment_token,
     list_orders_for_admin,
     list_orders_for_user,
     replace_draft_order_items,
@@ -42,9 +44,11 @@ from source.services.idempotency_s import (
 from source.services.payment_errors import PaymentCheckoutInitializationError
 from source.services.payment_s import (
     PAYMENT_PROVIDER_SETUP_FAILED,
+    RETRY_FAILED_MERCADOPAGO_CHECKOUT_UNAVAILABLE,
     confirm_manual_payment_for_order,
     create_payment_for_order,
     create_retry_payment_for_order,
+    create_retry_payment_for_payment_token,
     initialize_mercadopago_checkout_for_payment,
     list_payments_for_order_admin,
     list_payments_for_order,
@@ -417,6 +421,21 @@ def list_orders(
     return {"data": orders}
 
 
+@router.get("/public/orders/by-payment-token", response_model=dict[str, PublicOrderSnapshotResponse])
+def get_public_order_snapshot_by_payment_token_endpoint(
+    public_status_token: str | None = None,
+    db: Session = Depends(get_db_transactional),
+):
+    try:
+        snapshot = get_public_order_snapshot_by_payment_token(
+            public_status_token=public_status_token,
+            db=db,
+        )
+    except Exception as exc:
+        raise_http_error_from_exception(exc, db=db)
+    return {"data": snapshot}
+
+
 @router.get("/admin/orders/{order_id}")
 def get_order_admin(
     order_id: int,
@@ -580,6 +599,45 @@ def retry_order_payment(
         payment = _initialize_mercadopago_payment_or_raise(payment=payment, db=db)
         if payment.get("method") == "mercadopago" and payment.get("provider_status") != PAYMENT_PROVIDER_SETUP_FAILED:
             db.commit()
+    except PaymentCheckoutInitializationError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=RETRY_FAILED_MERCADOPAGO_CHECKOUT_UNAVAILABLE,
+        ) from exc
+    except Exception as exc:
+        db.rollback()
+        raise_http_error_from_exception(exc, db=db)
+
+    return {"data": payment}
+
+
+@router.post("/payments/{public_status_token}/retry", status_code=status.HTTP_201_CREATED)
+def retry_guest_payment(
+    public_status_token: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Retry a payment for a guest user using their payment's public status token.
+    No authentication required - the token grants access to retry this specific payment.
+    """
+    try:
+        payment = create_retry_payment_for_payment_token(
+            public_status_token=public_status_token,
+            db=db,
+            expires_in_minutes=60,
+            initialize_provider=False,
+        )
+        db.commit()
+        payment = _initialize_mercadopago_payment_or_raise(payment=payment, db=db)
+        if payment.get("method") == "mercadopago" and payment.get("provider_status") != PAYMENT_PROVIDER_SETUP_FAILED:
+            db.commit()
+    except PaymentCheckoutInitializationError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=RETRY_FAILED_MERCADOPAGO_CHECKOUT_UNAVAILABLE,
+        ) from exc
     except Exception as exc:
         db.rollback()
         raise_http_error_from_exception(exc, db=db)

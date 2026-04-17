@@ -23,10 +23,11 @@ from source.db.models import (
     Order,
     Payment,
     PaymentIncident,
+    StockReservation,
     WebhookEvent,
     generate_public_status_token,
 )
-from source.exceptions import WebhookReplayConflictError
+from source.exceptions import PaymentRetryConflictError, WebhookReplayConflictError
 from source.services.refund_s import (
     PAYMENT_INCIDENT_STATUS_PENDING_REVIEW,
     create_late_paid_incident_if_needed,
@@ -48,6 +49,13 @@ from source.services.stock_reservations_s import (
 ALLOWED_PAYMENT_METHODS = {"bank_transfer", "mercadopago", "cash"}
 RETRYABLE_PAYMENT_STATUSES = {"cancelled", "expired"}
 PAYMENT_PROVIDER_SETUP_FAILED = "setup_failed"
+RETRY_NOT_ALLOWED_ORDER_CANCELLED = "retry not allowed: order cancelled"
+RETRY_NOT_ALLOWED_ORDER_CANCELLED_STOCK_EXPIRED = "retry not allowed: order cancelled because stock reservation expired"
+RETRY_NOT_ALLOWED_ORDER_NOT_SUBMITTED = "retry not allowed: order is no longer submitted"
+RETRY_NOT_ALLOWED_ORDER_ALREADY_PAID = "retry not allowed: order already paid"
+RETRY_NOT_ALLOWED_STOCK_RESERVATION_EXPIRED = "retry not allowed: stock reservation expired"
+RETRY_NOT_ALLOWED_PAYMENT_STATE_CHANGED = "retry not allowed: payment state changed"
+RETRY_FAILED_MERCADOPAGO_CHECKOUT_UNAVAILABLE = "retry failed: mercadopago checkout unavailable"
 DEFAULT_WEBHOOK_MAX_ATTEMPTS = 4
 DEFAULT_WEBHOOK_RETRY_DELAY_MINUTES = 60
 MERCADOPAGO_PROVIDER_TO_INTERNAL_STATUS = {
@@ -1309,6 +1317,40 @@ def create_retry_payment_for_order(
     expires_in_minutes: int = 60,
     initialize_provider: bool = True,
 ) -> dict:
+    expire_active_reservations_for_order(
+        order_id=order_id,
+        now=datetime.now(UTC),
+        db=db,
+    )
+
+    order = (
+        db.query(Order)
+        .filter(Order.id == order_id, Order.user_id == user_id)
+        .with_for_update()
+        .first()
+    )
+    if order is None:
+        raise LookupError("order not found")
+    if str(order.status) == "cancelled":
+        has_expired_reservation = (
+            db.query(1)
+            .filter(
+                StockReservation.order_id == int(order.id),
+                StockReservation.reason == "reservation_expired",
+            )
+            .first()
+            is not None
+        )
+        if has_expired_reservation:
+            raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_CANCELLED_STOCK_EXPIRED)
+        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_CANCELLED)
+    if str(order.status) == "paid":
+        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_ALREADY_PAID)
+    if str(order.status) != "submitted":
+        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_NOT_SUBMITTED)
+    if not list_active_reservations_for_order(order_id=int(order.id), db=db):
+        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_STOCK_RESERVATION_EXPIRED)
+
     latest_attempt = (
         db.query(Payment)
         .join(Order, Payment.order_id == Order.id)
@@ -1329,7 +1371,7 @@ def create_retry_payment_for_order(
         and latest_provider_status == PAYMENT_PROVIDER_SETUP_FAILED
     )
     if latest_status not in RETRYABLE_PAYMENT_STATUSES and not is_setup_failed_pending:
-        raise ValueError("latest payment attempt is not retryable")
+        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_PAYMENT_STATE_CHANGED)
     if is_setup_failed_pending:
         latest_attempt.status = "cancelled"
         db.flush()
@@ -1342,6 +1384,104 @@ def create_retry_payment_for_order(
         user_id=user_id,
         idempotency_key=retry_key,
         currency=currency,
+        expires_in_minutes=expires_in_minutes,
+        initialize_provider=initialize_provider,
+    )
+
+
+def create_retry_payment_for_payment_token(
+    *,
+    public_status_token: str | None,
+    db: Session,
+    expires_in_minutes: int = 60,
+    initialize_provider: bool = True,
+) -> dict:
+    normalized_public_status_token = _normalize_optional_str(public_status_token)
+    if normalized_public_status_token is None:
+        raise ValueError("public_status_token is required")
+    if len(normalized_public_status_token) > 255:
+        raise ValueError("public_status_token is too long")
+
+    token_payment = (
+        db.query(Payment)
+        .filter(
+            Payment.method == "mercadopago",
+            Payment.public_status_token == normalized_public_status_token,
+        )
+        .order_by(Payment.created_at.desc(), Payment.id.desc())
+        .first()
+    )
+    if token_payment is None:
+        raise LookupError("payment not found")
+
+    order_id = int(token_payment.order_id)
+    expire_active_reservations_for_order(
+        order_id=order_id,
+        now=datetime.now(UTC),
+        db=db,
+    )
+
+    order = (
+        db.query(Order)
+        .filter(Order.id == order_id)
+        .with_for_update()
+        .first()
+    )
+    if order is None:
+        raise LookupError("order not found")
+    if str(order.status) == "cancelled":
+        has_expired_reservation = (
+            db.query(1)
+            .filter(
+                StockReservation.order_id == int(order.id),
+                StockReservation.reason == "reservation_expired",
+            )
+            .first()
+            is not None
+        )
+        if has_expired_reservation:
+            raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_CANCELLED_STOCK_EXPIRED)
+        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_CANCELLED)
+    if str(order.status) == "paid":
+        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_ALREADY_PAID)
+    if str(order.status) != "submitted":
+        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_NOT_SUBMITTED)
+    if not list_active_reservations_for_order(order_id=int(order.id), db=db):
+        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_STOCK_RESERVATION_EXPIRED)
+
+    latest_attempt = (
+        db.query(Payment)
+        .filter(
+            Payment.order_id == int(order.id),
+            Payment.method == "mercadopago",
+        )
+        .with_for_update()
+        .order_by(Payment.created_at.desc(), Payment.id.desc())
+        .first()
+    )
+    if latest_attempt is None:
+        raise ValueError("no previous payment attempt found for this method")
+
+    latest_status = str(latest_attempt.status)
+    latest_provider_status = str(latest_attempt.provider_status or "").strip().lower() or None
+    is_setup_failed_pending = (
+        latest_status == "pending"
+        and latest_provider_status == PAYMENT_PROVIDER_SETUP_FAILED
+    )
+    if latest_status not in RETRYABLE_PAYMENT_STATUSES and not is_setup_failed_pending:
+        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_PAYMENT_STATE_CHANGED)
+    if is_setup_failed_pending:
+        latest_attempt.status = "cancelled"
+        db.flush()
+
+    retry_key = f"retry-payment-token-{int(token_payment.id)}-mercadopago-{uuid.uuid4().hex}"
+    return create_payment_for_order(
+        order_id=int(order.id),
+        method="mercadopago",
+        db=db,
+        user_id=None,
+        idempotency_key=retry_key,
+        currency="ARS",
         expires_in_minutes=expires_in_minutes,
         initialize_provider=initialize_provider,
     )

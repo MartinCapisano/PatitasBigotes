@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+import json
 
 from source.db.models import (
     Order,
@@ -22,7 +23,14 @@ def create_submitted_order_with_reservation_for_user(db, *, user_id: int) -> int
     return int(graph["order_id"])
 
 
-def create_retryable_payment(db, *, order_id: int, method: str, status: str) -> int:
+def create_retryable_payment(
+    db,
+    *,
+    order_id: int,
+    method: str,
+    status: str,
+    provider_payload: dict | None = None,
+) -> int:
     payment = Payment(
         order_id=int(order_id),
         method=method,
@@ -32,7 +40,7 @@ def create_retryable_payment(db, *, order_id: int, method: str, status: str) -> 
         idempotency_key=f"{method}-{status}-{datetime.now(UTC).timestamp()}",
         external_ref=f"{method}-ref-{datetime.now(UTC).timestamp()}",
         provider_status=status,
-        provider_payload=None,
+        provider_payload=json.dumps(provider_payload) if provider_payload is not None else None,
         receipt_url=None,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
         paid_at=None,
@@ -95,7 +103,13 @@ def create_payment_incident(db) -> int:
     return int(incident.id)
 
 
-def create_public_mercadopago_payment(db, *, status: str = "pending") -> str:
+def create_public_mercadopago_payment_graph(
+    db,
+    *,
+    status: str = "pending",
+    order_status: str | None = None,
+    checkout_url: str | None = None,
+) -> dict[str, int | str]:
     customer = create_user(
         db,
         first_name="Pay",
@@ -107,7 +121,7 @@ def create_public_mercadopago_payment(db, *, status: str = "pending") -> str:
 
     order = Order(
         user_id=int(customer.id),
-        status="submitted" if status != "paid" else "paid",
+        status=order_status or ("submitted" if status != "paid" else "paid"),
         currency="ARS",
         subtotal=10000,
         discount_total=0,
@@ -119,6 +133,16 @@ def create_public_mercadopago_payment(db, *, status: str = "pending") -> str:
     db.add(order)
     db.flush()
 
+    provider_payload = None
+    if checkout_url is not None:
+        provider_payload = json.dumps(
+            {
+                "checkout": {
+                    "checkout_url": checkout_url,
+                }
+            }
+        )
+
     payment = Payment(
         order_id=int(order.id),
         method="mercadopago",
@@ -129,7 +153,7 @@ def create_public_mercadopago_payment(db, *, status: str = "pending") -> str:
         external_ref=f"mp-order-{order.id}-pay-public",
         preference_id=f"pref-public-{datetime.now(UTC).timestamp()}",
         provider_status="approved" if status == "paid" else "pending",
-        provider_payload=None,
+        provider_payload=provider_payload,
         receipt_url=None,
         expires_at=None,
         paid_at=datetime.now(UTC) if status == "paid" else None,
@@ -137,7 +161,16 @@ def create_public_mercadopago_payment(db, *, status: str = "pending") -> str:
     db.add(payment)
     db.commit()
     db.refresh(payment)
-    return str(payment.public_status_token)
+    return {
+        "order_id": int(order.id),
+        "payment_id": int(payment.id),
+        "public_status_token": str(payment.public_status_token),
+    }
+
+
+def create_public_mercadopago_payment(db, *, status: str = "pending") -> str:
+    graph = create_public_mercadopago_payment_graph(db, status=status)
+    return str(graph["public_status_token"])
 
 
 def build_create_payment_payload(*, method: str, currency: str = "ARS") -> dict[str, str]:
