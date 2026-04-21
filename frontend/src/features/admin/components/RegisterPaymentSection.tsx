@@ -190,7 +190,7 @@ export function RegisterPaymentSection(props: {
             </label>
           )}
           <label>
-            Referencia de pago (nro. transaccion/comprobante) {selectedMethod === "bank_transfer" ? "(obligatoria)" : "(opcional)"}
+            Referencia de pago (nro. transaccion) {selectedMethod === "bank_transfer" ? "(obligatoria)" : "(opcional)"}
             <input className="input" value={paymentRef} onChange={(e) => setPaymentRef(e.target.value)} />
           </label>
         </div>

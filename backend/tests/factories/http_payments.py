@@ -41,7 +41,6 @@ def create_retryable_payment(
         external_ref=f"{method}-ref-{datetime.now(UTC).timestamp()}",
         provider_status=status,
         provider_payload=json.dumps(provider_payload) if provider_payload is not None else None,
-        receipt_url=None,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
         paid_at=None,
     )
@@ -84,7 +83,6 @@ def create_payment_incident(db) -> int:
         external_ref=f"mp-order-{order.id}-pay-2",
         provider_status="approved",
         provider_payload='{"reconciliation":{"provider_payment_id":"123456"}}',
-        receipt_url=None,
         expires_at=None,
         paid_at=datetime.now(UTC),
     )
@@ -154,7 +152,6 @@ def create_public_mercadopago_payment_graph(
         preference_id=f"pref-public-{datetime.now(UTC).timestamp()}",
         provider_status="approved" if status == "paid" else "pending",
         provider_payload=provider_payload,
-        receipt_url=None,
         expires_at=None,
         paid_at=datetime.now(UTC) if status == "paid" else None,
     )

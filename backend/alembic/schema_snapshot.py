@@ -269,7 +269,6 @@ payments = Table(
     Column("public_status_token", String, nullable=False),
     Column("provider_status", String, nullable=True),
     Column("provider_payload", String, nullable=True),
-    Column("receipt_url", String, nullable=True),
     Column("expires_at", DateTime(timezone=True), nullable=True),
     Column("paid_at", DateTime(timezone=True), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),

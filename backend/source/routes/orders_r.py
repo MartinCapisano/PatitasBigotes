@@ -1,6 +1,6 @@
 ﻿from datetime import datetime, timedelta, UTC
 
-from fastapi import APIRouter, Depends, File, HTTPException, Header, Request, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
 from sqlalchemy.orm import Session
 
 from source.dependencies.auth_d import get_current_user, get_current_user_id, require_admin
@@ -53,7 +53,6 @@ from source.services.payment_s import (
     list_payments_for_order_admin,
     list_payments_for_order,
     mark_payment_checkout_setup_failed,
-    submit_bank_transfer_receipt,
 )
 from source.services.post_commit_actions_s import clear_post_commit_actions, dispatch_post_commit_actions
 
@@ -642,28 +641,6 @@ def retry_guest_payment(
         db.rollback()
         raise_http_error_from_exception(exc, db=db)
 
-    return {"data": payment}
-
-
-@router.post("/orders/{order_id}/payments/{payment_id}/bank-transfer/receipt")
-def submit_bank_transfer_payment_receipt(
-    order_id: int,
-    payment_id: int,
-    file: UploadFile = File(...),
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db_transactional),
-):
-    user_id = get_current_user_id(current_user)
-    try:
-        payment = submit_bank_transfer_receipt(
-            order_id=order_id,
-            payment_id=payment_id,
-            user_id=user_id,
-            file=file,
-            db=db,
-        )
-    except Exception as exc:
-        raise_http_error_from_exception(exc, db=db)
     return {"data": payment}
 
 

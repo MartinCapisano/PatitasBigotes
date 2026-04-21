@@ -170,17 +170,3 @@ def get_mail_from() -> str:
     if value:
         return value
     raise RuntimeError("MAIL_FROM is required")
-
-
-def get_payment_receipts_dir() -> str:
-    value = os.getenv("PAYMENT_RECEIPTS_DIR", "").strip()
-    if value:
-        return value
-    raise RuntimeError("PAYMENT_RECEIPTS_DIR is required")
-
-
-def get_payment_receipts_base_url() -> str:
-    value = os.getenv("PAYMENT_RECEIPTS_BASE_URL", "").strip().rstrip("/")
-    if value:
-        return value
-    raise RuntimeError("PAYMENT_RECEIPTS_BASE_URL is required")

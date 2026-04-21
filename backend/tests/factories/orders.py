@@ -117,7 +117,6 @@ def create_order_graph(
             external_ref=None,
             provider_status=payment_provider_status,
             provider_payload=None,
-            receipt_url=None,
             expires_at=payment_expires_at or (datetime.now(UTC) + timedelta(hours=1)),
             paid_at=None,
         )

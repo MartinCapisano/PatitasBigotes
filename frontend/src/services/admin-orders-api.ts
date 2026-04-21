@@ -48,7 +48,6 @@ export type AdminPayment = {
   currency: "ARS";
   external_ref: string | null;
   public_status_token?: string | null;
-  receipt_url: string | null;
   preference_id: string | null;
   order_status?: "draft" | "submitted" | "paid" | "cancelled" | null;
   user_id?: number | null;

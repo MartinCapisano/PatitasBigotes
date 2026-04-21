@@ -97,7 +97,6 @@ export type MyPayment = {
   status: "pending" | "paid" | "cancelled" | "expired";
   amount: number;
   currency: string;
-  receipt_url: string | null;
   external_ref: string | null;
   preference_id?: string | null;
   public_status_token?: string | null;

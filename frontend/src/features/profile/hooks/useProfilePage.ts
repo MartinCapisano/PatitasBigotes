@@ -4,11 +4,9 @@ import type { MyOrder, MyPayment, MyProfile } from "../../../types";
 import { getMercadoPagoCheckoutUrl, redirectToMercadoPago } from "../../../services/checkout-api";
 import { getMyOrders, getMyProfile, requestEmailVerification, updateMyProfile } from "../../../services/auth-api";
 import { toUserMessage } from "../../../services/http-errors";
-import { listMyOrderPayments, retryMyOrderMercadoPago, uploadBankTransferReceipt } from "../../../services/payments-api";
+import { listMyOrderPayments, retryMyOrderMercadoPago } from "../../../services/payments-api";
 import { savePendingVerificationEmail } from "../../auth/verification-storage";
 
-const MAX_RECEIPT_SIZE_BYTES = 10 * 1024 * 1024;
-const ALLOWED_RECEIPT_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "application/pdf"]);
 const RETRYABLE_MERCADOPAGO_STATUSES = new Set(["cancelled", "expired"]);
 
 export function useProfilePage() {
@@ -21,14 +19,10 @@ export function useProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [verificationLoading, setVerificationLoading] = useState(false);
-  const [receiptUploadingPaymentId, setReceiptUploadingPaymentId] = useState<number | null>(null);
   const [retryingPaymentId, setRetryingPaymentId] = useState<number | null>(null);
   const [paymentsByOrderId, setPaymentsByOrderId] = useState<Record<number, MyPayment[]>>({});
-  const [receiptFiles, setReceiptFiles] = useState<Record<number, File | null>>({});
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [receiptError, setReceiptError] = useState("");
-  const [receiptSuccess, setReceiptSuccess] = useState("");
   const [retryError, setRetryError] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -160,12 +154,6 @@ export function useProfilePage() {
     }
   }
 
-  function onSelectReceiptFile(paymentId: number, file: File | null) {
-    setReceiptError("");
-    setReceiptSuccess("");
-    setReceiptFiles((prev) => ({ ...prev, [paymentId]: file }));
-  }
-
   function onContinueMercadoPagoPayment(payment: MyPayment) {
     setRetryError("");
     const checkoutUrl = getMercadoPagoCheckoutUrl(payment);
@@ -195,8 +183,6 @@ export function useProfilePage() {
 
     setRetryingPaymentId(paymentId);
     setRetryError("");
-    setReceiptError("");
-    setReceiptSuccess("");
     try {
       const freshData = await refreshOrders();
       const freshOrder = freshData.orders.find((order) => order.id === orderId) ?? null;
@@ -233,43 +219,6 @@ export function useProfilePage() {
     }
   }
 
-  async function onUploadReceipt(orderId: number, paymentId: number) {
-    const file = receiptFiles[paymentId] ?? null;
-    if (!file || receiptUploadingPaymentId !== null) return;
-    if (!ALLOWED_RECEIPT_CONTENT_TYPES.has(file.type)) {
-      setReceiptError("Formato de comprobante no permitido. Usa JPG, PNG o PDF.");
-      setReceiptSuccess("");
-      return;
-    }
-    if (file.size <= 0) {
-      setReceiptError("El archivo seleccionado esta vacio.");
-      setReceiptSuccess("");
-      return;
-    }
-    if (file.size > MAX_RECEIPT_SIZE_BYTES) {
-      setReceiptError("El comprobante supera el tamano maximo permitido de 10 MB.");
-      setReceiptSuccess("");
-      return;
-    }
-
-    setReceiptUploadingPaymentId(paymentId);
-    setReceiptError("");
-    setReceiptSuccess("");
-    try {
-      const updatedPayment = await uploadBankTransferReceipt(orderId, paymentId, file);
-      setPaymentsByOrderId((prev) => ({
-        ...prev,
-        [orderId]: (prev[orderId] ?? []).map((payment) => (payment.id === paymentId ? updatedPayment : payment))
-      }));
-      setReceiptFiles((prev) => ({ ...prev, [paymentId]: null }));
-      setReceiptSuccess("Comprobante cargado correctamente.");
-    } catch (apiError: unknown) {
-      setReceiptError(toUserMessage(apiError, "profile"));
-    } finally {
-      setReceiptUploadingPaymentId(null);
-    }
-  }
-
   return {
     section,
     setSection,
@@ -280,14 +229,10 @@ export function useProfilePage() {
     loading,
     saving,
     verificationLoading,
-    receiptUploadingPaymentId,
     retryingPaymentId,
     paymentsByOrderId,
-    receiptFiles,
     error,
     success,
-    receiptError,
-    receiptSuccess,
     retryError,
     phone,
     setPhone,
@@ -298,8 +243,6 @@ export function useProfilePage() {
     onCancelEditing,
     onSaveField,
     onRequestEmailVerification,
-    onSelectReceiptFile,
-    onUploadReceipt,
     isRetryableMercadoPagoPayment,
     onRetryMercadoPago,
     onContinueMercadoPagoPayment

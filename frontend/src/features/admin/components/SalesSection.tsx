@@ -287,7 +287,7 @@ export function SalesSection(props: {
                 </label>
               )}
               <label>
-                Referencia de pago (nro. transaccion/comprobante) {paymentMethod === "bank_transfer" ? "(obligatoria)" : "(opcional)"}
+                Referencia de pago (nro. transaccion) {paymentMethod === "bank_transfer" ? "(obligatoria)" : "(opcional)"}
                 <input className="input" value={paymentRef} onChange={(e) => setPaymentRef(e.target.value)} />
               </label>
             </div>

@@ -7,7 +7,6 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 import uuid
 
-from fastapi import UploadFile
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -35,11 +34,6 @@ from source.services.refund_s import (
 from source.services.domain_events_s import publish_domain_event
 from source.services.mercadopago_client import create_checkout_preference
 from source.services.money_s import parse_amount_to_cents
-from source.services.payment_receipts_s import (
-    delete_stored_receipt_by_filename,
-    extract_managed_receipt_filename,
-    save_receipt_upload,
-)
 from source.services.stock_reservations_s import (
     consume_reservations_for_paid_order,
     expire_active_reservations_for_order,
@@ -103,7 +97,6 @@ def _payment_to_dict(payment: Payment) -> dict:
         "provider_status": payment.provider_status,
         "provider_payload": payment.provider_payload,
         "provider_payload_data": parsed_provider_payload,
-        "receipt_url": payment.receipt_url,
         "expires_at": payment.expires_at,
         "paid_at": payment.paid_at,
         "created_at": payment.created_at,
@@ -1229,7 +1222,6 @@ def create_payment_for_order(
         public_status_token=generate_public_status_token(),
         provider_status=None,
         provider_payload=None,
-        receipt_url=None,
         expires_at=expires_at,
         paid_at=None,
     )
@@ -1638,7 +1630,6 @@ def confirm_manual_payment_for_order(
             external_ref=normalized_ref,
             provider_status="manual_confirmed",
             provider_payload=None,
-            receipt_url=None,
             expires_at=None,
             paid_at=now,
         )
@@ -1776,61 +1767,6 @@ def get_payment_public_status(
         "updated_at": payment.updated_at,
         "paid_at": payment.paid_at,
     }
-
-
-def submit_bank_transfer_receipt(
-    *,
-    order_id: int,
-    payment_id: int,
-    user_id: int,
-    file: UploadFile,
-    db: Session,
-) -> dict:
-    payment = (
-        db.query(Payment)
-        .join(Order, Payment.order_id == Order.id)
-        .filter(
-            Payment.id == int(payment_id),
-            Payment.order_id == int(order_id),
-            Order.user_id == int(user_id),
-        )
-        .with_for_update()
-        .first()
-    )
-    if payment is None:
-        raise LookupError("payment not found")
-    if str(payment.method) != "bank_transfer":
-        raise ValueError("receipt upload is only supported for bank_transfer")
-    if str(payment.status) != "pending":
-        raise ValueError("receipt can only be submitted for pending bank_transfer payments")
-
-    previous_managed_filename = extract_managed_receipt_filename(payment.receipt_url)
-    saved_receipt: dict | None = None
-    try:
-        saved_receipt = save_receipt_upload(payment_id=int(payment.id), file=file)
-        payload = _deserialize_provider_payload(payment.provider_payload) or {}
-        payload["receipt"] = {
-            "url": str(saved_receipt["url"]),
-            "submitted_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-            "original_filename": str(saved_receipt["original_filename"]),
-            "stored_filename": str(saved_receipt["stored_filename"]),
-            "content_type": str(saved_receipt["content_type"]),
-            "size_bytes": int(saved_receipt["size_bytes"]),
-        }
-        payment.receipt_url = str(saved_receipt["url"])
-        payment.provider_payload = _serialize_provider_payload(payload)
-        db.flush()
-        db.refresh(payment)
-    except Exception:
-        if saved_receipt is not None:
-            delete_stored_receipt_by_filename(str(saved_receipt.get("stored_filename")))
-        raise
-
-    new_stored_filename = str(saved_receipt["stored_filename"])
-    if previous_managed_filename and previous_managed_filename != new_stored_filename:
-        delete_stored_receipt_by_filename(previous_managed_filename)
-
-    return _payment_to_dict(payment)
 
 
 def list_pending_bank_transfer_payments_for_admin(

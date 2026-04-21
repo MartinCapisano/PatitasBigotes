@@ -148,35 +148,7 @@ export function ProfilePage() {
                             <p className="muted">Metodo: {payment.method}</p>
                             <p className="muted">Estado: {payment.status}</p>
                             <p className="muted">Monto: ${(payment.amount / 100).toLocaleString("es-AR")} {payment.currency}</p>
-                            {payment.receipt_url ? <p className="success">Comprobante enviado.</p> : null}
                           </div>
-                          {payment.method === "bank_transfer" && payment.status === "pending" && (
-                            <div className="auth-form" style={{ minWidth: 280 }}>
-                              <label>
-                                Subir comprobante
-                                <input
-                                  className="input"
-                                  type="file"
-                                  accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
-                                  onChange={(event) =>
-                                    profilePage.onSelectReceiptFile(payment.id, event.target.files?.[0] ?? null)
-                                  }
-                                />
-                              </label>
-                              <p className="muted">Formatos permitidos: JPG, PNG o PDF. Maximo 10 MB.</p>
-                              <button
-                                className="btn btn-small"
-                                type="button"
-                                onClick={() => void profilePage.onUploadReceipt(order.id, payment.id)}
-                                disabled={
-                                  profilePage.receiptUploadingPaymentId !== null ||
-                                  !profilePage.receiptFiles[payment.id]
-                                }
-                              >
-                                {profilePage.receiptUploadingPaymentId === payment.id ? "Subiendo..." : "Enviar comprobante"}
-                              </button>
-                            </div>
-                          )}
                           {profilePage.isRetryableMercadoPagoPayment(payment) && order.status === "submitted" && (
                             <div className="auth-form" style={{ minWidth: 280 }}>
                               <p className="muted">Este pago no pudo completarse. Puedes generar un nuevo checkout.</p>
@@ -213,8 +185,6 @@ export function ProfilePage() {
           )}
           {profilePage.error && <p className="error">{profilePage.error}</p>}
           {profilePage.success && <p className="success">{profilePage.success}</p>}
-          {profilePage.receiptError && <p className="error">{profilePage.receiptError}</p>}
-          {profilePage.receiptSuccess && <p className="success">{profilePage.receiptSuccess}</p>}
           {profilePage.retryError && <p className="error">{profilePage.retryError}</p>}
         </>
       )}

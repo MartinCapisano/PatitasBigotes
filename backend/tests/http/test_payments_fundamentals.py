@@ -479,39 +479,6 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
             "retry failed: mercadopago checkout unavailable",
         )
 
-    def test_submit_bank_transfer_receipt_updates_payment_over_http(self) -> None:
-        user_id = self._create_user(email="pay-receipt@example.com", verified=True)
-        db = self._db()
-        try:
-            order_id = create_submitted_order_with_reservation_for_user(db, user_id=user_id)
-        finally:
-            db.close()
-        login_response = self._login(email="pay-receipt@example.com")
-        self.assertEqual(login_response.status_code, 200)
-
-        create_response = self.client.post(
-            f"/orders/{order_id}/payments",
-            json=build_create_payment_payload(method="bank_transfer"),
-            headers={
-                **self._origin_headers(),
-                "Idempotency-Key": "payment-receipt-key",
-            },
-        )
-        self.assertEqual(create_response.status_code, 201)
-        payment_id = int(create_response.json()["data"]["id"])
-
-        response = self.client.post(
-            f"/orders/{order_id}/payments/{payment_id}/bank-transfer/receipt",
-            files={"file": ("receipt-1.jpg", b"fake-jpeg-content", "image/jpeg")},
-            headers=self._origin_headers(),
-        )
-
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()["data"]
-        self.assertIn("/receipts/payment-", payload["receipt_url"])
-        self.assertEqual(payload["provider_payload_data"]["receipt"]["url"], payload["receipt_url"])
-        self.assertEqual(payload["provider_payload_data"]["receipt"]["content_type"], "image/jpeg")
-
     def test_resolve_payment_incident_refund_success_over_http(self) -> None:
         db = self._db()
         try:

@@ -46,16 +46,6 @@ export async function listMyOrderPayments(orderId: number): Promise<MyPayment[]>
   return response.data.data;
 }
 
-export async function uploadBankTransferReceipt(orderId: number, paymentId: number, file: File): Promise<MyPayment> {
-  const formData = new FormData();
-  formData.append("file", file);
-  const response = await http.post<{ data: MyPayment }>(
-    `/orders/${orderId}/payments/${paymentId}/bank-transfer/receipt`,
-    formData
-  );
-  return response.data.data;
-}
-
 export async function retryMyOrderMercadoPago(orderId: number): Promise<MyPayment> {
   const response = await http.post<{ data: MyPayment }>(`/orders/${orderId}/payments/retry`, {
     method: "mercadopago",

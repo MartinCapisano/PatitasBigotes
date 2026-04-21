@@ -323,7 +323,6 @@ class Payment(Base):
     )
     provider_status = Column(String, nullable=True)
     provider_payload = Column(String, nullable=True)
-    receipt_url = Column(String, nullable=True)
 
     expires_at = Column(DateTime(timezone=True), nullable=True)
     paid_at = Column(DateTime(timezone=True), nullable=True)

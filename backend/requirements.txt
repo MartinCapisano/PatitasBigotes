@@ -8,4 +8,3 @@ python-dotenv
 python-jose[cryptography]
 passlib
 mercadopago
-python-multipart

@@ -141,7 +141,6 @@ class PaymentsMoneyConsistencyTests(unittest.TestCase):
                 external_ref=f"mp-order-{order_id}-pay-1",
                 provider_status="preference_created",
                 provider_payload=None,
-                receipt_url=None,
                 expires_at=datetime.now(UTC) + timedelta(hours=1),
                 paid_at=None,
             )
@@ -177,7 +176,6 @@ class PaymentsMoneyConsistencyTests(unittest.TestCase):
                 external_ref=f"mp-order-{order_id}-pay-1",
                 provider_status="preference_created",
                 provider_payload=None,
-                receipt_url=None,
                 expires_at=datetime.now(UTC) + timedelta(hours=1),
                 paid_at=None,
             )
@@ -233,7 +231,6 @@ class PaymentsMoneyConsistencyTests(unittest.TestCase):
                 external_ref=f"mp-order-{order_id}-pay-late-cancel",
                 provider_status="preference_created",
                 provider_payload=None,
-                receipt_url=None,
                 expires_at=datetime.now(UTC) + timedelta(hours=1),
                 paid_at=None,
             )
@@ -281,7 +278,6 @@ class PaymentsMoneyConsistencyTests(unittest.TestCase):
                 external_ref=f"cash-ref-{order_id}",
                 provider_status="manual_confirmed",
                 provider_payload=None,
-                receipt_url=None,
                 expires_at=None,
                 paid_at=datetime.now(UTC),
             )
@@ -299,7 +295,6 @@ class PaymentsMoneyConsistencyTests(unittest.TestCase):
                 external_ref=f"mp-order-{order_id}-pay-late",
                 provider_status="preference_created",
                 provider_payload=None,
-                receipt_url=None,
                 expires_at=datetime.now(UTC) + timedelta(hours=1),
                 paid_at=None,
             )
