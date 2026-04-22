@@ -567,6 +567,68 @@ class HttpCheckoutFundamentalsTests(HttpFundamentalsBase):
         self.assertEqual(payload["payment"]["status"], "paid")
         self.assertEqual(payload["payment"]["change_amount"], 2000)
 
+    def test_admin_register_manual_payment_reuses_existing_bank_transfer_pending_payment_over_http(self) -> None:
+        variant_id = self._seed_variant()
+        self._create_user(email="bank-transfer-owner@example.com", verified=True)
+        admin_user_id = self._create_user(
+            email="admin-register-bank-transfer@example.com",
+            is_admin=True,
+            verified=True,
+        )
+        self.assertGreater(admin_user_id, 0)
+
+        owner_login = self._login(email="bank-transfer-owner@example.com")
+        self.assertEqual(owner_login.status_code, 200)
+
+        draft_response = self.client.put(
+            "/orders/draft/items",
+            json={"items": [{"variant_id": variant_id, "quantity": 1}]},
+            headers=self._origin_headers(),
+        )
+        self.assertEqual(draft_response.status_code, 200)
+        order_id = int(draft_response.json()["data"]["id"])
+
+        submit_response = self.client.patch(
+            f"/orders/{order_id}/status",
+            json={"status": "submitted"},
+            headers=self._origin_headers(),
+        )
+        self.assertEqual(submit_response.status_code, 200)
+
+        pending_response = self.client.post(
+            f"/orders/{order_id}/payments",
+            json={"method": "bank_transfer", "currency": "ARS", "expires_in_minutes": 60},
+            headers={
+                **self._origin_headers(),
+                "Idempotency-Key": "bank-transfer-pending-admin-confirm",
+            },
+        )
+        self.assertEqual(pending_response.status_code, 201)
+        pending_payment = pending_response.json()["data"]
+        self.assertEqual(pending_payment["status"], "pending")
+
+        admin_login = self._login(email="admin-register-bank-transfer@example.com")
+        self.assertEqual(admin_login.status_code, 200)
+
+        confirm_response = self.client.post(
+            f"/admin/orders/{order_id}/payments/manual",
+            json={
+                "method": "bank_transfer",
+                "paid_amount": 10000,
+                "payment_ref": "BT-MANUAL-REF-1",
+            },
+            headers=self._origin_headers(),
+        )
+
+        self.assertEqual(confirm_response.status_code, 200)
+        payload = confirm_response.json()["data"]
+        self.assertEqual(payload["order"]["status"], "paid")
+        self.assertEqual(payload["payment"]["id"], pending_payment["id"])
+        self.assertEqual(payload["payment"]["method"], "bank_transfer")
+        self.assertEqual(payload["payment"]["status"], "paid")
+        self.assertEqual(payload["payment"]["external_ref"], "BT-MANUAL-REF-1")
+        self.assertIsNone(payload["payment"]["change_amount"])
+
     def test_admin_register_manual_payment_rejects_order_without_pending_payment_over_http(self) -> None:
         variant_id = self._seed_variant()
         self._create_user(email="no-pending-owner@example.com", verified=True)

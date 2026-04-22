@@ -83,23 +83,22 @@ class OrderStatusStateMachineTests(unittest.TestCase):
             session.close()
         self.assertEqual(order["status"], "submitted")
 
-    def test_submitted_to_paid_allowed_admin_manual_payment(self) -> None:
+    def test_submitted_to_paid_rejected_payment_endpoint_required(self) -> None:
         order_id, user_id = self._seed_order(order_status="submitted", with_reservation=True)
         session = self.TestSession()
         try:
-            order = change_order_status(
-                user_id=user_id,
-                order_id=order_id,
-                new_status="paid",
-                db=session,
-                is_admin=True,
-                payment_ref="MANUAL-REF-1",
-                paid_amount=10000,
-            )
-            session.commit()
+            with self.assertRaisesRegex(ValueError, "paid status must be set through a payment endpoint"):
+                change_order_status(
+                    user_id=user_id,
+                    order_id=order_id,
+                    new_status="paid",
+                    db=session,
+                    is_admin=True,
+                    payment_ref="MANUAL-REF-1",
+                    paid_amount=10000,
+                )
         finally:
             session.close()
-        self.assertEqual(order["status"], "paid")
 
     def test_submitted_to_cancelled_allowed(self) -> None:
         order_id, user_id = self._seed_order(order_status="submitted", with_reservation=True)

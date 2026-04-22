@@ -37,7 +37,7 @@ ALLOWED_ORDER_STATUS = {"draft", "submitted", "paid", "cancelled"}
 ORDER_TERMINAL_STATUSES = {"paid", "cancelled"}
 ORDER_ALLOWED_TRANSITIONS = {
     "draft": {"draft", "submitted"},
-    "submitted": {"submitted", "paid", "cancelled"},
+    "submitted": {"submitted", "cancelled"},
     "paid": {"paid"},
     "cancelled": {"cancelled"},
 }
@@ -64,26 +64,20 @@ def _assert_transition_preconditions(
     *,
     order: Order,
     new_status: str,
-    is_admin: bool,
     payment_ref: str | None,
     paid_amount: int | None,
 ) -> None:
     if new_status not in ALLOWED_ORDER_STATUS:
         raise ValueError("invalid status")
 
+    if new_status == "paid":
+        raise ValueError("paid status must be set through a payment endpoint")
+
     if new_status != "paid" and (payment_ref is not None or paid_amount is not None):
         raise ValueError("payment_ref and paid_amount are only valid when status is paid")
 
     if order.status == "draft" and new_status != "draft" and not order.items:
         raise ValueError("cannot leave draft with an empty order")
-
-    if new_status == "paid":
-        if not is_admin:
-            raise ValueError("only admins can set status paid manually")
-        if payment_ref is None or not payment_ref.strip():
-            raise ValueError("payment_ref is required when status is paid")
-        if paid_amount is None or int(paid_amount) <= 0:
-            raise ValueError("paid_amount must be greater than 0 when status is paid")
 
 
 def _order_query(db: Session):
@@ -592,9 +586,7 @@ def change_order_status(
 ) -> dict:
     expire_active_reservations_for_order(order_id=order_id, now=_utc_now(), db=db)
 
-    order_filter = [Order.id == order_id]
-    if not (is_admin and new_status == "paid"):
-        order_filter.append(Order.user_id == user_id)
+    order_filter = [Order.id == order_id, Order.user_id == user_id]
 
     order = (
         _order_lock_query(db)
@@ -617,7 +609,6 @@ def change_order_status(
         _assert_transition_preconditions(
             order=order,
             new_status=new_status,
-            is_admin=bool(is_admin),
             payment_ref=payment_ref,
             paid_amount=paid_amount,
         )
@@ -633,26 +624,6 @@ def change_order_status(
             str(exc),
         )
         raise
-
-    if new_status == "paid":
-        confirm_manual_payment_for_order(
-            order_id=order.id,
-            user_id=order.user_id,
-            payment_ref=payment_ref,
-            paid_amount=int(paid_amount),
-            db=db,
-        )
-        db.flush()
-        db.refresh(order)
-        logger.info(
-            "event=order_status_transition_applied order_id=%s user_id=%s is_admin=%s from=%s to=%s",
-            int(order.id),
-            int(user_id),
-            bool(is_admin),
-            current_status,
-            "paid",
-        )
-        return _order_to_dict(order)
 
     if order.status == new_status:
         logger.info(
