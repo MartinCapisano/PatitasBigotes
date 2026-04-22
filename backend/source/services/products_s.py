@@ -570,16 +570,7 @@ def list_storefront_products(
             normalized_query = str(name_query).strip()
             if normalized_query:
                 query = query.filter(Product.name.ilike(f"%{normalized_query}%"))
-        if min_price is not None:
-            query = query.filter(aggregates_subquery.c.min_var_price >= int(min_price))
-        if max_price is not None:
-            query = query.filter(aggregates_subquery.c.min_var_price <= int(max_price))
-
-        total = int(query.count())
-
-        if sort_by == "price":
-            column = aggregates_subquery.c.min_var_price
-        elif sort_by == "name":
+        if sort_by == "name":
             column = Product.name
         else:
             # `products` has no real created_at yet; for storefront `sort_by=created_at`
@@ -587,7 +578,7 @@ def list_storefront_products(
             column = Product.id
 
         query = query.order_by(desc(column) if sort_order == "desc" else asc(column))
-        rows = query.offset(safe_offset).limit(safe_limit).all()
+        rows = query.all()
         discounts = list_discounts(db=session)
 
         data = []
@@ -605,6 +596,27 @@ def list_storefront_products(
                     has_discount=has_discount,
                 )
             )
+        if min_price is not None:
+            data = [
+                product
+                for product in data
+                if product["min_var_price_final"] is not None
+                and int(product["min_var_price_final"]) >= int(min_price)
+            ]
+        if max_price is not None:
+            data = [
+                product
+                for product in data
+                if product["min_var_price_final"] is not None
+                and int(product["min_var_price_final"]) <= int(max_price)
+            ]
+        if sort_by == "price":
+            data.sort(
+                key=lambda product: int(product["min_var_price_final"]),
+                reverse=sort_order == "desc",
+            )
+        total = len(data)
+        data = data[safe_offset : safe_offset + safe_limit]
         return data, total
 
 

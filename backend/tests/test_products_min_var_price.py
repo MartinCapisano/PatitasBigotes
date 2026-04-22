@@ -9,7 +9,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from source.db.models import Base, Category, Product, ProductVariant
+from source.db.models import Base, Category, Discount, Product, ProductVariant
 from source.services import products_s
 
 
@@ -232,6 +232,110 @@ class ProductsMinVarPriceTests(unittest.TestCase):
             session.close()
         names = [product["name"] for product in data if product["min_var_price"] is not None]
         self.assertEqual(names[:2], ["P2", "P1"])
+
+    def test_storefront_price_filter_uses_discounted_min_final_price(self) -> None:
+        session = self.TestSession()
+        try:
+            p1 = Product(name="P1", description=None, category_id=1)
+            p2 = Product(name="P2", description=None, category_id=1)
+            session.add_all([p1, p2])
+            session.flush()
+            session.add_all(
+                [
+                    ProductVariant(
+                        product_id=p1.id,
+                        sku="P1-A",
+                        size=None,
+                        color=None,
+                        price=100000,
+                        stock=1,
+                        is_active=True,
+                    ),
+                    ProductVariant(
+                        product_id=p2.id,
+                        sku="P2-A",
+                        size=None,
+                        color=None,
+                        price=70000,
+                        stock=1,
+                        is_active=True,
+                    ),
+                    Discount(
+                        name="Half off P1",
+                        type="percent",
+                        value=50,
+                        scope="product",
+                        product_id=p1.id,
+                        is_active=True,
+                    ),
+                ]
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        session = self.TestSession()
+        try:
+            data, total = products_s.list_storefront_products(max_price=60000, db=session)
+        finally:
+            session.close()
+        self.assertEqual(total, 1)
+        self.assertEqual([product["name"] for product in data], ["P1"])
+        self.assertEqual(data[0]["min_var_price_original"], 100000)
+        self.assertEqual(data[0]["min_var_price_final"], 50000)
+
+    def test_storefront_price_sort_uses_discounted_min_final_price(self) -> None:
+        session = self.TestSession()
+        try:
+            p1 = Product(name="P1", description=None, category_id=1)
+            p2 = Product(name="P2", description=None, category_id=1)
+            session.add_all([p1, p2])
+            session.flush()
+            session.add_all(
+                [
+                    ProductVariant(
+                        product_id=p1.id,
+                        sku="P1-A",
+                        size=None,
+                        color=None,
+                        price=100000,
+                        stock=1,
+                        is_active=True,
+                    ),
+                    ProductVariant(
+                        product_id=p2.id,
+                        sku="P2-A",
+                        size=None,
+                        color=None,
+                        price=70000,
+                        stock=1,
+                        is_active=True,
+                    ),
+                    Discount(
+                        name="Half off P1",
+                        type="percent",
+                        value=50,
+                        scope="product",
+                        product_id=p1.id,
+                        is_active=True,
+                    ),
+                ]
+            )
+            session.commit()
+        finally:
+            session.close()
+
+        session = self.TestSession()
+        try:
+            data, total = products_s.list_storefront_products(
+                sort_by="price",
+                sort_order="asc",
+                db=session,
+            )
+        finally:
+            session.close()
+        self.assertEqual(total, 2)
+        self.assertEqual([product["name"] for product in data], ["P1", "P2"])
 
 
 if __name__ == "__main__":
