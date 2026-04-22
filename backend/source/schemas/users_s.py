@@ -17,6 +17,15 @@ class CreateGuestUserRequest(BaseModel):
     phone: str
 
 
+class CreateAdminUserRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    first_name: str = Field(min_length=1, max_length=80)
+    last_name: str = Field(min_length=1, max_length=80)
+    email: EmailStr
+    password: str = Field(min_length=8)
+    phone: str | None = Field(default=None, min_length=6, max_length=30)
+
+
 class ResolveUserRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     first_name: str = Field(min_length=1, max_length=80)

@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from auth.security import ensure_password_policy, hash_password
-from source.db.models import User
-from source.schemas import CreateGuestUserRequest, CreateUserRequest, ResolveUserRequest
+from source.db.models import User, UserRefreshSession
+from source.schemas import (
+    CreateAdminUserRequest,
+    CreateGuestUserRequest,
+    CreateUserRequest,
+    ResolveUserRequest,
+)
 
 
 def _serialize_user_created(user: User) -> dict:
@@ -32,6 +39,20 @@ def serialize_user_basic(user: User) -> dict:
         "dni": user.dni,
         "phone": user.phone,
         "has_account": bool(user.has_account),
+    }
+
+
+def serialize_admin_user(user: User) -> dict:
+    return {
+        "id": int(user.id),
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "email": user.email,
+        "phone": user.phone,
+        "has_account": bool(user.has_account),
+        "is_admin": bool(user.is_admin),
+        "email_verified": user.email_verified_at is not None,
+        "created_at": user.created_at,
     }
 
 
@@ -93,6 +114,82 @@ def create_user(payload: CreateUserRequest, db: Session) -> dict:
         db=db,
     )
     return _serialize_user_created(user)
+
+
+def create_admin_user(payload: CreateAdminUserRequest, db: Session) -> dict:
+    user_data = payload.model_dump()
+    normalized_email = str(user_data["email"]).strip().lower()
+    if not normalized_email:
+        raise HTTPException(status_code=400, detail="email is required")
+
+    existing_user = db.query(User).filter(User.email == normalized_email).first()
+    if existing_user is not None:
+        raise HTTPException(status_code=409, detail="email already exists")
+    ensure_password_policy(user_data["password"])
+
+    user = User(
+        first_name=_normalize_required_text(
+            user_data["first_name"],
+            field_name="first_name",
+        ),
+        last_name=_normalize_required_text(
+            user_data["last_name"],
+            field_name="last_name",
+        ),
+        email=normalized_email,
+        phone=_normalize_optional_text(user_data.get("phone")),
+        password_hash=hash_password(user_data["password"]),
+        has_account=True,
+        is_admin=True,
+        email_verified_at=datetime.now(UTC),
+        email_verification_sent_at=None,
+    )
+    db.add(user)
+    db.flush()
+    db.refresh(user)
+    return serialize_admin_user(user)
+
+
+def revoke_admin_status(
+    *,
+    target_user_id: int,
+    actor_user_id: int,
+    db: Session,
+) -> dict:
+    if int(target_user_id) == int(actor_user_id):
+        raise ValueError("cannot revoke own admin status")
+
+    user = (
+        db.query(User)
+        .filter(User.id == int(target_user_id))
+        .with_for_update()
+        .first()
+    )
+    if user is None:
+        raise LookupError("user not found")
+    if not bool(user.is_admin):
+        raise HTTPException(status_code=409, detail="user is not admin")
+
+    user.is_admin = False
+    user.token_version = int(user.token_version) + 1
+
+    refresh_session = (
+        db.query(UserRefreshSession)
+        .filter(UserRefreshSession.user_id == int(user.id))
+        .with_for_update()
+        .first()
+    )
+    if refresh_session is not None:
+        db.delete(refresh_session)
+
+    db.flush()
+    return {
+        "id": int(user.id),
+        "email": user.email,
+        "is_admin": bool(user.is_admin),
+        "token_version": int(user.token_version),
+        "admin_revoked": True,
+    }
 
 
 def create_guest_user(payload: CreateGuestUserRequest, db: Session) -> dict:

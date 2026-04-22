@@ -67,11 +67,23 @@ def get_current_user_id(current_user: dict) -> int:
         ) from exc
 
 
-def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
-    if not current_user.get("is_admin", False):
+def require_admin(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    user_id = get_current_user_id(current_user)
+    user = db.query(User).filter(User.id == int(user_id)).first()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    if not bool(user.is_admin):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin permissions required",
         )
 
+    current_user["is_admin"] = bool(user.is_admin)
     return current_user
