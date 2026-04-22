@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from source.dependencies.auth_d import get_current_user, get_current_user_id
-from source.db.session import get_db_transactional
+from source.db.session import get_db, get_db_transactional
 from source.errors import raise_http_error_from_exception
 from source.services.notifications_s import (
     get_unread_notification_count,
@@ -20,7 +20,7 @@ def list_notifications(
     limit: int = 20,
     offset: int = 0,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     user_id = get_current_user_id(current_user)
     try:
@@ -40,7 +40,7 @@ def list_notifications(
 @router.get("/notifications/unread-count")
 def unread_notification_count(
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     user_id = get_current_user_id(current_user)
     try:

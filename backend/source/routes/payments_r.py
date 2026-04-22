@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from source.dependencies.auth_d import get_current_user, get_current_user_id, require_admin
-from source.db.session import get_db_transactional
+from source.db.session import get_db, get_db_transactional
 from source.errors import raise_http_error_from_exception
 from source.schemas import (
     PaymentIncidentResolveNoRefundRequest,
@@ -27,7 +27,7 @@ router = APIRouter()
 def get_payment(
     payment_id: int,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     user_id = get_current_user_id(current_user)
 
@@ -46,7 +46,7 @@ def get_payment(
 @router.get("/payments/public/status")
 def get_public_payment_status(
     public_status_token: str | None = None,
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     try:
         payment = get_payment_public_status(
@@ -62,7 +62,7 @@ def get_public_payment_status(
 def list_pending_bank_transfer_payments(
     limit: int = 100,
     _: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     try:
         payments = list_pending_bank_transfer_payments_for_admin(
@@ -81,7 +81,7 @@ def list_admin_payments(
     sort_by: str = "created_at",
     sort_dir: str = "desc",
     _: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     try:
         rows = list_payments_for_admin(
@@ -101,7 +101,7 @@ def list_admin_payment_incidents(
     status: str | None = "pending_review",
     limit: int = 100,
     _: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     try:
         rows = list_payment_incidents_for_admin(

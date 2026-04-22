@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from source.dependencies.auth_d import require_admin
-from source.db.session import get_db_transactional
+from source.db.session import get_db, get_db_transactional
 from source.errors import raise_http_error_from_exception
 from source.schemas import (
     CreateCategoryRequest,
@@ -48,7 +48,7 @@ def get_products(
     sort_order: Literal["asc", "desc"] = Query("asc"),
     include_variants: bool = Query(False),
     _: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     if include_variants:
         payload = list_admin_products_with_variants(
@@ -87,7 +87,7 @@ def get_products(
 @router.get("/admin/catalog")
 def get_admin_catalog(
     _: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     return {"data": list_admin_catalog(db=db)}
 
@@ -96,7 +96,7 @@ def get_admin_catalog(
 def get_product(
     product_id: int,
     _: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     product = get_product_by_id(product_id, db=db)
 
@@ -183,7 +183,7 @@ def delete_product(
 @router.get("/categories")
 def list_categories(
     _: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     return {"data": list_categories_s(db=db)}
 
@@ -192,7 +192,7 @@ def list_categories(
 def get_category(
     category_id: int,
     _: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     category = get_category_by_id(category_id=category_id, db=db)
     if category is None:
@@ -276,7 +276,7 @@ def get_variant(
     variant_id: int,
     include_inactive: bool = Query(True),
     _: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     variant = get_variant_by_id(variant_id=variant_id, include_inactive=include_inactive, db=db)
     if variant is None:

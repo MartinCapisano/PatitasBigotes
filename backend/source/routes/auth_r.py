@@ -15,7 +15,7 @@ from auth.security import ensure_password_policy, obtener_config_jwt, verify_pas
 from source.db.config import get_app_base_url
 from source.db.models import User
 from source.dependencies.auth_d import get_current_user, get_current_user_id
-from source.db.session import get_db_transactional
+from source.db.session import get_db, get_db_transactional
 from source.errors import raise_http_error_from_exception
 from source.schemas import (
     EmailRequest,
@@ -376,7 +376,7 @@ def password_change(
 @router.get("/auth/me")
 def get_my_profile(
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     user_id = get_current_user_id(current_user)
     try:

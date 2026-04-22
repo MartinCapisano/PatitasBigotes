@@ -328,6 +328,8 @@ def create_admin_sale_endpoint(
 @router.get("/orders/draft")
 def get_or_create_draft(
     current_user: dict = Depends(get_current_user),
+    # This GET intentionally uses a transactional session because it may
+    # create the user's draft order when one does not already exist.
     db: Session = Depends(get_db_transactional),
 ):
     user_id = get_current_user_id(current_user)
@@ -395,7 +397,7 @@ def update_order_status(
 def get_order(
     order_id: int,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     user_id = get_current_user_id(current_user)
     try:
@@ -410,7 +412,7 @@ def get_order(
 @router.get("/orders")
 def list_orders(
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     user_id = get_current_user_id(current_user)
     try:
@@ -423,6 +425,8 @@ def list_orders(
 @router.get("/public/orders/by-payment-token", response_model=dict[str, PublicOrderSnapshotResponse])
 def get_public_order_snapshot_by_payment_token_endpoint(
     public_status_token: str | None = None,
+    # This GET may expire stale reservations before building the public
+    # snapshot, so the transactional session persists that cleanup.
     db: Session = Depends(get_db_transactional),
 ):
     try:
@@ -439,7 +443,7 @@ def get_public_order_snapshot_by_payment_token_endpoint(
 def get_order_admin(
     order_id: int,
     _: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     try:
         order = get_order_for_admin(order_id=order_id, db=db)
@@ -457,7 +461,7 @@ def list_orders_admin(
     sort_by: str = "created_at",
     sort_dir: str = "desc",
     _: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     try:
         rows = list_orders_for_admin(
@@ -544,7 +548,7 @@ def create_order_payment(
 def list_order_payments(
     order_id: int,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     user_id = get_current_user_id(current_user)
 
@@ -564,7 +568,7 @@ def list_order_payments(
 def list_order_payments_admin(
     order_id: int,
     _: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     try:
         payments = list_payments_for_order_admin(
@@ -648,6 +652,8 @@ def retry_guest_payment(
 def list_order_reservations(
     order_id: int,
     current_user: dict = Depends(get_current_user),
+    # Listing reservations also expires stale active reservations first, and
+    # the transactional session commits that state transition.
     db: Session = Depends(get_db_transactional),
 ):
     user_id = get_current_user_id(current_user)

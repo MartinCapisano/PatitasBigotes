@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from source.dependencies.auth_d import get_current_user_id, require_admin
-from source.db.session import get_db_transactional
+from source.db.session import get_db, get_db_transactional
 from source.errors import raise_http_error_from_exception
 from source.schemas import CreateAdminUserRequest, ResolveUserRequest
 from source.services.users_s import create_admin_user as create_admin_user_service
@@ -22,7 +22,7 @@ def search_users(
     phone: str | None = None,
     limit: int = 20,
     _: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     try:
         users = search_users_service(

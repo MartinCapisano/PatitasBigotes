@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from source.dependencies.auth_d import get_current_user, get_current_user_id, require_admin
-from source.db.session import get_db_transactional
+from source.db.session import get_db, get_db_transactional
 from source.errors import raise_http_error_from_exception
 from source.schemas import CreateTurnRequest, UpdateTurnStatusRequest
 from source.services.turns_s import create_turn_for_user, list_turns_for_admin, update_turn_status_for_admin
@@ -34,7 +34,7 @@ def admin_list_turns(
     status: str | None = None,
     limit: int = 50,
     _: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     try:
         turns = list_turns_for_admin(

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from source.dependencies.auth_d import require_admin
-from source.db.session import get_db_transactional
+from source.db.session import get_db, get_db_transactional
 from source.errors import raise_http_error_from_exception
 from source.schemas import CreateDiscountRequest, UpdateDiscountRequest
 from source.services.discount_s import (
@@ -18,7 +18,7 @@ router = APIRouter()
 @router.get("/discounts")
 def get_discounts(
     _: dict = Depends(require_admin),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     try:
         return {"data": list_discounts(db=db)}

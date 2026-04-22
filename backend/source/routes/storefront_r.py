@@ -3,7 +3,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from source.db.session import get_db_transactional
+from source.db.session import get_db
 from source.errors import raise_http_error_from_exception
 from source.services.products_s import (
     get_storefront_product_by_id,
@@ -16,7 +16,7 @@ router = APIRouter()
 
 @router.get("/storefront/categories")
 def storefront_categories(
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     try:
         data = list_storefront_categories(db=db)
@@ -40,7 +40,7 @@ def storefront_products(
     sort_order: Literal["asc", "desc"] = Query(default="desc"),
     limit: int = Query(default=24, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     normalized_q = str(q).strip() if isinstance(q, str) else None
     if normalized_q == "":
@@ -86,7 +86,7 @@ def storefront_products(
 @router.get("/storefront/products/{product_id}")
 def storefront_product_detail(
     product_id: int,
-    db: Session = Depends(get_db_transactional),
+    db: Session = Depends(get_db),
 ):
     try:
         product = get_storefront_product_by_id(product_id=product_id, db=db)
