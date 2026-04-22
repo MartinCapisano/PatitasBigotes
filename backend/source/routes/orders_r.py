@@ -272,6 +272,7 @@ def create_admin_sale_endpoint(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     db: Session = Depends(get_db_transactional),
 ):
+    """Create an in-person admin sale, optionally creating its paid manual payment."""
     admin_user_id = get_current_user_id(admin_user)
     record_created = False
     claimed_record = None
@@ -483,6 +484,7 @@ def admin_register_manual_payment(
     _: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    """Confirm an existing pending manual payment for an already-created order."""
     try:
         order = get_order_for_admin(order_id=order_id, db=db)
         if order is None:
@@ -494,6 +496,8 @@ def admin_register_manual_payment(
             paid_amount=int(payload.paid_amount),
             method=payload.method,
             change_amount=payload.change_amount,
+            # Existing orders must already have a pending manual payment; this
+            # endpoint confirms it instead of creating a new payment record.
             allow_create_if_missing=False,
             db=db,
         )

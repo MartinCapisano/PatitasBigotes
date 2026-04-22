@@ -892,6 +892,8 @@ def create_admin_sale(
                 paid_amount=int(amount_paid),
                 method=method,
                 change_amount=int(change_amount) if change_amount is not None else None,
+                # In-person admin sales create the order and collect payment in
+                # one flow, so there may be no pending payment to confirm yet.
                 allow_create_if_missing=True,
                 db=db,
             )
