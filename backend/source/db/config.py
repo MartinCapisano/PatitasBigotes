@@ -67,10 +67,6 @@ def get_mercadopago_notification_url() -> str:
     ).strip()
 
 
-def get_mercadopago_webhook_token() -> str:
-    return os.getenv("MERCADOPAGO_WEBHOOK_TOKEN", "").strip()
-
-
 def get_mercadopago_webhook_secret() -> str:
     secret = os.getenv("MERCADOPAGO_WEBHOOK_SECRET", "").strip()
     if secret:
