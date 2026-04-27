@@ -529,7 +529,7 @@ def list_storefront_products(
     name_query: str | None = None,
     min_price: int | None = None,
     max_price: int | None = None,
-    sort_by: Literal["price", "name", "created_at"] = "created_at",
+    sort_by: Literal["price", "name"] = "name",
     sort_order: Literal["asc", "desc"] = "desc",
     limit: int = 24,
     offset: int = 0,
@@ -571,13 +571,9 @@ def list_storefront_products(
             if normalized_query:
                 query = query.filter(Product.name.ilike(f"%{normalized_query}%"))
         if sort_by == "name":
-            column = Product.name
-        else:
-            # `products` has no real created_at yet; for storefront `sort_by=created_at`
-            # we temporarily sort by `id` as a creation-order proxy.
-            column = Product.id
-
-        query = query.order_by(desc(column) if sort_order == "desc" else asc(column))
+            query = query.order_by(
+                desc(Product.name) if sort_order == "desc" else asc(Product.name)
+            )
         rows = query.all()
         discounts = list_discounts(db=session)
 

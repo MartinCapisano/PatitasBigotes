@@ -13,8 +13,8 @@ class HttpCatalogFundamentalsTests(HttpFundamentalsBase):
         response = self.client.get(
             "/storefront/products",
             params={
-                "sort_by": "created_at",
-                "sort_order": "desc",
+                "sort_by": "name",
+                "sort_order": "asc",
                 "limit": 2,
                 "offset": 0,
             },

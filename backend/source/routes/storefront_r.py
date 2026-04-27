@@ -36,7 +36,7 @@ def storefront_products(
     q: str | None = Query(default=None, min_length=1),
     min_price: int | None = Query(default=None, ge=0),
     max_price: int | None = Query(default=None, ge=0),
-    sort_by: Literal["price", "name", "created_at"] = Query(default="created_at"),
+    sort_by: Literal["price", "name"] = Query(default="name"),
     sort_order: Literal["asc", "desc"] = Query(default="desc"),
     limit: int = Query(default=24, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
