@@ -10,7 +10,6 @@ from auth.security import ensure_password_policy, hash_password
 from source.db.models import User, UserRefreshSession
 from source.schemas import (
     CreateAdminUserRequest,
-    CreateGuestUserRequest,
     CreateUserRequest,
     ResolveUserRequest,
 )
@@ -81,11 +80,27 @@ def create_auth_user(
     normalized_email = str(email).strip().lower()
     if not normalized_email:
         raise HTTPException(status_code=400, detail="email is required")
-
-    existing_user = db.query(User).filter(User.email == normalized_email).first()
-    if existing_user is not None:
-        raise HTTPException(status_code=409, detail="email already exists")
     ensure_password_policy(password)
+
+    existing_user = (
+        db.query(User)
+        .filter(User.email == normalized_email)
+        .with_for_update()
+        .first()
+    )
+    if existing_user is not None:
+        if bool(existing_user.has_account):
+            raise HTTPException(status_code=409, detail="email already exists")
+
+        existing_user.first_name = _normalize_required_text(first_name, field_name="first_name")
+        existing_user.last_name = _normalize_required_text(last_name, field_name="last_name")
+        existing_user.password_hash = hash_password(password)
+        existing_user.has_account = True
+        existing_user.email_verified_at = None
+        existing_user.email_verification_sent_at = None
+        db.flush()
+        db.refresh(existing_user)
+        return existing_user
 
     user = User(
         first_name=_normalize_required_text(first_name, field_name="first_name"),
@@ -190,41 +205,6 @@ def revoke_admin_status(
         "token_version": int(user.token_version),
         "admin_revoked": True,
     }
-
-
-def create_guest_user(payload: CreateGuestUserRequest, db: Session) -> dict:
-    user_data = payload.model_dump()
-    normalized_email = str(user_data["email"]).strip().lower()
-    if not normalized_email:
-        raise HTTPException(status_code=400, detail="email is required")
-
-    existing_user = db.query(User).filter(User.email == normalized_email).first()
-    if existing_user is not None:
-        raise HTTPException(status_code=409, detail="email already exists")
-
-    user = User(
-        first_name=_normalize_required_text(
-            user_data["first_name"],
-            field_name="first_name",
-        ),
-        last_name=_normalize_required_text(
-            user_data["last_name"],
-            field_name="last_name",
-        ),
-        email=normalized_email,
-        phone=_normalize_required_text(
-            user_data["phone"],
-            field_name="phone",
-        ),
-        # Sentinel invalid hash: prevents authentication until account activation flow.
-        password_hash="!",
-        has_account=False,
-        is_admin=False,
-    )
-    db.add(user)
-    db.flush()
-    db.refresh(user)
-    return _serialize_user_created(user)
 
 
 def get_or_create_user_by_contact(

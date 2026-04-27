@@ -6,6 +6,7 @@ from backend.tests.factories.http_auth import (
     build_register_payload,
 )
 from backend.tests.http._base import HttpFundamentalsBase
+from source.db.models import AuthLoginThrottle, User
 
 
 class HttpAuthFundamentalsTests(HttpFundamentalsBase):
@@ -53,6 +54,66 @@ class HttpAuthFundamentalsTests(HttpFundamentalsBase):
         response = self._login(email="nover@example.com")
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["detail"], "email not verified")
+
+        db = self._db()
+        try:
+            rows = (
+                db.query(AuthLoginThrottle)
+                .filter(AuthLoginThrottle.key.in_(["nover@example.com", "testclient"]))
+                .all()
+            )
+        finally:
+            db.close()
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(int(row.failed_count) == 1 for row in rows))
+
+    def test_register_claims_existing_guest_user_over_http(self) -> None:
+        guest_user_id = self._create_guest_user(
+            email="guest-claim@example.com",
+            first_name="Compra",
+            last_name="Invitado",
+            phone="1166677788",
+        )
+
+        with patch("source.routes.auth_r.send_email_verification") as mocked_send:
+            register_response = self.client.post(
+                "/auth/register",
+                json=build_register_payload(
+                    first_name="Ana",
+                    last_name="Lopez",
+                    email="guest-claim@example.com",
+                ),
+                headers=self._origin_headers(),
+            )
+        self.assertEqual(register_response.status_code, 201)
+        self.assertEqual(register_response.json()["data"]["registered"], True)
+        mocked_send.assert_called_once()
+
+        db = self._db()
+        try:
+            user = db.query(User).filter(User.email == "guest-claim@example.com").first()
+        finally:
+            db.close()
+
+        self.assertIsNotNone(user)
+        assert user is not None
+        self.assertEqual(int(user.id), guest_user_id)
+        self.assertTrue(bool(user.has_account))
+        self.assertEqual(user.first_name, "Ana")
+        self.assertEqual(user.last_name, "Lopez")
+        self.assertEqual(user.phone, "1166677788")
+        self.assertIsNone(user.email_verified_at)
+
+        token = self._extract_token_from_mock(mocked_send, field="verify_link")
+        verify_response = self.client.post(
+            "/auth/email/verify/confirm",
+            json={"token": token},
+            headers=self._origin_headers(),
+        )
+        self.assertEqual(verify_response.status_code, 200)
+
+        login_response = self._login(email="guest-claim@example.com")
+        self.assertEqual(login_response.status_code, 200)
 
     def test_refresh_and_logout_work_over_http(self) -> None:
         self._create_user(email="refresh@example.com")

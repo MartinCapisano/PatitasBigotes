@@ -40,7 +40,6 @@ from source.schemas.stock_reservations_s import (
 from source.schemas.turns_s import CreateTurnRequest, UpdateTurnStatusRequest
 from source.schemas.users_s import (
     CreateAdminUserRequest,
-    CreateGuestUserRequest,
     CreateUserRequest,
     ResolveUserRequest,
 )
@@ -53,7 +52,6 @@ __all__ = [
     "PublicGuestCheckoutRequest",
     "PublicOrderSnapshotResponse",
     "CreateUserRequest",
-    "CreateGuestUserRequest",
     "CreateAdminUserRequest",
     "ResolveUserRequest",
     "LoginRequest",

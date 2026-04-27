@@ -90,13 +90,13 @@ def login(
             detail="too many attempts, try later",
         )
     except ValueError as exc:
+        register_login_failure(email=normalized_email, ip=client_ip, db=db)
+        db.commit()
         if str(exc) == "email not verified":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="email not verified",
             )
-        register_login_failure(email=normalized_email, ip=client_ip, db=db)
-        db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid credentials",

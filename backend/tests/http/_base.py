@@ -114,6 +114,32 @@ class HttpFundamentalsBase(unittest.TestCase):
         finally:
             db.close()
 
+    def _create_guest_user(
+        self,
+        *,
+        email: str,
+        first_name: str = "Guest",
+        last_name: str = "User",
+        phone: str = "11999888777",
+    ) -> int:
+        db = self._db()
+        try:
+            user = User(
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                phone=phone,
+                password_hash="!",
+                has_account=False,
+                is_admin=False,
+                email_verified_at=None,
+            )
+            db.add(user)
+            db.commit()
+            return int(user.id)
+        finally:
+            db.close()
+
     def _seed_variant(self) -> int:
         db = self._db()
         try:
