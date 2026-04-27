@@ -391,7 +391,7 @@ def _build_order_item_fields(*, variant: ProductVariant, quantity: int) -> dict:
     }
 
 
-def get_or_create_draft_order(user_id: int, db: Session) -> tuple[dict, bool]:
+def get_draft_order(user_id: int, db: Session) -> dict | None:
     draft = (
         _order_query(db)
         .filter(
@@ -401,8 +401,15 @@ def get_or_create_draft_order(user_id: int, db: Session) -> tuple[dict, bool]:
         .order_by(Order.created_at.desc(), Order.id.desc())
         .first()
     )
+    if draft is None:
+        return None
+    return _order_to_dict(draft)
+
+
+def get_or_create_draft_order(user_id: int, db: Session) -> tuple[dict, bool]:
+    draft = get_draft_order(user_id=user_id, db=db)
     if draft is not None:
-        return _order_to_dict(draft), False
+        return draft, False
 
     created = Order(
         user_id=user_id,

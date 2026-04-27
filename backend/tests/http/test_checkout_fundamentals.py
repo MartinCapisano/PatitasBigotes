@@ -9,6 +9,52 @@ from backend.tests.http._base import HttpFundamentalsBase
 
 
 class HttpCheckoutFundamentalsTests(HttpFundamentalsBase):
+    def test_get_draft_returns_404_when_missing_over_http(self) -> None:
+        self._create_user(email="draft-missing@example.com", verified=True)
+        login_response = self._login(email="draft-missing@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        response = self.client.get("/orders/draft")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Draft order not found")
+
+    def test_post_draft_creates_then_get_returns_same_order_over_http(self) -> None:
+        self._create_user(email="draft-create@example.com", verified=True)
+        login_response = self._login(email="draft-create@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        create_response = self.client.post("/orders/draft", headers=self._origin_headers())
+
+        self.assertEqual(create_response.status_code, 201)
+        create_payload = create_response.json()
+        self.assertTrue(create_payload["meta"]["created"])
+        self.assertEqual(create_payload["data"]["status"], "draft")
+
+        get_response = self.client.get("/orders/draft")
+
+        self.assertEqual(get_response.status_code, 200)
+        self.assertEqual(
+            get_response.json()["data"]["id"],
+            create_payload["data"]["id"],
+        )
+
+    def test_post_draft_returns_existing_draft_over_http(self) -> None:
+        self._create_user(email="draft-existing@example.com", verified=True)
+        login_response = self._login(email="draft-existing@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        first_response = self.client.post("/orders/draft", headers=self._origin_headers())
+        second_response = self.client.post("/orders/draft", headers=self._origin_headers())
+
+        self.assertEqual(first_response.status_code, 201)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertFalse(second_response.json()["meta"]["created"])
+        self.assertEqual(
+            second_response.json()["data"]["id"],
+            first_response.json()["data"]["id"],
+        )
+
     def test_guest_checkout_success_over_http(self) -> None:
         variant_id = self._seed_variant()
 

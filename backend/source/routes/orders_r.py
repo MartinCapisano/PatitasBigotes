@@ -1,6 +1,6 @@
 ﻿from datetime import datetime, timedelta, UTC
 
-from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response, status
 from sqlalchemy.orm import Session
 
 from source.dependencies.auth_d import get_current_user, get_current_user_id, require_admin
@@ -19,6 +19,7 @@ from source.services.orders_s import (
     change_order_status,
     create_admin_sale,
     create_manual_submitted_order,
+    get_draft_order,
     get_order_for_admin,
     get_order_reservations_for_user,
     get_or_create_draft_order,
@@ -327,10 +328,24 @@ def create_admin_sale_endpoint(
 
 
 @router.get("/orders/draft")
-def get_or_create_draft(
+def get_draft(
     current_user: dict = Depends(get_current_user),
-    # This GET intentionally uses a transactional session because it may
-    # create the user's draft order when one does not already exist.
+    db: Session = Depends(get_db),
+):
+    user_id = get_current_user_id(current_user)
+    try:
+        order = get_draft_order(user_id=user_id, db=db)
+    except Exception as exc:
+        raise_http_error_from_exception(exc, db=db)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Draft order not found")
+    return {"data": order}
+
+
+@router.post("/orders/draft", status_code=status.HTTP_200_OK)
+def create_draft(
+    response: Response,
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db_transactional),
 ):
     user_id = get_current_user_id(current_user)
@@ -338,6 +353,8 @@ def get_or_create_draft(
         order, created = get_or_create_draft_order(user_id=user_id, db=db)
     except Exception as exc:
         raise_http_error_from_exception(exc, db=db)
+    if created:
+        response.status_code = status.HTTP_201_CREATED
     return {
         "data": order,
         "meta": {
