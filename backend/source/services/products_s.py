@@ -35,10 +35,10 @@ def _write_session_scope(db: Session):
     yield db, False
 
 
-def _product_inventory(product: Product) -> tuple[int, int]:
+def _product_inventory(product: Product) -> tuple[int, bool]:
     active_variants = [variant for variant in product.variants if variant.is_active]
     total_stock = sum(int(variant.stock) for variant in active_variants)
-    active_flag = 1 if active_variants else 0
+    active_flag = bool(active_variants)
     return total_stock, active_flag
 
 
@@ -74,7 +74,7 @@ def _variant_to_dict(variant: ProductVariant) -> dict:
         "img_url": variant.img_url,
         "price": int(variant.price),
         "stock": int(variant.stock),
-        "active": 1 if variant.is_active else 0,
+        "active": bool(variant.is_active),
     }
 
 

@@ -9,7 +9,7 @@ export type AdminProduct = {
   category: string | null;
   category_id: number;
   stock: number;
-  active: number;
+  active: boolean;
 };
 
 export type AdminCategory = {
@@ -26,7 +26,7 @@ export type AdminVariant = {
   img_url?: string | null;
   price: number;
   stock: number;
-  active: number;
+  active: boolean;
 };
 
 export type AdminCatalog = {

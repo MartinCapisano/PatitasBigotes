@@ -37,7 +37,7 @@ function deriveProductFromVariants(product: AdminProduct, variants: AdminVariant
   return {
     ...product,
     stock: totalStock,
-    active: activeVariants.length > 0 ? 1 : 0,
+    active: activeVariants.length > 0,
     min_var_price: minVarPrice
   };
 }
