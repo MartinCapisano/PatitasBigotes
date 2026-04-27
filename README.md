@@ -1,377 +1,56 @@
 # PatitasBigotes
 
-Aplicacion full stack para tienda y turnos, con backend en FastAPI y frontend en React/Vite.
-
-Este README esta pensado para dejar el proyecto listo para correr en Windows con PowerShell, usando PostgreSQL local. La idea es que una persona pueda clonar el repo, configurar variables, cargar demo data y levantar la app sin depender de conocimiento previo del autor.
-
-Los tests son para desarrollo y validacion tecnica; no se ejecutan automaticamente al instalar o levantar la app.
+PatitasBigotes es una aplicacion full stack orientada a mostrar un flujo completo de tienda online y gestion operativa: catalogo, autenticacion, carrito, checkout, pagos, panel administrativo y procesos de soporte en backend. El proyecto esta pensado como demo tecnica para evaluacion y tambien como base funcional para pruebas reales en entorno local.
 
 ## Stack
 
 - Backend: FastAPI, SQLAlchemy, Alembic, PostgreSQL
 - Frontend: React, TypeScript, Vite
-- Auth: cookies HttpOnly + CSRF por origen
+- Auth: JWT en cookies HttpOnly + CSRF
 - Pagos: Mercado Pago
+- Scripts y entorno local: PowerShell sobre Windows
 
-## Requisitos previos
+## Requisitos
 
-- Python 3 instalado y disponible como `py` o `python`
-- Node.js 18+ y `npm`
-- PostgreSQL corriendo en local
-- PowerShell
+Antes de levantar la aplicacion en local, es necesario contar con lo siguiente:
 
-## Minimo indispensable para probar local
+- Python 3
+- Node.js
+- npm
+- PostgreSQL
+- PowerShell sobre Windows
 
-Para levantar la app y recorrer los flujos principales en local, necesitas:
+`bootstrap.ps1` prepara el entorno del backend, pero no instala dependencias globales del sistema como Node.js, npm o PostgreSQL.
 
-- PostgreSQL corriendo
-- una base de datos creada para el proyecto
-- `backend/.env` con una `DATABASE_URL` valida
-- `frontend/.env` con `VITE_API_BASE_URL=http://localhost:8000`
-- dependencias instaladas
-- migraciones aplicadas
+## Puesta En Marcha Local
 
-Lo mas simple para dejar eso listo es:
+Para levantar la aplicacion en local, asumimos la convencion de desarrollo del proyecto con frontend en `http://localhost:5173` y backend en `http://localhost:8000`. El repositorio ya incluye un `backend/.env.example` con las variables compartidas del proyecto precargadas, como URLs locales, expiraciones, cookies y parametros operativos. Tambien incluye `frontend/.env.example`, que ya apunta al backend local mediante `VITE_API_BASE_URL=http://localhost:8000`.
 
-```powershell
-Copy-Item .\backend\.env.example .\backend\.env
-Copy-Item .\frontend\.env.example .\frontend\.env
-.\backend\scripts\bootstrap.ps1 -SeedDemo -NoJobs
-```
+Como primer paso, hay que crear `backend/.env` copiando `backend/.env.example`, y crear `frontend/.env` copiando `frontend/.env.example`. En principio no hace falta modificar las variables compartidas si se mantiene la convencion local del proyecto. La persona que levante la app debe completar las variables sensibles o dependientes de su entorno, principalmente `DATABASE_URL` y `JWT_SECRET`, y opcionalmente las credenciales de `SMTP` si quiere probar envio de mails.
 
-Con eso:
+Antes de correr las migraciones, es necesario verificar que la base de datos configurada en `DATABASE_URL` exista y que PostgreSQL este disponible en ese entorno. Despues, desde PowerShell, puede ejecutarse `backend/scripts/bootstrap.ps1`, que prepara la virtualenv del backend, instala dependencias de Python y aplica las migraciones. Si ademas se quiere cargar informacion de prueba, puede usarse la opcion `-SeedDemo`.
 
-- se crea `.venv` si hace falta
-- se instalan dependencias
-- se aplican migraciones
-- se cargan datos demo
+El proyecto tambien incluye jobs programados para tareas de mantenimiento y sincronizacion. Si se quieren instalar desde el inicio, `bootstrap.ps1` permite usar la opcion `-EnableJobs`. Si la app ya fue levantada y los jobs no estan activos, pueden instalarse manualmente con `backend/scripts/jobs.ps1 enable`. Como esos jobs quedan registrados como tareas programadas de Windows, en entornos locales suele ser conveniente y casi necesario desinstalarlos cuando se deja de usar la app o cuando se quiere evitar ejecuciones en segundo plano; para eso puede usarse `backend/scripts/jobs.ps1 uninstall`. Si solo se quieren pausar temporalmente, puede usarse `backend/scripts/jobs.ps1 disable`. Entre esos procesos se encuentra el job de reconciliacion de pagos pendientes, utilizado para volver a consultar estados en Mercado Pago cuando hace falta.
 
-Para una prueba local basica NO necesitas:
+Con el entorno preparado, el backend puede iniciarse con `backend/scripts/start-backend.ps1` en el puerto `8000`, y el frontend con `backend/scripts/start-frontend.ps1` en el puerto `5173`. Si se prefiere abrir ambos juntos, puede usarse `backend/scripts/start-app.ps1`, que lanza backend y frontend en ventanas separadas.
 
-- Mercado Pago configurado
-- SMTP real para mails
-- webhooks
-- jobs de Windows Task Scheduler
+## Variables A Completar
 
-Si no configuras Mercado Pago o SMTP, igual puedes probar catalogo, auth base, admin, carrito, checkout local y flujo cash.
-
-## Setup rapido
-
-### 1. Clonar el repo
-
-```powershell
-git clone <TU_REPO_URL>
-cd PatitasBigotes
-```
-
-### 2. Configurar variables de entorno
-
-Crea estos archivos a partir de los examples:
-
-```powershell
-Copy-Item .\backend\.env.example .\backend\.env
-Copy-Item .\frontend\.env.example .\frontend\.env
-```
-
-Archivos a editar:
-
-- `backend/.env`
-- `frontend/.env`
-
-### 3. Reemplazar variables obligatorias en `backend/.env`
-
-Para correr en local, revisa y completa estas variables:
-
-| Variable | Que poner |
-| --- | --- |
-| `DATABASE_URL` | Tu conexion real a PostgreSQL local |
-| `JWT_SECRET` | Un secreto largo y aleatorio |
-| `APP_BASE_URL` | Normalmente `http://localhost:5173` |
-| `CORS_ALLOW_ORIGINS` | Normalmente `http://localhost:5173,http://127.0.0.1:5173` |
-
-Tambien ten presente estas variables con placeholder:
-
-- `MERCADOPAGO_ACCESS_TOKEN`: reemplazar si vas a probar Mercado Pago
-- `MERCADOPAGO_PUBLIC_KEY`: reemplazar si vas a probar Mercado Pago
-- `MERCADOPAGO_WEBHOOK_SECRET`: reemplazar si vas a probar webhooks de Mercado Pago
-- `MERCADOPAGO_NOTIFICATION_URL`: reemplazar si vas a usar webhooks de Mercado Pago desde una URL publica
-- `SMTP_HOST`, `MAIL_FROM` y demas `SMTP_*`: reemplazar si vas a usar mails reales
-
-Si no vas a usar Mercado Pago real ni emails, puedes dejar esos valores para mas adelante y correr el proyecto igual.
-
-### 4. Revisar `frontend/.env`
-
-El archivo `frontend/.env.example` ya trae el valor local esperado:
-
-```env
-VITE_API_BASE_URL=http://localhost:8000
-```
-
-Si vas a usar backend local en `http://localhost:8000`, normalmente solo necesitas copiar el example sin cambios.
-
-### 5. Instalar dependencias del frontend
-
-```powershell
-cd .\frontend
-npm install
-cd ..
-```
-
-### 6. Ejecutar bootstrap del backend
-
-El bootstrap crea `.venv` si hace falta, instala dependencias Python y aplica migraciones:
-
-```powershell
-.\backend\scripts\bootstrap.ps1
-```
-
-Si quieres que al final tambien abra backend y frontend:
-
-```powershell
-.\backend\scripts\bootstrap.ps1 -StartApp
-```
-
-Si quieres dejar explicito que NO se instalaran jobs en Windows Task Scheduler:
-
-```powershell
-.\backend\scripts\bootstrap.ps1 -NoJobs
-```
-
-Si quieres instalar los jobs de automatizacion:
-
-```powershell
-.\backend\scripts\bootstrap.ps1 -InstallJobs
-```
-
-Si ademas quieres cargar datos demo en la base:
-
-```powershell
-.\backend\scripts\bootstrap.ps1 -SeedDemo
-```
-
-Ese flag hace que el bootstrap ejecute las migraciones y luego cargue:
-
-- admin demo
-- categorias
-- productos
-- variantes
-- descuentos
-
-Tambien puedes correr la seed manualmente si prefieres:
-
-```powershell
-.\backend\scripts\seed-demo.ps1
-```
-
-## Modos de uso
-
-### Uso local simple
-
-Pensado para levantar frontend + backend rapido y probar la app sin dejar automatizaciones residentes en Windows.
-
-Comando sugerido:
-
-```powershell
-.\backend\scripts\bootstrap.ps1 -SeedDemo -NoJobs
-```
-
-Si quieres dejarla andando al terminar el bootstrap:
-
-```powershell
-.\backend\scripts\bootstrap.ps1 -SeedDemo -NoJobs -StartApp
-```
-
-### Uso con automatizacion
-
-Pensado para un uso mas sostenido, donde quieras que los procesos de mantenimiento sigan corriendo aunque no dejes una consola abierta.
-
-Comando sugerido:
-
-```powershell
-.\backend\scripts\bootstrap.ps1 -InstallJobs
-```
-
-Si ademas quieres datos demo para una base de prueba:
-
-```powershell
-.\backend\scripts\bootstrap.ps1 -SeedDemo -InstallJobs
-```
-
-Si ademas quieres abrir backend y frontend al terminar:
-
-```powershell
-.\backend\scripts\bootstrap.ps1 -InstallJobs -StartApp
-```
-
-### Remover automatizacion
-
-Si instalaste jobs en Windows Task Scheduler y luego quieres removerlos:
-
-```powershell
-.\backend\scripts\jobs.ps1 uninstall
-```
-
-Tambien puedes consultar el estado actual:
-
-```powershell
-.\backend\scripts\jobs.ps1 status
-```
-
-## Credenciales demo
-
-Si corriste la demo seed, el admin de prueba queda con:
-
-- Email: `admin@demo.com`
-- Password: `AdminDemo!123`
-
-## Crear admin manualmente
-
-Si no quieres depender del admin demo, hoy la forma correcta de crear un admin adicional es:
-
-1. Crear primero el usuario de manera normal desde la app.
-2. Verificar que ese usuario exista en la tabla `users`.
-3. Promoverlo manualmente en la base de datos marcando `is_admin = true`.
-
-Ejemplo SQL:
-
-```sql
-UPDATE users
-SET is_admin = true
-WHERE email = 'alguien@dominio.com';
-```
-
-Recomendaciones:
-
-- Hazlo solo en entornos controlados o por una persona autorizada.
-- Conviene que el usuario ya tenga su email verificado antes de promoverlo.
-- Este proyecto no expone una pantalla ni endpoint publico para crear admins desde la aplicacion.
-
-## Como levantar la app
-
-### Backend
-
-En una terminal desde la raiz del repo:
-
-```powershell
-.\backend\scripts\start-backend.ps1
-```
-
-Backend local:
-
-- `http://localhost:8000`
-- health check: `http://localhost:8000/health`
-
-### Frontend
-
-En otra terminal:
-
-```powershell
-cd .\frontend
-npm run dev
-```
-
-Si prefieres abrir ambos desde un solo comando:
-
-```powershell
-.\backend\scripts\start-app.ps1
-```
-
-Frontend local:
-
-- `http://localhost:5173`
-
-## Flujo recomendado para alguien que clona por primera vez
-
-1. Crear `backend/.env` y `frontend/.env` desde los examples.
-2. Editar `backend/.env` con tu `DATABASE_URL` y tu `JWT_SECRET`.
-3. Correr `npm install` en `frontend/`.
-4. Correr `.\backend\scripts\bootstrap.ps1 -SeedDemo -NoJobs -StartApp`.
-5. Si no usaste `-StartApp`, levantar backend con `.\backend\scripts\start-backend.ps1`.
-6. Si no usaste `-StartApp`, levantar frontend con `npm run dev` dentro de `frontend/`.
-7. Entrar al frontend y usar el admin demo si quieres probar datos iniciales.
-
-## Variables de entorno
-
-### Backend obligatorias para correr local
+Quien levante la app debe revisar y completar en `backend/.env` las variables que dependen de su entorno o de credenciales propias:
 
 - `DATABASE_URL`
 - `JWT_SECRET`
-- `JWT_ALGORITHM`
-- `JWT_ISSUER`
-- `ACCESS_TOKEN_EXPIRE_MINUTES`
-- `REFRESH_TOKEN_EXPIRE_DAYS`
-- `APP_BASE_URL`
-- `CORS_ALLOW_ORIGINS`
-- `AUTH_COOKIE_ACCESS_NAME`
-- `AUTH_COOKIE_REFRESH_NAME`
-- `AUTH_COOKIE_SAMESITE`
-- `AUTH_COOKIE_SECURE`
-- `AUTH_COOKIE_DOMAIN`
-- `AUTH_COOKIE_PATH_ACCESS`
-- `AUTH_COOKIE_PATH_REFRESH`
-
-### Backend opcionales para mails
-
 - `SMTP_HOST`
-- `SMTP_PORT`
 - `SMTP_USERNAME`
 - `SMTP_PASSWORD`
-- `SMTP_USE_TLS`
 - `MAIL_FROM`
 
-Solo hacen falta si quieres probar verificacion por mail o reset de password por email.
+## Mercado Pago
 
-### Backend opcionales para Mercado Pago
+Para probar la integracion con Mercado Pago, hay que completar en `backend/.env` las variables de esa seccion a partir de `backend/.env.example`. En particular, deben revisarse `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET` (no es estrictamente necesario si no se va a configurar el webhook), `MERCADOPAGO_ENV`, `MERCADOPAGO_SUCCESS_URL`, `MERCADOPAGO_FAILURE_URL`, `MERCADOPAGO_PENDING_URL` y `MERCADOPAGO_NOTIFICATION_URL`.
 
-- `MERCADOPAGO_ACCESS_TOKEN`
-- `MERCADOPAGO_TIMEOUT_SECONDS`
-- `MERCADOPAGO_SUCCESS_URL`
-- `MERCADOPAGO_FAILURE_URL`
-- `MERCADOPAGO_PENDING_URL`
-- `MERCADOPAGO_NOTIFICATION_URL`
-- `MERCADOPAGO_WEBHOOK_SECRET`
-- `MERCADOPAGO_WEBHOOK_MAX_AGE_SECONDS`
-- `MERCADOPAGO_PUBLIC_KEY`
-- `MERCADOPAGO_ENV`
+Las URLs y el modo de ejecucion ya se encuentran definidos en `backend/.env.example` de acuerdo con la configuracion local asumida por el proyecto, por lo que no es necesario modificarlos si se mantiene ese entorno. En cambio, las credenciales sensibles deben completarse manualmente con datos obtenidos desde la cuenta de Mercado Pago utilizada para la prueba. `MERCADOPAGO_ACCESS_TOKEN` debe cargarse con el access token de la aplicacion configurada en Mercado Pago, mientras que `MERCADOPAGO_WEBHOOK_SECRET` debe cargarse con el secreto asociado al webhook definido en esa misma aplicacion dentro del panel de desarrolladores.
 
-Para pruebas reales de Mercado Pago en local, completa esas variables con credenciales sandbox y una URL publica para webhooks.
+Las URLs de retorno ya estan pensadas para el flujo local del proyecto: el frontend corre en `http://localhost:5173` y recibe al usuario cuando Mercado Pago redirige a las pantallas de `success`, `failure` o `pending`. A su vez, la URL `MERCADOPAGO_NOTIFICATION_URL` define el endpoint del backend que recibiria las notificaciones automaticas del proveedor. En este proyecto, ese endpoint es `http://localhost:8000/payments/webhook/mercadopago`, y tambien viene declarado en el `.env.example` como referencia base.
 
-### Backend opcionales para jobs
-
-- `WEBHOOK_REPROCESS_INTERVAL_MINUTES`
-- `WEBHOOK_REPROCESS_BATCH_SIZE`
-- `WEBHOOK_REPROCESS_MAX_ATTEMPTS`
-- `WEBHOOK_REPROCESS_BASE_DELAY_MINUTES`
-- `WEBHOOK_REPROCESS_MAX_DELAY_MINUTES`
-- `PAYMENTS_RECONCILE_INTERVAL_MINUTES`
-- `PAYMENTS_RECONCILE_BATCH_SIZE`
-- `PAYMENTS_RECONCILE_MAX_AGE_HOURS`
-- `PAYMENTS_RECONCILE_MIN_AGE_MINUTES`
-- `AUTH_ACTION_TOKENS_PRUNE_INTERVAL_MINUTES`
-- `AUTH_ACTION_TOKENS_PRUNE_OLDER_THAN_DAYS`
-- `AUTH_ACTION_TOKENS_PRUNE_BATCH_SIZE`
-- `AUTH_LOGIN_THROTTLES_PRUNE_INTERVAL_MINUTES`
-- `AUTH_LOGIN_THROTTLES_PRUNE_OLDER_THAN_DAYS`
-- `AUTH_LOGIN_THROTTLES_PRUNE_BATCH_SIZE`
-- `STOCK_RESERVATIONS_JOB_INTERVAL_MINUTES`
-- `STOCK_RESERVATIONS_JOB_BATCH_LIMIT`
-- `STOCK_RESERVATIONS_JOB_MAX_BATCHES`
-
-## Notas importantes de auth local
-
-- El frontend usa cookies del backend con `withCredentials: true`.
-- Usa siempre el mismo host para frontend y backend durante la sesion.
-- No mezcles `localhost` y `127.0.0.1`, porque las cookies son host-scoped.
-
-## Sintesis funcional
-
-El proyecto cubre una tienda con catalogo, carrito, checkout y gestion de ordenes, junto con un flujo de turnos y un panel administrativo para operar productos, descuentos, ventas, pagos y reservas.
-
-Tambien incluye autenticacion por cookies HttpOnly con CSRF, integracion con Mercado Pago, procesamiento de webhooks, manejo de reservas de stock, datos demo para prueba rapida y scripts de bootstrap/arranque para uso local en Windows.
-
-## Agregados operativos
-
-- Bootstrap de entorno con creacion de `.venv`, instalacion de dependencias y migraciones.
-- Seed demo opcional con credenciales de administrador de prueba.
-- Arranque separado o combinado de backend y frontend con `-StartApp`.
-- Jobs opcionales para automatizacion local y comando para desinstalarlos cuando ya no se usen.
+Si el webhook no se configura o no esta accesible desde Internet, no hay problema para una prueba local: el checkout igual puede abrirse y el pago puede realizarse. La diferencia es que la actualizacion del estado no sera inmediata por webhook, sino diferida a traves del job de reconciliacion de pagos pendientes, siempre que esa automatizacion este instalada y activa.
