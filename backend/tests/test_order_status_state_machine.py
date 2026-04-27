@@ -94,8 +94,6 @@ class OrderStatusStateMachineTests(unittest.TestCase):
                     new_status="paid",
                     db=session,
                     is_admin=True,
-                    payment_ref="MANUAL-REF-1",
-                    paid_amount=10000,
                 )
         finally:
             session.close()

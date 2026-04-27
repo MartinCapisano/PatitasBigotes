@@ -373,19 +373,12 @@ def update_order_status(
     db: Session = Depends(get_db_transactional),
 ):
     user_id = get_current_user_id(current_user)
-    if payload.status == "paid":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="paid status must be set through a payment endpoint",
-        )
     try:
         order = change_order_status(
             user_id=user_id,
             order_id=order_id,
             new_status=payload.status,
             is_admin=bool(current_user.get("is_admin", False)),
-            payment_ref=payload.payment_ref,
-            paid_amount=payload.paid_amount,
             db=db,
         )
     except Exception as exc:

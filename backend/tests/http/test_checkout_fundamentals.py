@@ -375,16 +375,11 @@ class HttpCheckoutFundamentalsTests(HttpFundamentalsBase):
 
         response = self.client.patch(
             f"/orders/{order_id}/status",
-            json={
-                "status": "paid",
-                "payment_ref": "MANUAL-REF-1",
-                "paid_amount": 10000,
-            },
+            json={"status": "paid"},
             headers=self._origin_headers(),
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"], "paid status must be set through a payment endpoint")
+        self.assertEqual(response.status_code, 422)
 
     def test_admin_sale_existing_user_without_payment_over_http(self) -> None:
         variant_id = self._seed_variant()

@@ -64,17 +64,12 @@ def _assert_transition_preconditions(
     *,
     order: Order,
     new_status: str,
-    payment_ref: str | None,
-    paid_amount: int | None,
 ) -> None:
     if new_status not in ALLOWED_ORDER_STATUS:
         raise ValueError("invalid status")
 
     if new_status == "paid":
         raise ValueError("paid status must be set through a payment endpoint")
-
-    if new_status != "paid" and (payment_ref is not None or paid_amount is not None):
-        raise ValueError("payment_ref and paid_amount are only valid when status is paid")
 
     if order.status == "draft" and new_status != "draft" and not order.items:
         raise ValueError("cannot leave draft with an empty order")
@@ -581,8 +576,6 @@ def change_order_status(
     db: Session,
     *,
     is_admin: bool = False,
-    payment_ref: str | None = None,
-    paid_amount: int | None = None,
 ) -> dict:
     expire_active_reservations_for_order(order_id=order_id, now=_utc_now(), db=db)
 
@@ -609,8 +602,6 @@ def change_order_status(
         _assert_transition_preconditions(
             order=order,
             new_status=new_status,
-            payment_ref=payment_ref,
-            paid_amount=paid_amount,
         )
         _validate_order_transition(current_status=current_status, new_status=new_status)
     except Exception as exc:

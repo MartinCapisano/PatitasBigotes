@@ -9,9 +9,7 @@ class ReplaceDraftItemsRequest(BaseModel):
 
 class UpdateOrderStatusRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    status: Literal["draft", "submitted", "paid", "cancelled"]
-    payment_ref: str | None = None
-    paid_amount: int | None = Field(default=None, gt=0)
+    status: Literal["draft", "submitted", "cancelled"]
 
 
 class AdminRegisterPaymentRequest(BaseModel):
