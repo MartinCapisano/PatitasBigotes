@@ -598,6 +598,7 @@ def list_order_payments_admin(
 def retry_order_payment(
     order_id: int,
     payload: CreateOrderPaymentRequest,
+    idempotency_key: str = Header(..., alias="Idempotency-Key"),
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -608,6 +609,7 @@ def retry_order_payment(
             method=payload.method,
             db=db,
             user_id=user_id,
+            idempotency_key=idempotency_key,
             currency=payload.currency,
             expires_in_minutes=payload.expires_in_minutes,
             initialize_provider=False,
@@ -632,6 +634,7 @@ def retry_order_payment(
 @router.post("/payments/{public_status_token}/retry", status_code=status.HTTP_201_CREATED)
 def retry_guest_payment(
     public_status_token: str,
+    idempotency_key: str = Header(..., alias="Idempotency-Key"),
     db: Session = Depends(get_db),
 ):
     """
@@ -642,6 +645,7 @@ def retry_guest_payment(
         payment = create_retry_payment_for_payment_token(
             public_status_token=public_status_token,
             db=db,
+            idempotency_key=idempotency_key,
             expires_in_minutes=60,
             initialize_provider=False,
         )

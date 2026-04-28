@@ -5,7 +5,6 @@ import hashlib
 import json
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
-import uuid
 
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
@@ -1305,10 +1304,29 @@ def create_retry_payment_for_order(
     db: Session,
     *,
     user_id: int,
+    idempotency_key: str,
     currency: str | None = None,
     expires_in_minutes: int = 60,
     initialize_provider: bool = True,
 ) -> dict:
+    normalized_key = idempotency_key.strip()
+    if not normalized_key:
+        raise ValueError("idempotency_key is required")
+    existing_payment = (
+        db.query(Payment)
+        .options(joinedload(Payment.order))
+        .filter(Payment.idempotency_key == normalized_key)
+        .first()
+    )
+    if existing_payment is not None:
+        if existing_payment.order_id != order_id:
+            raise ValueError("idempotency key already used for a different order")
+        if existing_payment.method != method:
+            raise ValueError("idempotency key already used for a different payment method")
+        if int(existing_payment.order.user_id) != int(user_id):
+            raise LookupError("order not found")
+        return _payment_to_dict(existing_payment)
+
     expire_active_reservations_for_order(
         order_id=order_id,
         now=datetime.now(UTC),
@@ -1368,13 +1386,12 @@ def create_retry_payment_for_order(
         latest_attempt.status = "cancelled"
         db.flush()
 
-    retry_key = f"retry-order-{order_id}-{method}-{uuid.uuid4().hex}"
     return create_payment_for_order(
         order_id=order_id,
         method=method,
         db=db,
         user_id=user_id,
-        idempotency_key=retry_key,
+        idempotency_key=normalized_key,
         currency=currency,
         expires_in_minutes=expires_in_minutes,
         initialize_provider=initialize_provider,
@@ -1385,9 +1402,13 @@ def create_retry_payment_for_payment_token(
     *,
     public_status_token: str | None,
     db: Session,
+    idempotency_key: str,
     expires_in_minutes: int = 60,
     initialize_provider: bool = True,
 ) -> dict:
+    normalized_key = idempotency_key.strip()
+    if not normalized_key:
+        raise ValueError("idempotency_key is required")
     normalized_public_status_token = _normalize_optional_str(public_status_token)
     if normalized_public_status_token is None:
         raise ValueError("public_status_token is required")
@@ -1405,6 +1426,17 @@ def create_retry_payment_for_payment_token(
     )
     if token_payment is None:
         raise LookupError("payment not found")
+    existing_payment = (
+        db.query(Payment)
+        .filter(Payment.idempotency_key == normalized_key)
+        .first()
+    )
+    if existing_payment is not None:
+        if existing_payment.order_id != int(token_payment.order_id):
+            raise ValueError("idempotency key already used for a different order")
+        if existing_payment.method != "mercadopago":
+            raise ValueError("idempotency key already used for a different payment method")
+        return _payment_to_dict(existing_payment)
 
     order_id = int(token_payment.order_id)
     expire_active_reservations_for_order(
@@ -1466,13 +1498,12 @@ def create_retry_payment_for_payment_token(
         latest_attempt.status = "cancelled"
         db.flush()
 
-    retry_key = f"retry-payment-token-{int(token_payment.id)}-mercadopago-{uuid.uuid4().hex}"
     return create_payment_for_order(
         order_id=int(order.id),
         method="mercadopago",
         db=db,
         user_id=None,
-        idempotency_key=retry_key,
+        idempotency_key=normalized_key,
         currency="ARS",
         expires_in_minutes=expires_in_minutes,
         initialize_provider=initialize_provider,

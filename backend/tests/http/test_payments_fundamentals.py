@@ -11,10 +11,17 @@ from backend.tests.factories.http_payments import (
     create_submitted_order_with_reservation_for_user,
 )
 from backend.tests.http._base import HttpFundamentalsBase
-from source.db.models import StockReservation
+from source.db.models import Payment, StockReservation
 
 
 class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
+    @staticmethod
+    def _retry_headers(key: str) -> dict[str, str]:
+        return {
+            "Origin": "http://localhost:5173",
+            "Idempotency-Key": key,
+        }
+
     def test_create_order_payment_rejects_non_ars_currency_over_http(self) -> None:
         user_id = self._create_user(email="pay-currency@example.com", verified=True)
         db = self._db()
@@ -270,7 +277,7 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
         response = self.client.post(
             f"/orders/{order_id}/payments/retry",
             json=build_create_payment_payload(method="bank_transfer"),
-            headers=self._origin_headers(),
+            headers=self._retry_headers("retry-payment-bank-transfer"),
         )
 
         self.assertEqual(response.status_code, 201)
@@ -298,7 +305,7 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
         response = self.client.post(
             f"/orders/{order_id}/payments/retry",
             json=build_create_payment_payload(method="bank_transfer"),
-            headers=self._origin_headers(),
+            headers=self._retry_headers("retry-payment-blocked"),
         )
 
         self.assertEqual(response.status_code, 409)
@@ -330,7 +337,7 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
             response = self.client.post(
                 f"/orders/{order_id}/payments/retry",
                 json=build_create_payment_payload(method="mercadopago"),
-                headers=self._origin_headers(),
+                headers=self._retry_headers("retry-payment-mp"),
             )
 
         self.assertEqual(response.status_code, 201)
@@ -368,7 +375,7 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
         response = self.client.post(
             f"/orders/{graph['order_id']}/payments/retry",
             json=build_create_payment_payload(method="mercadopago"),
-            headers=self._origin_headers(),
+            headers=self._retry_headers("retry-order-cancelled"),
         )
 
         self.assertEqual(response.status_code, 409)
@@ -408,7 +415,7 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
         response = self.client.post(
             f"/orders/{graph['order_id']}/payments/retry",
             json=build_create_payment_payload(method="mercadopago"),
-            headers=self._origin_headers(),
+            headers=self._retry_headers("retry-order-reservation-expired"),
         )
 
         self.assertEqual(response.status_code, 409)
@@ -441,7 +448,7 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
         response = self.client.post(
             f"/orders/{graph['order_id']}/payments/retry",
             json=build_create_payment_payload(method="mercadopago"),
-            headers=self._origin_headers(),
+            headers=self._retry_headers("retry-order-paid"),
         )
 
         self.assertEqual(response.status_code, 409)
@@ -470,13 +477,248 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
             response = self.client.post(
                 f"/orders/{order_id}/payments/retry",
                 json=build_create_payment_payload(method="mercadopago"),
-                headers=self._origin_headers(),
+                headers=self._retry_headers("retry-order-provider-failed"),
             )
 
         self.assertEqual(response.status_code, 502)
         self.assertEqual(
             response.json()["detail"],
             "retry failed: mercadopago checkout unavailable",
+        )
+
+    def test_retry_payment_requires_idempotency_key_over_http(self) -> None:
+        user_id = self._create_user(email="pay-retry-missing-key@example.com", verified=True)
+        db = self._db()
+        try:
+            order_id = create_submitted_order_with_reservation_for_user(db, user_id=user_id)
+            create_retryable_payment(
+                db,
+                order_id=order_id,
+                method="mercadopago",
+                status="cancelled",
+            )
+        finally:
+            db.close()
+        login_response = self._login(email="pay-retry-missing-key@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        response = self.client.post(
+            f"/orders/{order_id}/payments/retry",
+            json=build_create_payment_payload(method="mercadopago"),
+            headers=self._origin_headers(),
+        )
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_retry_payment_with_same_idempotency_key_replays_same_attempt_over_http(self) -> None:
+        user_id = self._create_user(email="pay-retry-same-key@example.com", verified=True)
+        db = self._db()
+        try:
+            order_id = create_submitted_order_with_reservation_for_user(db, user_id=user_id)
+            create_retryable_payment(
+                db,
+                order_id=order_id,
+                method="mercadopago",
+                status="cancelled",
+            )
+        finally:
+            db.close()
+        login_response = self._login(email="pay-retry-same-key@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        with patch(
+            "source.services.payment_s.create_checkout_preference",
+            return_value={
+                "id": "pref-retry-same-key",
+                "init_point": "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-retry-same-key",
+            },
+        ):
+            first_response = self.client.post(
+                f"/orders/{order_id}/payments/retry",
+                json=build_create_payment_payload(method="mercadopago"),
+                headers=self._retry_headers("retry-order-same-key"),
+            )
+            second_response = self.client.post(
+                f"/orders/{order_id}/payments/retry",
+                json=build_create_payment_payload(method="mercadopago"),
+                headers=self._retry_headers("retry-order-same-key"),
+            )
+
+        self.assertEqual(first_response.status_code, 201)
+        self.assertEqual(second_response.status_code, 201)
+        self.assertEqual(
+            first_response.json()["data"]["id"],
+            second_response.json()["data"]["id"],
+        )
+
+    def test_retry_payment_with_different_idempotency_keys_creates_distinct_attempts_over_http(self) -> None:
+        user_id = self._create_user(email="pay-retry-different-keys@example.com", verified=True)
+        db = self._db()
+        try:
+            order_id = create_submitted_order_with_reservation_for_user(db, user_id=user_id)
+            create_retryable_payment(
+                db,
+                order_id=order_id,
+                method="bank_transfer",
+                status="cancelled",
+            )
+        finally:
+            db.close()
+        login_response = self._login(email="pay-retry-different-keys@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        first_response = self.client.post(
+            f"/orders/{order_id}/payments/retry",
+            json=build_create_payment_payload(method="bank_transfer"),
+            headers=self._retry_headers("retry-order-key-1"),
+        )
+        db = self._db()
+        try:
+            latest_payment = (
+                db.query(Payment)
+                .filter(
+                    Payment.order_id == order_id,
+                    Payment.method == "bank_transfer",
+                )
+                .order_by(
+                    Payment.created_at.desc(),
+                    Payment.id.desc(),
+                )
+                .first()
+            )
+            assert latest_payment is not None
+            latest_payment.status = "cancelled"
+            db.commit()
+        finally:
+            db.close()
+        second_response = self.client.post(
+            f"/orders/{order_id}/payments/retry",
+            json=build_create_payment_payload(method="bank_transfer"),
+            headers=self._retry_headers("retry-order-key-2"),
+        )
+
+        self.assertEqual(first_response.status_code, 201)
+        self.assertEqual(second_response.status_code, 201)
+        self.assertNotEqual(
+            first_response.json()["data"]["id"],
+            second_response.json()["data"]["id"],
+        )
+
+    def test_retry_guest_payment_requires_idempotency_key_over_http(self) -> None:
+        guest_user_id = self._create_guest_user(email="guest-retry-missing-key@example.com")
+        db = self._db()
+        try:
+            order_id = create_submitted_order_with_reservation_for_user(db, user_id=guest_user_id)
+            payment_id = create_retryable_payment(
+                db,
+                order_id=order_id,
+                method="mercadopago",
+                status="cancelled",
+            )
+            public_status_token = str(db.query(Payment).filter(Payment.id == payment_id).first().public_status_token)
+        finally:
+            db.close()
+
+        response = self.client.post(
+            f"/payments/{public_status_token}/retry",
+            headers=self._origin_headers(),
+        )
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_retry_guest_payment_with_same_idempotency_key_replays_same_attempt_over_http(self) -> None:
+        guest_user_id = self._create_guest_user(email="guest-retry-same-key@example.com")
+        db = self._db()
+        try:
+            order_id = create_submitted_order_with_reservation_for_user(db, user_id=guest_user_id)
+            payment_id = create_retryable_payment(
+                db,
+                order_id=order_id,
+                method="mercadopago",
+                status="cancelled",
+            )
+            public_status_token = str(db.query(Payment).filter(Payment.id == payment_id).first().public_status_token)
+        finally:
+            db.close()
+
+        with patch(
+            "source.services.payment_s.create_checkout_preference",
+            return_value={
+                "id": "pref-guest-retry-same-key",
+                "init_point": "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-guest-retry-same-key",
+            },
+        ):
+            first_response = self.client.post(
+                f"/payments/{public_status_token}/retry",
+                headers=self._retry_headers("retry-guest-same-key"),
+            )
+            second_response = self.client.post(
+                f"/payments/{public_status_token}/retry",
+                headers=self._retry_headers("retry-guest-same-key"),
+            )
+
+        self.assertEqual(first_response.status_code, 201)
+        self.assertEqual(second_response.status_code, 201)
+        self.assertEqual(
+            first_response.json()["data"]["id"],
+            second_response.json()["data"]["id"],
+        )
+
+    def test_retry_guest_payment_with_different_idempotency_keys_creates_distinct_attempts_over_http(self) -> None:
+        guest_user_id = self._create_guest_user(email="guest-retry-different-key@example.com")
+        db = self._db()
+        try:
+            order_id = create_submitted_order_with_reservation_for_user(db, user_id=guest_user_id)
+            payment_id = create_retryable_payment(
+                db,
+                order_id=order_id,
+                method="mercadopago",
+                status="cancelled",
+            )
+            public_status_token = str(db.query(Payment).filter(Payment.id == payment_id).first().public_status_token)
+        finally:
+            db.close()
+
+        with patch(
+            "source.services.payment_s.create_checkout_preference",
+            return_value={
+                "id": "pref-guest-retry-different-key",
+                "init_point": "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-guest-retry-different-key",
+            },
+        ):
+            first_response = self.client.post(
+                f"/payments/{public_status_token}/retry",
+                headers=self._retry_headers("retry-guest-key-1"),
+            )
+            db = self._db()
+            try:
+                latest_payment = (
+                    db.query(Payment)
+                    .filter(
+                        Payment.order_id == order_id,
+                        Payment.method == "mercadopago",
+                    )
+                    .order_by(
+                        Payment.created_at.desc(),
+                        Payment.id.desc(),
+                    )
+                    .first()
+                )
+                assert latest_payment is not None
+                latest_payment.status = "cancelled"
+                db.commit()
+            finally:
+                db.close()
+            second_response = self.client.post(
+                f"/payments/{public_status_token}/retry",
+                headers=self._retry_headers("retry-guest-key-2"),
+            )
+
+        self.assertEqual(first_response.status_code, 201)
+        self.assertEqual(second_response.status_code, 201)
+        self.assertNotEqual(
+            first_response.json()["data"]["id"],
+            second_response.json()["data"]["id"],
         )
 
     def test_resolve_payment_incident_refund_success_over_http(self) -> None:
