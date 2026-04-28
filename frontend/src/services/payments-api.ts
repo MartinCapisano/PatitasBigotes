@@ -34,9 +34,18 @@ export async function fetchPublicOrderSnapshotByPaymentToken(params: {
   return response.data.data;
 }
 
-export async function retryGuestMercadoPago(publicStatusToken: string): Promise<MyPayment> {
+export async function retryGuestMercadoPago(
+  publicStatusToken: string,
+  idempotencyKey: string
+): Promise<MyPayment> {
   const response = await http.post<{ data: MyPayment }>(
-    `/payments/${encodeURIComponent(publicStatusToken)}/retry`
+    `/payments/${encodeURIComponent(publicStatusToken)}/retry`,
+    undefined,
+    {
+      headers: {
+        "Idempotency-Key": idempotencyKey
+      }
+    }
   );
   return response.data.data;
 }
@@ -46,11 +55,22 @@ export async function listMyOrderPayments(orderId: number): Promise<MyPayment[]>
   return response.data.data;
 }
 
-export async function retryMyOrderMercadoPago(orderId: number): Promise<MyPayment> {
-  const response = await http.post<{ data: MyPayment }>(`/orders/${orderId}/payments/retry`, {
-    method: "mercadopago",
-    currency: "ARS",
-    expires_in_minutes: 60
-  });
+export async function retryMyOrderMercadoPago(
+  orderId: number,
+  idempotencyKey: string
+): Promise<MyPayment> {
+  const response = await http.post<{ data: MyPayment }>(
+    `/orders/${orderId}/payments/retry`,
+    {
+      method: "mercadopago",
+      currency: "ARS",
+      expires_in_minutes: 60
+    },
+    {
+      headers: {
+        "Idempotency-Key": idempotencyKey
+      }
+    }
+  );
   return response.data.data;
 }

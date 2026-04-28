@@ -1,5 +1,6 @@
 import type { CartItem } from "../lib/cart-storage";
 import { http } from "./http";
+import { buildIdempotencyKey } from "./idempotency";
 
 export type CheckoutPaymentMethod = "bank_transfer" | "mercadopago" | "cash";
 const MERCADOPAGO_ALLOWED_CHECKOUT_HOSTS = new Set([
@@ -105,13 +106,6 @@ export function redirectToMercadoPago(url: string): void {
   window.location.assign(safeUrl);
 }
 
-function buildIdempotencyKey(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return `guest_checkout_${crypto.randomUUID()}`;
-  }
-  return `guest_checkout_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-}
-
 function toCheckoutItems(items: CartItem[]) {
   return items.map((item) => ({
     variant_id: item.variant_id,
@@ -132,7 +126,7 @@ export async function submitGuestCheckoutFromCart(
   };
   const response = await http.post<GuestCheckoutEnvelope>("/checkout/guest", payload, {
     headers: {
-      "Idempotency-Key": buildIdempotencyKey()
+      "Idempotency-Key": buildIdempotencyKey("guest_checkout")
     }
   });
   return {
@@ -167,7 +161,7 @@ export async function submitAuthenticatedCheckoutFromCart(
     },
     {
       headers: {
-        "Idempotency-Key": `checkout_payment_${orderId}_${paymentMethod}_${buildIdempotencyKey()}`
+        "Idempotency-Key": buildIdempotencyKey(`checkout_payment_${orderId}_${paymentMethod}`)
       }
     }
   );
