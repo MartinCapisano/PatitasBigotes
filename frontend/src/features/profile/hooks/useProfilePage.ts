@@ -1,13 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { MyOrder, MyPayment, MyProfile } from "../../../types";
 import { getMercadoPagoCheckoutUrl, redirectToMercadoPago } from "../../../services/checkout-api";
 import { getMyOrders, getMyProfile, requestEmailVerification, updateMyProfile } from "../../../services/auth-api";
 import { toUserMessage } from "../../../services/http-errors";
+import { buildIdempotencyKey } from "../../../services/idempotency";
 import { listMyOrderPayments, retryMyOrderMercadoPago } from "../../../services/payments-api";
 import { savePendingVerificationEmail } from "../../auth/verification-storage";
 
 const RETRYABLE_MERCADOPAGO_STATUSES = new Set(["cancelled", "expired"]);
+
+type ActiveRetryAttempt = {
+  orderId: number;
+  sourcePaymentId: number;
+  idempotencyKey: string;
+  payment: MyPayment | null;
+};
 
 export function useProfilePage() {
   const navigate = useNavigate();
@@ -24,6 +32,7 @@ export function useProfilePage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [retryError, setRetryError] = useState("");
+  const activeRetryAttemptRef = useRef<ActiveRetryAttempt | null>(null);
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [editingField, setEditingField] = useState<"phone" | "email" | null>(null);
@@ -156,16 +165,33 @@ export function useProfilePage() {
 
   function onContinueMercadoPagoPayment(payment: MyPayment) {
     setRetryError("");
-    const checkoutUrl = getMercadoPagoCheckoutUrl(payment);
+    const activeRetryAttempt = activeRetryAttemptRef.current;
+    const paymentForContinue =
+      activeRetryAttempt?.payment &&
+      activeRetryAttempt.orderId === payment.order_id
+        ? activeRetryAttempt.payment
+        : payment;
+    const checkoutUrl = getMercadoPagoCheckoutUrl(paymentForContinue);
     if (!checkoutUrl) {
       setRetryError("No pudimos obtener el nuevo enlace de pago.");
       return;
     }
     try {
       redirectToMercadoPago(checkoutUrl);
+      activeRetryAttemptRef.current = null;
     } catch {
       setRetryError("No pudimos redirigirte automaticamente. Puedes continuar el pago desde este boton.");
     }
+  }
+
+  function hasActiveRetryCheckoutForPayment(orderId: number, paymentId: number) {
+    const activeRetryAttempt = activeRetryAttemptRef.current;
+    return (
+      activeRetryAttempt !== null &&
+      activeRetryAttempt.orderId === orderId &&
+      activeRetryAttempt.sourcePaymentId === paymentId &&
+      activeRetryAttempt.payment !== null
+    );
   }
 
   function isRetryableMercadoPagoPayment(payment: MyPayment) {
@@ -184,6 +210,34 @@ export function useProfilePage() {
     setRetryingPaymentId(paymentId);
     setRetryError("");
     try {
+      const existingAttempt = activeRetryAttemptRef.current;
+      if (
+        existingAttempt?.payment &&
+        existingAttempt.orderId === orderId &&
+        existingAttempt.sourcePaymentId === paymentId
+      ) {
+        const checkoutUrl = getMercadoPagoCheckoutUrl(existingAttempt.payment);
+        if (!checkoutUrl) {
+          setRetryError("No pudimos obtener el nuevo enlace de pago.");
+          return;
+        }
+        redirectToMercadoPago(checkoutUrl);
+        activeRetryAttemptRef.current = null;
+        return;
+      }
+      const idempotencyKey =
+        existingAttempt?.orderId === orderId &&
+        existingAttempt.sourcePaymentId === paymentId
+          ? existingAttempt.idempotencyKey
+          : buildIdempotencyKey(`retry_order_payment_${orderId}_mercadopago`);
+      activeRetryAttemptRef.current = {
+        orderId,
+        sourcePaymentId: paymentId,
+        idempotencyKey,
+        payment: existingAttempt?.orderId === orderId && existingAttempt.sourcePaymentId === paymentId
+          ? existingAttempt.payment
+          : null,
+      };
       const freshData = await refreshOrders();
       const freshOrder = freshData.orders.find((order) => order.id === orderId) ?? null;
       const freshPayment =
@@ -198,7 +252,13 @@ export function useProfilePage() {
         return;
       }
 
-      const updatedPayment = await retryMyOrderMercadoPago(orderId);
+      const updatedPayment = await retryMyOrderMercadoPago(orderId, idempotencyKey);
+      activeRetryAttemptRef.current = {
+        orderId,
+        sourcePaymentId: paymentId,
+        idempotencyKey,
+        payment: updatedPayment,
+      };
       const refreshedPayments = await refreshOrderPayments(orderId);
       const paymentForRedirect =
         refreshedPayments.find((payment) => payment.id === updatedPayment.id) ?? updatedPayment;
@@ -209,6 +269,7 @@ export function useProfilePage() {
       }
       try {
         redirectToMercadoPago(checkoutUrl);
+        activeRetryAttemptRef.current = null;
       } catch {
         setRetryError("No pudimos redirigirte automaticamente. Puedes continuar el pago desde este boton.");
       }
@@ -243,6 +304,7 @@ export function useProfilePage() {
     onCancelEditing,
     onSaveField,
     onRequestEmailVerification,
+    hasActiveRetryCheckoutForPayment,
     isRetryableMercadoPagoPayment,
     onRetryMercadoPago,
     onContinueMercadoPagoPayment

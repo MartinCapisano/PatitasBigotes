@@ -1,13 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { getMercadoPagoCheckoutUrl, redirectToMercadoPago } from "../../../services/checkout-api";
 import { toUserMessage } from "../../../services/http-errors";
+import { buildIdempotencyKey } from "../../../services/idempotency";
 import {
   fetchPublicOrderSnapshotByPaymentToken,
   retryGuestMercadoPago,
   type PublicPaymentStatus
 } from "../../../services/payments-api";
-import type { PublicOrderSnapshot } from "../../../types";
+import type { MyPayment, PublicOrderSnapshot } from "../../../types";
+
+type ActiveRetryAttempt = {
+  idempotencyKey: string;
+  payment: MyPayment | null;
+};
 
 export function usePaymentReturnStatus() {
   const location = useLocation();
@@ -17,6 +23,7 @@ export function usePaymentReturnStatus() {
   const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState("");
   const [retryError, setRetryError] = useState("");
+  const activeRetryAttemptRef = useRef<ActiveRetryAttempt | null>(null);
   const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const lookup = useMemo(
     () => ({
@@ -50,19 +57,36 @@ export function usePaymentReturnStatus() {
     }
   }
 
+  function clearActiveRetryAttempt() {
+    activeRetryAttemptRef.current = null;
+  }
+
+  function getActiveRetryPayment(): MyPayment | null {
+    return activeRetryAttemptRef.current?.payment ?? null;
+  }
+
+  function getContinueCheckoutUrl(): string | null {
+    const activeRetryPayment = getActiveRetryPayment();
+    if (activeRetryPayment) {
+      return getMercadoPagoCheckoutUrl(activeRetryPayment);
+    }
+    return snapshot?.payment.checkout_url?.trim() || null;
+  }
+
   function onContinuePayment() {
     setRetryError("");
-    if (!snapshot?.flags.can_continue_payment) {
-      setRetryError("Este pago ya no esta disponible para continuar.");
-      return;
-    }
-    const checkoutUrl = snapshot.payment.checkout_url?.trim() || null;
+    const checkoutUrl = getContinueCheckoutUrl();
     if (!checkoutUrl) {
       setRetryError("No pudimos obtener el enlace de pago.");
       return;
     }
+    if (!getActiveRetryPayment() && !snapshot?.flags.can_continue_payment) {
+      setRetryError("Este pago ya no esta disponible para continuar.");
+      return;
+    }
     try {
       redirectToMercadoPago(checkoutUrl);
+      clearActiveRetryAttempt();
     } catch {
       setRetryError("No pudimos redirigirte automaticamente. Intenta nuevamente.");
     }
@@ -80,7 +104,30 @@ export function usePaymentReturnStatus() {
     setRetrying(true);
     setRetryError("");
     try {
-      const payment = await retryGuestMercadoPago(lookup.publicStatusToken);
+      const existingAttempt = activeRetryAttemptRef.current;
+      if (existingAttempt?.payment) {
+        const checkoutUrl = getMercadoPagoCheckoutUrl(existingAttempt.payment);
+        if (!checkoutUrl) {
+          setRetryError("No pudimos obtener el nuevo enlace de pago.");
+          await loadSnapshot();
+          return;
+        }
+        redirectToMercadoPago(checkoutUrl);
+        clearActiveRetryAttempt();
+        return;
+      }
+      const idempotencyKey =
+        existingAttempt?.idempotencyKey ??
+        buildIdempotencyKey(`retry_guest_payment_${lookup.publicStatusToken}`);
+      activeRetryAttemptRef.current = {
+        idempotencyKey,
+        payment: existingAttempt?.payment ?? null,
+      };
+      const payment = await retryGuestMercadoPago(lookup.publicStatusToken, idempotencyKey);
+      activeRetryAttemptRef.current = {
+        idempotencyKey,
+        payment,
+      };
       const checkoutUrl = getMercadoPagoCheckoutUrl(payment);
       if (!checkoutUrl) {
         setRetryError("No pudimos obtener el nuevo enlace de pago.");
@@ -88,6 +135,7 @@ export function usePaymentReturnStatus() {
         return;
       }
       redirectToMercadoPago(checkoutUrl);
+      clearActiveRetryAttempt();
     } catch (apiError: unknown) {
       setRetryError(toUserMessage(apiError, "payment-return"));
       await loadSnapshot();
@@ -106,6 +154,7 @@ export function usePaymentReturnStatus() {
     snapshot,
     loading,
     retrying,
+    hasActiveRetryCheckout: getActiveRetryPayment() !== null,
     error,
     retryError,
     loadStatus: loadSnapshot,

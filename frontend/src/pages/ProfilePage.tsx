@@ -151,14 +151,22 @@ export function ProfilePage() {
                           </div>
                           {profilePage.isRetryableMercadoPagoPayment(payment) && order.status === "submitted" && (
                             <div className="auth-form" style={{ minWidth: 280 }}>
-                              <p className="muted">Este pago no pudo completarse. Puedes generar un nuevo checkout.</p>
+                              <p className="muted">
+                                {profilePage.hasActiveRetryCheckoutForPayment(order.id, payment.id)
+                                  ? "Ya generaste un nuevo checkout para este pago. Puedes continuarlo desde aqui."
+                                  : "Este pago no pudo completarse. Puedes generar un nuevo checkout."}
+                              </p>
                               <button
                                 className="btn btn-small"
                                 type="button"
                                 onClick={() => void profilePage.onRetryMercadoPago(order.id, payment.id)}
                                 disabled={profilePage.retryingPaymentId !== null}
                               >
-                                {profilePage.retryingPaymentId === payment.id ? "Redirigiendo..." : "Reintentar pago"}
+                                {profilePage.retryingPaymentId === payment.id
+                                  ? "Redirigiendo..."
+                                  : profilePage.hasActiveRetryCheckoutForPayment(order.id, payment.id)
+                                    ? "Continuar pago"
+                                    : "Reintentar pago"}
                               </button>
                             </div>
                           )}

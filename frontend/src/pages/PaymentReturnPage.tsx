@@ -41,6 +41,7 @@ export function PaymentReturnPage({ variant }: { variant: PaymentReturnVariant }
     snapshot,
     loading,
     retrying,
+    hasActiveRetryCheckout,
     error,
     retryError,
     loadStatus,
@@ -86,12 +87,12 @@ export function PaymentReturnPage({ variant }: { variant: PaymentReturnVariant }
         <button className="btn btn-small btn-ghost" type="button" onClick={() => void loadStatus()} disabled={loading}>
           Reconsultar estado
         </button>
-        {snapshot?.flags.can_continue_payment && (
+        {(hasActiveRetryCheckout || snapshot?.flags.can_continue_payment) && (
           <button className="btn btn-small" type="button" onClick={onContinuePayment} disabled={loading || retrying}>
             Continuar pago
           </button>
         )}
-        {snapshot?.flags.can_retry_payment && (
+        {snapshot?.flags.can_retry_payment && !hasActiveRetryCheckout && (
           <button className="btn btn-small" type="button" onClick={() => void onRetryPayment()} disabled={loading || retrying}>
             {retrying ? "Redirigiendo..." : "Reintentar pago"}
           </button>
