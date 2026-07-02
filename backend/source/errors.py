@@ -54,4 +54,4 @@ def raise_http_error_from_exception(exc: Exception, db: Session | None = None) -
             detail="database error",
         ) from exc
 
-    raise exc
+    raise HTTPException(status_code=500, detail="internal server error") from exc
