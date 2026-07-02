@@ -261,7 +261,20 @@ def create_guest_checkout_order(
             db.commit()
         raise_http_error_from_exception(exc, db=db)
     except Exception as exc:
-        db.rollback()
+        # Ensure idempotency records created by this request don't remain stuck in 'processing'.
+        if record_created and claimed_record is not None and getattr(claimed_record, "status", None) == "processing":
+            try:
+                mark_record_failed(
+                    record=claimed_record,
+                    response_payload={"detail": str(exc)},
+                    db=db,
+                )
+                db.commit()
+            except Exception:
+                # If marking failed itself errors, rollback to avoid partial state.
+                db.rollback()
+        else:
+            db.rollback()
         raise_http_error_from_exception(exc, db=db)
     return {"data": result}
 
