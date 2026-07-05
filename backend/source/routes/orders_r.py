@@ -1,6 +1,7 @@
 ﻿from datetime import datetime, timedelta, UTC
 
 from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response, status
+import logging
 from sqlalchemy.orm import Session
 
 from source.dependencies.auth_d import get_current_user, get_current_user_id, require_admin
@@ -58,6 +59,7 @@ from source.services.payment_s import (
 from source.services.post_commit_actions_s import clear_post_commit_actions, dispatch_post_commit_actions
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 MERCADOPAGO_CHECKOUT_SETUP_ERROR_DETAIL = "no se pudo inicializar el checkout de Mercado Pago"
 
 
@@ -68,6 +70,22 @@ def _client_ip_from_request(request: Request) -> str:
     if request.client is not None and request.client.host:
         return request.client.host
     return "unknown"
+
+
+def _sanitize_response_payload(payload: object) -> object:
+    """Recursively redact obvious secrets from response payloads before persisting."""
+    if isinstance(payload, dict):
+        out = {}
+        for k, v in payload.items():
+            kl = k.lower()
+            if any(s in kl for s in ("token", "secret", "access", "password", "card", "cvv", "number")):
+                out[k] = "<redacted>"
+            else:
+                out[k] = _sanitize_response_payload(v)
+        return out
+    if isinstance(payload, list):
+        return [_sanitize_response_payload(i) for i in payload]
+    return payload
 
 
 def _initialize_mercadopago_payment_or_raise(*, payment: dict, db: Session) -> dict:
@@ -231,7 +249,7 @@ def create_guest_checkout_order(
             )
             result["payment"] = payment
             if payment["method"] == "mercadopago":
-                db.commit()
+                db.flush()
                 payment = _initialize_mercadopago_payment_or_raise(payment=payment, db=db)
                 result["payment"] = payment
                 mark_record_completed(
@@ -333,9 +351,24 @@ def create_admin_sale_endpoint(
                 db=db,
             )
     except Exception as exc:
-        if record_created and claimed_record is not None and claimed_record.status == "processing":
-            db.delete(claimed_record)
-            db.flush()
+        if record_created and claimed_record is not None and getattr(claimed_record, "status", None) == "processing":
+            failed_payload = {"error": "internal_server_error", "message": str(exc)}
+            sanitized = _sanitize_response_payload(failed_payload)
+            try:
+                mark_record_failed(
+                    record=claimed_record,
+                    response_payload=sanitized,
+                    db=db,
+                )
+                db.flush()
+            except Exception:
+                logger.exception("Failed to mark idempotency record as failed; deleting record. scope=%s key=%s", getattr(claimed_record, "scope", None), getattr(claimed_record, "idempotency_key", None))
+                try:
+                    db.delete(claimed_record)
+                    db.flush()
+                except Exception:
+                    logger.exception("Failed to delete idempotency record after failed mark; scope=%s key=%s", getattr(claimed_record, "scope", None), getattr(claimed_record, "idempotency_key", None))
+        logger.exception("Error processing create_admin_sale_endpoint; scope=%s key=%s", getattr(claimed_record, "scope", None) if claimed_record else None, getattr(claimed_record, "idempotency_key", None) if claimed_record else None)
         raise_http_error_from_exception(exc, db=db)
     return {"data": result}
 
@@ -560,7 +593,7 @@ def create_order_payment(
             expires_in_minutes=payload.expires_in_minutes,
             initialize_provider=False,
         )
-        db.commit()
+        db.flush()
         payment = _initialize_mercadopago_payment_or_raise(payment=payment, db=db)
         if payment.get("method") == "mercadopago" and payment.get("provider_status") != PAYMENT_PROVIDER_SETUP_FAILED:
             db.commit()
@@ -627,7 +660,7 @@ def retry_order_payment(
             expires_in_minutes=payload.expires_in_minutes,
             initialize_provider=False,
         )
-        db.commit()
+        db.flush()
         payment = _initialize_mercadopago_payment_or_raise(payment=payment, db=db)
         if payment.get("method") == "mercadopago" and payment.get("provider_status") != PAYMENT_PROVIDER_SETUP_FAILED:
             db.commit()
@@ -662,7 +695,7 @@ def retry_guest_payment(
             expires_in_minutes=60,
             initialize_provider=False,
         )
-        db.commit()
+        db.flush()
         payment = _initialize_mercadopago_payment_or_raise(payment=payment, db=db)
         if payment.get("method") == "mercadopago" and payment.get("provider_status") != PAYMENT_PROVIDER_SETUP_FAILED:
             db.commit()
