@@ -17,7 +17,17 @@ from source.services.payment_errors import (
 )
 
 
+import logging
+logger = logging.getLogger(__name__)
+
 def raise_http_error_from_exception(exc: Exception, db: Session | None = None) -> None:
+    # Log exception details to aid debugging
+    logger.exception("Exception routed to HTTP error handler: %s", exc)
+
+    # If the exception is already an HTTPException, re-raise it unchanged.
+    if isinstance(exc, HTTPException):
+        raise exc from exc
+
     if db is not None and isinstance(exc, (IntegrityError, SQLAlchemyError)):
         db.rollback()
 
