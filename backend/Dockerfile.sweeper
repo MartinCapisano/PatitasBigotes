@@ -1,0 +1,16 @@
+# Dockerfile for idempotency sweeper job
+FROM python:3.11-slim
+
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1
+
+# Install runtime deps from project's requirements
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Copy only needed files to keep image small
+COPY source /app/source
+COPY alembic.ini /app/alembic.ini
+
+WORKDIR /app
+ENTRYPOINT ["python", "-u", "source/jobs/idempotency_sweeper_job.py"]

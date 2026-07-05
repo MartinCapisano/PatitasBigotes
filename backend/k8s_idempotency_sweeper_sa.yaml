@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: idempotency-sweeper-sa
+  namespace: staging
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: idempotency-sweeper-role
+  namespace: staging
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: idempotency-sweeper-rb
+  namespace: staging
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: idempotency-sweeper-role
+subjects:
+  - kind: ServiceAccount
+    name: idempotency-sweeper-sa
+    namespace: staging
