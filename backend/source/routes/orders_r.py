@@ -102,13 +102,22 @@ def _initialize_mercadopago_payment_or_raise(*, payment: dict, db: Session) -> d
     try:
         return initialize_mercadopago_checkout_for_payment(payment_id=payment_id, db=db)
     except Exception as exc:
-        db.rollback()
-        mark_payment_checkout_setup_failed(
-            payment_id=payment_id,
-            error_detail=str(exc),
-            db=db,
-        )
-        db.commit()
+        # Attempt to mark the payment as setup failed before rolling back to avoid
+        # losing the payment row if it's uncommitted in the current session.
+        try:
+            mark_payment_checkout_setup_failed(
+                payment_id=payment_id,
+                error_detail=str(exc),
+                db=db,
+            )
+            db.commit()
+        except Exception:
+            # If marking failed errors (e.g., payment row not found), rollback to
+            # leave DB in a consistent state and surface the initialization error.
+            try:
+                db.rollback()
+            except Exception:
+                pass
         raise PaymentCheckoutInitializationError(
             MERCADOPAGO_CHECKOUT_SETUP_ERROR_DETAIL
         ) from exc
