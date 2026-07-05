@@ -1,0 +1,37 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: idempotency-sweeper
+  namespace: staging
+spec:
+  schedule: "*/30 * * * *"  # every 30 minutes; adjust for prod
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 10
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: idempotency-sweeper-sa
+          restartPolicy: OnFailure
+          containers:
+            - name: sweeper
+              image: ghcr.io/martincapisano/patitas-idempotency-sweeper:v1.0.0
+              imagePullPolicy: IfNotPresent
+              args:
+                - "--once"
+                - "--timeout-minutes"
+                - "30"
+                - "--limit"
+                - "200"
+              envFrom:
+                - secretRef:
+                    name: idempotency-sweeper-secrets
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "256Mi"
+          backoffLimit: 1
