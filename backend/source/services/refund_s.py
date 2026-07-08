@@ -349,15 +349,26 @@ def create_mercadopago_refund(
             "refund": _refund_to_dict(refund),
         }
     except Exception as exc:
-        refund.status = PAYMENT_REFUND_STATUS_FAILED
-        refund.provider_payload = _serialize_payload(
-            {
-                "error": str(exc),
-                "requested_reason": normalized_reason,
-                "amount": refund_amount,
-            }
-        )
-        db.flush()
+        # Commit the failed status now instead of leaving it to the caller's
+        # transactional session wrapper, so that re-raising below doesn't trigger
+        # a rollback that discards this refund request and its failed status.
+        try:
+            refund.status = PAYMENT_REFUND_STATUS_FAILED
+            refund.provider_payload = _serialize_payload(
+                {
+                    "error": str(exc),
+                    "requested_reason": normalized_reason,
+                    "amount": refund_amount,
+                }
+            )
+            db.commit()
+        except Exception:
+            # If marking failed errors, rollback to leave DB in a consistent
+            # state and surface the original provider error.
+            try:
+                db.rollback()
+            except Exception:
+                pass
         logger.exception(
             "event=refund_failed incident_id=%s payment_id=%s refund_id=%s",
             int(incident.id),
