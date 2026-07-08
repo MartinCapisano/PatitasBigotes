@@ -1,1 +1,0 @@
-export { OrdersPaymentsSection } from "../../OrdersPaymentsSection";

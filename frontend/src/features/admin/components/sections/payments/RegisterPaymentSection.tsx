@@ -1,1 +1,0 @@
-export { RegisterPaymentSection } from "../../RegisterPaymentSection";
