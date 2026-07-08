@@ -10,3 +10,4 @@ export { SalesSection } from "./SalesSection";
 export { AdminActionsMenu } from "./shared/AdminActionsMenu";
 export { AdminExpandButton } from "./shared/AdminExpandButton";
 export { AdminUserSearchModal } from "./shared/AdminUserSearchModal";
+export { ConfirmModal } from "./shared/ConfirmModal";

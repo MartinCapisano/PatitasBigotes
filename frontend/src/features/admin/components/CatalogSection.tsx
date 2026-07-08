@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { AdminCategory, AdminProduct, AdminVariant } from "../services";
+import type { VariantEditPayload } from "../hooks/useAdminCatalog";
 import { AdminActionsMenu } from "./shared/AdminActionsMenu";
 import { AdminExpandButton } from "./shared/AdminExpandButton";
+import { ConfirmModal } from "./shared/ConfirmModal";
 
 function ProductRow(props: {
   product: AdminProduct;
@@ -12,7 +14,7 @@ function ProductRow(props: {
   openProductMenuId: number | null;
   setOpenProductMenuId: (value: number | null | ((prev: number | null) => number | null)) => void;
   onStartEdit: (product: AdminProduct) => void;
-  onDeleteProduct: (productId: number) => Promise<void>;
+  onRequestDeleteProduct: (productId: number) => void;
   editingProductId: number | null;
   editName: string;
   setEditName: (value: string) => void;
@@ -57,7 +59,7 @@ function ProductRow(props: {
     openProductMenuId,
     setOpenProductMenuId,
     onStartEdit,
-    onDeleteProduct,
+    onRequestDeleteProduct,
     editingProductId,
     editName,
     setEditName,
@@ -119,7 +121,7 @@ function ProductRow(props: {
           <button className="btn btn-small btn-ghost" type="button" onClick={() => onStartEdit(product)}>
             Editar
           </button>
-          <button className="btn btn-small btn-danger" type="button" onClick={() => void onDeleteProduct(product.id)}>
+          <button className="btn btn-small btn-danger" type="button" onClick={() => onRequestDeleteProduct(product.id)}>
             Eliminar
           </button>
         </AdminActionsMenu>
@@ -310,7 +312,11 @@ export function CatalogSection(props: {
   openProductMenuId: number | null;
   setOpenProductMenuId: (value: number | null | ((prev: number | null) => number | null)) => void;
   onStartEdit: (product: AdminProduct) => void;
-  onDeleteProduct: (productId: number) => Promise<void>;
+  productPendingDeleteId: number | null;
+  deletingProduct: boolean;
+  onRequestDeleteProduct: (productId: number) => void;
+  onCancelDeleteProduct: () => void;
+  onConfirmDeleteProduct: () => Promise<void>;
   editingProductId: number | null;
   editName: string;
   setEditName: (value: string) => void;
@@ -344,6 +350,10 @@ export function CatalogSection(props: {
   setEditVariantPrice: (value: string) => void;
   onSaveVariantEdit: (variant: AdminVariant) => Promise<void>;
   setEditingVariantId: (value: number | null) => void;
+  variantPriceConfirmation: { variant: AdminVariant; payload: VariantEditPayload } | null;
+  savingVariant: boolean;
+  onCancelVariantPriceChange: () => void;
+  onConfirmVariantPriceChange: () => Promise<void>;
   formatArs: (cents: number | null) => string;
 }) {
   const {
@@ -398,7 +408,11 @@ export function CatalogSection(props: {
     openProductMenuId,
     setOpenProductMenuId,
     onStartEdit,
-    onDeleteProduct,
+    productPendingDeleteId,
+    deletingProduct,
+    onRequestDeleteProduct,
+    onCancelDeleteProduct,
+    onConfirmDeleteProduct,
     editingProductId,
     editName,
     setEditName,
@@ -432,6 +446,10 @@ export function CatalogSection(props: {
     setEditVariantPrice,
     onSaveVariantEdit,
     setEditingVariantId,
+    variantPriceConfirmation,
+    savingVariant,
+    onCancelVariantPriceChange,
+    onConfirmVariantPriceChange,
     formatArs
   } = props;
   const [stockSearch, setStockSearch] = useState("");
@@ -576,7 +594,7 @@ export function CatalogSection(props: {
                   openProductMenuId={openProductMenuId}
                   setOpenProductMenuId={setOpenProductMenuId}
                   onStartEdit={onStartEdit}
-                  onDeleteProduct={onDeleteProduct}
+                  onRequestDeleteProduct={onRequestDeleteProduct}
                   editingProductId={editingProductId}
                   editName={editName}
                   setEditName={setEditName}
@@ -742,6 +760,33 @@ export function CatalogSection(props: {
             )}
           </div>
         </div>
+      ) : null}
+
+      {productPendingDeleteId !== null ? (
+        <ConfirmModal
+          title="Eliminar producto"
+          message="Esta accion es irreversible. Confirma para eliminar el producto."
+          confirmLabel="Eliminar producto"
+          busyLabel="Eliminando..."
+          danger
+          busy={deletingProduct}
+          onConfirm={() => void onConfirmDeleteProduct()}
+          onCancel={onCancelDeleteProduct}
+        />
+      ) : null}
+
+      {variantPriceConfirmation ? (
+        <ConfirmModal
+          title="Cambiar precio de variante"
+          message={`Vas a cambiar el precio de "${variantPriceConfirmation.variant.sku}" a ${formatArs(
+            variantPriceConfirmation.payload.price ?? 0
+          )}. Confirma para continuar.`}
+          confirmLabel="Confirmar cambio"
+          busyLabel="Guardando..."
+          busy={savingVariant}
+          onConfirm={() => void onConfirmVariantPriceChange()}
+          onCancel={onCancelVariantPriceChange}
+        />
       ) : null}
     </>
   );

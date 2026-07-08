@@ -24,6 +24,8 @@ export function useAdminDiscounts(params: {
   const [selectedDiscountProductIds, setSelectedDiscountProductIds] = useState<Record<number, boolean>>({});
   const [selectedDiscountVariantIds, setSelectedDiscountVariantIds] = useState<Record<number, boolean>>({});
   const [newDiscountActive, setNewDiscountActive] = useState(true);
+  const [discountPendingDeleteId, setDiscountPendingDeleteId] = useState<number | null>(null);
+  const [deletingDiscount, setDeletingDiscount] = useState(false);
 
   async function loadDiscounts() {
     setDiscountsLoading(true);
@@ -156,15 +158,26 @@ export function useAdminDiscounts(params: {
     }
   }
 
-  async function onDeleteDiscount(discountId: number) {
-    const confirmed = window.confirm("Eliminar descuento?");
-    if (!confirmed) return;
+  function onRequestDeleteDiscount(discountId: number) {
+    setDiscountPendingDeleteId(discountId);
+  }
+
+  function onCancelDeleteDiscount() {
+    setDiscountPendingDeleteId(null);
+  }
+
+  async function onConfirmDeleteDiscount() {
+    if (discountPendingDeleteId === null) return;
     setDiscountsError("");
+    setDeletingDiscount(true);
     try {
-      await deleteAdminDiscount(discountId);
+      await deleteAdminDiscount(discountPendingDeleteId);
       await loadDiscounts();
     } catch {
       setDiscountsError("No se pudo eliminar el descuento.");
+    } finally {
+      setDeletingDiscount(false);
+      setDiscountPendingDeleteId(null);
     }
   }
 
@@ -225,6 +238,10 @@ export function useAdminDiscounts(params: {
     toggleDiscountVariantSelection,
     onCreateDiscount,
     onToggleDiscountActive,
-    onDeleteDiscount
+    discountPendingDeleteId,
+    deletingDiscount,
+    onRequestDeleteDiscount,
+    onCancelDeleteDiscount,
+    onConfirmDeleteDiscount
   };
 }

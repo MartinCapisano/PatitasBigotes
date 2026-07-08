@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { AdminCategory, AdminProduct, AdminVariant, AdminDiscount } from "../services";
 import { AdminActionsMenu } from "./shared/AdminActionsMenu";
 import { AdminExpandButton } from "./shared/AdminExpandButton";
+import { ConfirmModal } from "./shared/ConfirmModal";
 
 export function DiscountsSection(props: {
   discountsError: string;
@@ -37,7 +38,11 @@ export function DiscountsSection(props: {
   toggleDiscountVariantSelection: (productId: number, variantId: number, checked: boolean) => void;
   onCreateDiscount: () => Promise<void>;
   onToggleDiscountActive: (discount: AdminDiscount) => Promise<void>;
-  onDeleteDiscount: (discountId: number) => Promise<void>;
+  discountPendingDeleteId: number | null;
+  deletingDiscount: boolean;
+  onRequestDeleteDiscount: (discountId: number) => void;
+  onCancelDeleteDiscount: () => void;
+  onConfirmDeleteDiscount: () => Promise<void>;
   formatArs: (cents: number | null) => string;
 }) {
   const {
@@ -74,11 +79,20 @@ export function DiscountsSection(props: {
     toggleDiscountVariantSelection,
     onCreateDiscount,
     onToggleDiscountActive,
-    onDeleteDiscount,
+    discountPendingDeleteId,
+    deletingDiscount,
+    onRequestDeleteDiscount,
+    onCancelDeleteDiscount,
+    onConfirmDeleteDiscount,
     formatArs
   } = props;
   const [expandedDiscounts, setExpandedDiscounts] = useState<Record<number, boolean>>({});
   const [openDiscountMenuId, setOpenDiscountMenuId] = useState<number | null>(null);
+
+  const discountPendingDeleteName = useMemo(
+    () => discounts.find((discount) => discount.id === discountPendingDeleteId)?.name ?? "",
+    [discounts, discountPendingDeleteId]
+  );
 
   function toggleDiscountExpanded(discountId: number) {
     setExpandedDiscounts((prev) => ({ ...prev, [discountId]: !prev[discountId] }));
@@ -101,6 +115,7 @@ export function DiscountsSection(props: {
   }
 
   return (
+    <>
     <article className="card admin-orders-section">
       <h2>Admin Descuentos</h2>
       <div className="admin-inline-actions">
@@ -273,7 +288,7 @@ export function DiscountsSection(props: {
                   <button className="btn btn-small btn-ghost" type="button" onClick={() => void onToggleDiscountActive(discount)}>
                     {discount.is_active ? "Desactivar" : "Activar"}
                   </button>
-                  <button className="btn btn-small btn-danger" type="button" onClick={() => void onDeleteDiscount(discount.id)}>
+                  <button className="btn btn-small btn-danger" type="button" onClick={() => onRequestDeleteDiscount(discount.id)}>
                     Eliminar
                   </button>
                 </AdminActionsMenu>
@@ -296,5 +311,19 @@ export function DiscountsSection(props: {
         </div>
       )}
     </article>
+
+    {discountPendingDeleteId !== null ? (
+      <ConfirmModal
+        title="Eliminar descuento"
+        message={`Confirma para eliminar el descuento "${discountPendingDeleteName}".`}
+        confirmLabel="Eliminar descuento"
+        busyLabel="Eliminando..."
+        danger
+        busy={deletingDiscount}
+        onConfirm={() => void onConfirmDeleteDiscount()}
+        onCancel={onCancelDeleteDiscount}
+      />
+    ) : null}
+    </>
   );
 }

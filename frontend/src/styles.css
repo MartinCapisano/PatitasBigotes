@@ -809,6 +809,10 @@ a {
   overflow: auto;
 }
 
+.admin-modal-confirm {
+  width: min(420px, 100%);
+}
+
 .admin-modal-header {
   display: flex;
   align-items: center;

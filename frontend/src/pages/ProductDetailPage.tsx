@@ -58,6 +58,11 @@ export function ProductDetailPage() {
               Comprar
             </button>
           </div>
+          {detail.addedToCart && (
+            <p className="success">
+              Producto agregado al carrito. <Link to="/checkout">Finalizar compra</Link>
+            </p>
+          )}
         </div>
       </div>
 

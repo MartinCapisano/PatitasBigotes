@@ -1,16 +1,18 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { addToCart } from "../../../lib/cart-storage";
 import type { StorefrontProductDetail } from "../../../types";
 import { fetchStorefrontProductById } from "../../../services/storefront-api";
 
+const ADDED_TO_CART_MESSAGE_TIMEOUT_MS = 4000;
+
 export function useProductDetailPage() {
   const params = useParams();
-  const navigate = useNavigate();
   const [product, setProduct] = useState<StorefrontProductDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
+  const [addedToCart, setAddedToCart] = useState(false);
 
   useEffect(() => {
     async function run() {
@@ -35,6 +37,12 @@ export function useProductDetailPage() {
   const currentImageUrl =
     selectedOption?.effective_img_url ?? selectedOption?.img_url ?? product?.img_url ?? null;
 
+  useEffect(() => {
+    if (!addedToCart) return;
+    const timeoutId = window.setTimeout(() => setAddedToCart(false), ADDED_TO_CART_MESSAGE_TIMEOUT_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [addedToCart]);
+
   function onBuy() {
     if (!product) return;
     if (!selectedOption || !selectedOption.in_stock) return;
@@ -47,14 +55,7 @@ export function useProductDetailPage() {
       quantity: 1,
       img_url: selectedOption.effective_img_url ?? selectedOption.img_url ?? product.img_url
     });
-    const goCheckout = window.confirm(
-      "Producto agregado al carrito.\nAceptar: Finalizar compra\nCancelar: Seguir comprando"
-    );
-    if (goCheckout) {
-      navigate("/checkout");
-      return;
-    }
-    navigate("/home");
+    setAddedToCart(true);
   }
 
   return {
@@ -65,6 +66,7 @@ export function useProductDetailPage() {
     setSelectedVariantId,
     selectedOption,
     currentImageUrl,
+    addedToCart,
     onBuy
   };
 }

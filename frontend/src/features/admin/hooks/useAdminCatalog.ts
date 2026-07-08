@@ -27,6 +27,16 @@ function normalizeVariantsByProduct(
   return next;
 }
 
+export type VariantEditPayload = {
+  sku: string;
+  size: string | null;
+  color: string | null;
+  img_url: string | null;
+  stock: number;
+  active: boolean;
+  price?: number;
+};
+
 function deriveProductFromVariants(product: AdminProduct, variants: AdminVariant[]): AdminProduct {
   const activeVariants = variants.filter((variant) => Boolean(variant.active));
   const totalStock = activeVariants.reduce((sum, variant) => sum + Number(variant.stock ?? 0), 0);
@@ -88,6 +98,13 @@ export function useAdminCatalog() {
   const [showDeleteCategoryModal, setShowDeleteCategoryModal] = useState(false);
   const [deleteCategoryId, setDeleteCategoryId] = useState("");
   const [deletingCategory, setDeletingCategory] = useState(false);
+  const [productPendingDeleteId, setProductPendingDeleteId] = useState<number | null>(null);
+  const [deletingProduct, setDeletingProduct] = useState(false);
+  const [variantPriceConfirmation, setVariantPriceConfirmation] = useState<{
+    variant: AdminVariant;
+    payload: VariantEditPayload;
+  } | null>(null);
+  const [savingVariant, setSavingVariant] = useState(false);
 
   const hasCategories = categories.length > 0;
 
@@ -305,16 +322,27 @@ export function useAdminCatalog() {
     }
   }
 
-  async function onDeleteProduct(productId: number) {
-    const confirmDelete = window.confirm("Eliminar producto? Esta accion es irreversible.");
-    if (!confirmDelete) return;
+  function onRequestDeleteProduct(productId: number) {
+    setOpenProductMenuId(null);
+    setProductPendingDeleteId(productId);
+  }
+
+  function onCancelDeleteProduct() {
+    setProductPendingDeleteId(null);
+  }
+
+  async function onConfirmDeleteProduct() {
+    if (productPendingDeleteId === null) return;
     setError("");
+    setDeletingProduct(true);
     try {
-      await deleteAdminProduct(productId);
-      setOpenProductMenuId(null);
+      await deleteAdminProduct(productPendingDeleteId);
       await loadAll();
     } catch {
       setError("No se pudo eliminar el producto.");
+    } finally {
+      setDeletingProduct(false);
+      setProductPendingDeleteId(null);
     }
   }
 
@@ -376,48 +404,8 @@ export function useAdminCatalog() {
     setExpandedProducts((prev) => ({ ...prev, [productId]: !prev[productId] }));
   }
 
-  async function onSaveVariantEdit(variant: AdminVariant) {
-    if (editingVariantId !== variant.id) return;
-    setError("");
+  async function applyVariantEdit(variant: AdminVariant, payload: VariantEditPayload) {
     try {
-      const stockAsInt = Number.parseInt(editVariantStock, 10);
-      if (Number.isNaN(stockAsInt) || stockAsInt < 0) {
-        setError("Stock invalido.");
-        return;
-      }
-
-      const payload: {
-        sku: string;
-        size: string | null;
-        color: string | null;
-        img_url: string | null;
-        stock: number;
-        active: boolean;
-        price?: number;
-      } = {
-        sku: editVariantSku.trim(),
-        size: editVariantSize.trim() || null,
-        color: editVariantColor.trim() || null,
-        img_url: editVariantImgUrl.trim() || null,
-        stock: stockAsInt,
-        active: editVariantActive
-      };
-
-      if (enableVariantPriceEdit) {
-        const priceAsInt = Number.parseInt(editVariantPrice, 10);
-        if (Number.isNaN(priceAsInt) || priceAsInt < 0) {
-          setError("Precio invalido.");
-          return;
-        }
-        if (priceAsInt !== editVariantOriginalPrice) {
-          const confirmed = window.confirm(
-            "Vas a cambiar el precio de la variante. Confirma para continuar."
-          );
-          if (!confirmed) return;
-        }
-        payload.price = priceAsInt;
-      }
-
       const updatedVariant = await patchAdminVariant(variant.id, payload);
       setEditingVariantId(null);
       setVariantsByProduct((prev) => {
@@ -437,6 +425,57 @@ export function useAdminCatalog() {
       );
     } catch {
       setError("No se pudo actualizar la variante.");
+    }
+  }
+
+  async function onSaveVariantEdit(variant: AdminVariant) {
+    if (editingVariantId !== variant.id) return;
+    setError("");
+
+    const stockAsInt = Number.parseInt(editVariantStock, 10);
+    if (Number.isNaN(stockAsInt) || stockAsInt < 0) {
+      setError("Stock invalido.");
+      return;
+    }
+
+    const payload: VariantEditPayload = {
+      sku: editVariantSku.trim(),
+      size: editVariantSize.trim() || null,
+      color: editVariantColor.trim() || null,
+      img_url: editVariantImgUrl.trim() || null,
+      stock: stockAsInt,
+      active: editVariantActive
+    };
+
+    if (enableVariantPriceEdit) {
+      const priceAsInt = Number.parseInt(editVariantPrice, 10);
+      if (Number.isNaN(priceAsInt) || priceAsInt < 0) {
+        setError("Precio invalido.");
+        return;
+      }
+      payload.price = priceAsInt;
+      if (priceAsInt !== editVariantOriginalPrice) {
+        setVariantPriceConfirmation({ variant, payload });
+        return;
+      }
+    }
+
+    await applyVariantEdit(variant, payload);
+  }
+
+  function onCancelVariantPriceChange() {
+    setVariantPriceConfirmation(null);
+  }
+
+  async function onConfirmVariantPriceChange() {
+    if (!variantPriceConfirmation) return;
+    const { variant, payload } = variantPriceConfirmation;
+    setSavingVariant(true);
+    try {
+      await applyVariantEdit(variant, payload);
+    } finally {
+      setSavingVariant(false);
+      setVariantPriceConfirmation(null);
     }
   }
 
@@ -549,7 +588,11 @@ export function useAdminCatalog() {
     openProductMenuId,
     setOpenProductMenuId,
     onStartEdit,
-    onDeleteProduct,
+    productPendingDeleteId,
+    deletingProduct,
+    onRequestDeleteProduct,
+    onCancelDeleteProduct,
+    onConfirmDeleteProduct,
     editingProductId,
     editName,
     setEditName,
@@ -582,6 +625,10 @@ export function useAdminCatalog() {
     editVariantPrice,
     setEditVariantPrice,
     onSaveVariantEdit,
-    setEditingVariantId
+    setEditingVariantId,
+    variantPriceConfirmation,
+    savingVariant,
+    onCancelVariantPriceChange,
+    onConfirmVariantPriceChange
   };
 }

@@ -149,7 +149,11 @@ export function AdminPage() {
           toggleDiscountVariantSelection={discounts.toggleDiscountVariantSelection}
           onCreateDiscount={discounts.onCreateDiscount}
           onToggleDiscountActive={discounts.onToggleDiscountActive}
-          onDeleteDiscount={discounts.onDeleteDiscount}
+          discountPendingDeleteId={discounts.discountPendingDeleteId}
+          deletingDiscount={discounts.deletingDiscount}
+          onRequestDeleteDiscount={discounts.onRequestDeleteDiscount}
+          onCancelDeleteDiscount={discounts.onCancelDeleteDiscount}
+          onConfirmDeleteDiscount={discounts.onConfirmDeleteDiscount}
           formatArs={formatArs}
         />
       )}
@@ -207,7 +211,11 @@ export function AdminPage() {
           openProductMenuId={catalog.openProductMenuId}
           setOpenProductMenuId={catalog.setOpenProductMenuId}
           onStartEdit={catalog.onStartEdit}
-          onDeleteProduct={catalog.onDeleteProduct}
+          productPendingDeleteId={catalog.productPendingDeleteId}
+          deletingProduct={catalog.deletingProduct}
+          onRequestDeleteProduct={catalog.onRequestDeleteProduct}
+          onCancelDeleteProduct={catalog.onCancelDeleteProduct}
+          onConfirmDeleteProduct={catalog.onConfirmDeleteProduct}
           editingProductId={catalog.editingProductId}
           editName={catalog.editName}
           setEditName={catalog.setEditName}
@@ -241,6 +249,10 @@ export function AdminPage() {
           setEditVariantPrice={catalog.setEditVariantPrice}
           onSaveVariantEdit={catalog.onSaveVariantEdit}
           setEditingVariantId={catalog.setEditingVariantId}
+          variantPriceConfirmation={catalog.variantPriceConfirmation}
+          savingVariant={catalog.savingVariant}
+          onCancelVariantPriceChange={catalog.onCancelVariantPriceChange}
+          onConfirmVariantPriceChange={catalog.onConfirmVariantPriceChange}
           formatArs={formatArs}
         />
       )}
