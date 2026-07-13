@@ -604,8 +604,7 @@ def create_order_payment(
         )
         db.flush()
         payment = _initialize_mercadopago_payment_or_raise(payment=payment, db=db)
-        if payment.get("method") == "mercadopago" and payment.get("provider_status") != PAYMENT_PROVIDER_SETUP_FAILED:
-            db.commit()
+        db.commit()
     except Exception as exc:
         db.rollback()
         raise_http_error_from_exception(exc, db=db)
@@ -671,8 +670,7 @@ def retry_order_payment(
         )
         db.flush()
         payment = _initialize_mercadopago_payment_or_raise(payment=payment, db=db)
-        if payment.get("method") == "mercadopago" and payment.get("provider_status") != PAYMENT_PROVIDER_SETUP_FAILED:
-            db.commit()
+        db.commit()
     except PaymentCheckoutInitializationError as exc:
         db.rollback()
         raise HTTPException(
@@ -706,8 +704,7 @@ def retry_guest_payment(
         )
         db.flush()
         payment = _initialize_mercadopago_payment_or_raise(payment=payment, db=db)
-        if payment.get("method") == "mercadopago" and payment.get("provider_status") != PAYMENT_PROVIDER_SETUP_FAILED:
-            db.commit()
+        db.commit()
     except PaymentCheckoutInitializationError as exc:
         db.rollback()
         raise HTTPException(
