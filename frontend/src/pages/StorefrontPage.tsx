@@ -90,6 +90,9 @@ export function StorefrontPage() {
 
       {storefront.loading && <p>Cargando...</p>}
       {storefront.error && <p className="error">{storefront.error}</p>}
+      {!storefront.loading && !storefront.error && storefront.products.length === 0 && (
+        <p className="muted">No se encontraron productos para los filtros seleccionados.</p>
+      )}
       <div className="products-grid products-grid-home">
         {storefront.products.map((product) => (
           <article className="card product-card-home" key={product.id}>

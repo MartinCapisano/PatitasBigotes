@@ -11,6 +11,9 @@ export function CategoriesPage() {
 
       {categoriesPage.loading && <p>Cargando...</p>}
       {categoriesPage.error && <p className="error">{categoriesPage.error}</p>}
+      {!categoriesPage.loading && !categoriesPage.error && categoriesPage.categories.length === 0 && (
+        <p className="muted">No hay categorias para mostrar.</p>
+      )}
 
       <div className="admin-grid">
         {categoriesPage.categories.map((category) => (
