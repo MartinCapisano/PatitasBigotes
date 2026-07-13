@@ -40,10 +40,7 @@ export function AdminPage() {
     productsSorted: catalog.productsSorted,
     variantsByProduct: catalog.variantsByProduct
   });
-  const ordersPayments = useAdminOrdersPayments({
-    adminSection,
-    variantOptions: catalog.variantOptions
-  });
+  const ordersPayments = useAdminOrdersPayments({ adminSection });
   const paymentIncidents = useAdminPaymentIncidents({ adminSection });
   const sales = useAdminSales({
     adminSection,
@@ -273,9 +270,6 @@ export function AdminPage() {
         <OrdersPaymentsSection
           adminSection={adminSection}
           orderError={ordersPayments.orderError}
-          orderSuccess={ordersPayments.orderSuccess}
-          showCreateManualOrderForm={ordersPayments.showCreateManualOrderForm}
-          setShowCreateManualOrderForm={ordersPayments.setShowCreateManualOrderForm}
           ordersFilter={ordersPayments.ordersFilter}
           setOrdersFilter={ordersPayments.setOrdersFilter}
           ordersSortBy={ordersPayments.ordersSortBy}
@@ -284,25 +278,6 @@ export function AdminPage() {
           setOrdersSortDir={ordersPayments.setOrdersSortDir}
           ordersShowAll={ordersPayments.ordersShowAll}
           setOrdersShowAll={ordersPayments.setOrdersShowAll}
-          manualEmail={ordersPayments.manualEmail}
-          setManualEmail={ordersPayments.setManualEmail}
-          manualFirstName={ordersPayments.manualFirstName}
-          setManualFirstName={ordersPayments.setManualFirstName}
-          manualLastName={ordersPayments.manualLastName}
-          setManualLastName={ordersPayments.setManualLastName}
-          manualPhone={ordersPayments.manualPhone}
-          setManualPhone={ordersPayments.setManualPhone}
-          manualVariantId={ordersPayments.manualVariantId}
-          setManualVariantId={ordersPayments.setManualVariantId}
-          manualQuantity={ordersPayments.manualQuantity}
-          setManualQuantity={ordersPayments.setManualQuantity}
-          variantOptions={catalog.variantOptions}
-          onAddManualItem={ordersPayments.onAddManualItem}
-          manualItems={ordersPayments.manualItems}
-          removeManualItem={ordersPayments.removeManualItem}
-          setManualItems={ordersPayments.setManualItems}
-          onCreateManualOrder={ordersPayments.onCreateManualOrder}
-          creatingManualOrder={ordersPayments.creatingManualOrder}
           ordersListLoading={ordersPayments.ordersListLoading}
           ordersList={ordersPayments.ordersList}
           loadAdminOrder={ordersPayments.loadAdminOrder}
@@ -316,18 +291,10 @@ export function AdminPage() {
           setPaymentsSortDir={ordersPayments.setPaymentsSortDir}
           paymentsShowAll={ordersPayments.paymentsShowAll}
           setPaymentsShowAll={ordersPayments.setPaymentsShowAll}
-          showManualPaymentForm={ordersPayments.showManualPaymentForm}
-          setShowManualPaymentForm={ordersPayments.setShowManualPaymentForm}
           paymentsListLoading={ordersPayments.paymentsListLoading}
           paymentsList={ordersPayments.paymentsList}
           selectedOrder={ordersPayments.selectedOrder}
           orderPayments={ordersPayments.orderPayments}
-          manualPayRef={ordersPayments.manualPayRef}
-          setManualPayRef={ordersPayments.setManualPayRef}
-          manualPayAmount={ordersPayments.manualPayAmount}
-          setManualPayAmount={ordersPayments.setManualPayAmount}
-          onMarkOrderPaid={ordersPayments.onMarkOrderPaid}
-          markingOrderPaid={ordersPayments.markingOrderPaid}
           formatArs={formatArs}
         />
       )}

@@ -4,9 +4,6 @@ import type { AdminSection } from "../types";
 export function OrdersPaymentsSection(props: {
   adminSection: AdminSection;
   orderError: string;
-  orderSuccess: string;
-  showCreateManualOrderForm: boolean;
-  setShowCreateManualOrderForm: (value: boolean | ((prev: boolean) => boolean)) => void;
   ordersFilter: "all" | "submitted" | "paid" | "cancelled";
   setOrdersFilter: (value: "all" | "submitted" | "paid" | "cancelled") => void;
   ordersSortBy: "created_at" | "id";
@@ -15,25 +12,6 @@ export function OrdersPaymentsSection(props: {
   setOrdersSortDir: (value: "desc" | "asc") => void;
   ordersShowAll: boolean;
   setOrdersShowAll: (value: boolean | ((prev: boolean) => boolean)) => void;
-  manualEmail: string;
-  setManualEmail: (value: string) => void;
-  manualFirstName: string;
-  setManualFirstName: (value: string) => void;
-  manualLastName: string;
-  setManualLastName: (value: string) => void;
-  manualPhone: string;
-  setManualPhone: (value: string) => void;
-  manualVariantId: string;
-  setManualVariantId: (value: string) => void;
-  manualQuantity: string;
-  setManualQuantity: (value: string) => void;
-  variantOptions: Array<{ value: string; label: string }>;
-  onAddManualItem: () => void;
-  manualItems: Array<{ variant_id: number; quantity: number; label: string }>;
-  removeManualItem: (variantId: number) => void;
-  setManualItems: (value: Array<{ variant_id: number; quantity: number; label: string }>) => void;
-  onCreateManualOrder: () => Promise<void>;
-  creatingManualOrder: boolean;
   ordersListLoading: boolean;
   ordersList: AdminOrder[];
   loadAdminOrder: (orderId: number) => Promise<void>;
@@ -47,26 +25,15 @@ export function OrdersPaymentsSection(props: {
   setPaymentsSortDir: (value: "desc" | "asc") => void;
   paymentsShowAll: boolean;
   setPaymentsShowAll: (value: boolean | ((prev: boolean) => boolean)) => void;
-  showManualPaymentForm: boolean;
-  setShowManualPaymentForm: (value: boolean | ((prev: boolean) => boolean)) => void;
   paymentsListLoading: boolean;
   paymentsList: AdminPayment[];
   selectedOrder: AdminOrder | null;
   orderPayments: AdminPayment[];
-  manualPayRef: string;
-  setManualPayRef: (value: string) => void;
-  manualPayAmount: string;
-  setManualPayAmount: (value: string) => void;
-  onMarkOrderPaid: () => Promise<void>;
-  markingOrderPaid: boolean;
   formatArs: (cents: number | null) => string;
 }) {
   const {
     adminSection,
     orderError,
-    orderSuccess,
-    showCreateManualOrderForm,
-    setShowCreateManualOrderForm,
     ordersFilter,
     setOrdersFilter,
     ordersSortBy,
@@ -75,25 +42,6 @@ export function OrdersPaymentsSection(props: {
     setOrdersSortDir,
     ordersShowAll,
     setOrdersShowAll,
-    manualEmail,
-    setManualEmail,
-    manualFirstName,
-    setManualFirstName,
-    manualLastName,
-    setManualLastName,
-    manualPhone,
-    setManualPhone,
-    manualVariantId,
-    setManualVariantId,
-    manualQuantity,
-    setManualQuantity,
-    variantOptions,
-    onAddManualItem,
-    manualItems,
-    removeManualItem,
-    setManualItems,
-    onCreateManualOrder,
-    creatingManualOrder,
     ordersListLoading,
     ordersList,
     loadAdminOrder,
@@ -107,18 +55,10 @@ export function OrdersPaymentsSection(props: {
     setPaymentsSortDir,
     paymentsShowAll,
     setPaymentsShowAll,
-    showManualPaymentForm,
-    setShowManualPaymentForm,
     paymentsListLoading,
     paymentsList,
     selectedOrder,
     orderPayments,
-    manualPayRef,
-    setManualPayRef,
-    manualPayAmount,
-    setManualPayAmount,
-    onMarkOrderPaid,
-    markingOrderPaid,
     formatArs
   } = props;
 
@@ -131,7 +71,6 @@ export function OrdersPaymentsSection(props: {
           : "Ultimos pagos, filtros por estado y orden por fecha o id."}
       </p>
       {orderError && <p className="error">{orderError}</p>}
-      {orderSuccess && <p className="success">{orderSuccess}</p>}
 
       {adminSection === "ordenes" && (
         <>
@@ -154,81 +93,6 @@ export function OrdersPaymentsSection(props: {
               {ordersShowAll ? "Mostrar ultimas 10" : "Mostrar todas"}
             </button>
           </div>
-
-          {showCreateManualOrderForm && (
-            <>
-              <h3>Crear orden manual (submitted)</h3>
-              <form
-                className="admin-form-grid"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void onCreateManualOrder();
-                }}
-              >
-                <label>
-                  Email cliente
-                  <input className="input" type="email" value={manualEmail} onChange={(e) => setManualEmail(e.target.value)} required />
-                </label>
-                <label>
-                  Nombre
-                  <input className="input" value={manualFirstName} onChange={(e) => setManualFirstName(e.target.value)} required />
-                </label>
-                <label>
-                  Apellido
-                  <input className="input" value={manualLastName} onChange={(e) => setManualLastName(e.target.value)} required />
-                </label>
-                <label>
-                  Telefono
-                  <input className="input" value={manualPhone} onChange={(e) => setManualPhone(e.target.value)} required />
-                </label>
-              </form>
-              <div className="admin-form-grid">
-                <label>
-                  Variante
-                  <select className="input" value={manualVariantId} onChange={(e) => setManualVariantId(e.target.value)}>
-                    <option value="">Seleccionar variante</option>
-                    {variantOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Cantidad
-                  <input className="input" type="number" min={1} value={manualQuantity} onChange={(e) => setManualQuantity(e.target.value)} />
-                </label>
-                <div className="admin-inline-actions">
-                  <button className="btn btn-small btn-ghost" type="button" onClick={onAddManualItem}>
-                    Agregar item
-                  </button>
-                </div>
-              </div>
-              {manualItems.length > 0 && (
-                <div className="admin-variants-grid">
-                  {manualItems.map((item) => (
-                    <div className="admin-variant-row" key={item.variant_id}>
-                      <p>{item.label}</p>
-                      <p className="muted">Cantidad: {item.quantity}</p>
-                      <div className="admin-product-actions">
-                        <button className="btn btn-small btn-danger" type="button" onClick={() => removeManualItem(item.variant_id)}>
-                          Quitar
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="admin-inline-actions">
-                <button className="btn" type="button" onClick={() => setManualItems([])} disabled={creatingManualOrder}>
-                  Limpiar items
-                </button>
-                <button className="btn" type="button" onClick={() => void onCreateManualOrder()} disabled={creatingManualOrder}>
-                  {creatingManualOrder ? "Creando..." : "Crear orden manual"}
-                </button>
-              </div>
-            </>
-          )}
 
           <h3>Listado de ordenes</h3>
           {ordersListLoading ? (
@@ -337,24 +201,6 @@ export function OrdersPaymentsSection(props: {
 
             {adminSection === "pagos" && (
               <>
-                {showManualPaymentForm && (
-                  <div className="admin-form-grid">
-                    <label>
-                      Ref pago manual
-                      <input className="input" value={manualPayRef} onChange={(e) => setManualPayRef(e.target.value)} />
-                    </label>
-                    <label>
-                      Monto (centavos ARS)
-                      <input className="input" type="number" min={1} value={manualPayAmount} onChange={(e) => setManualPayAmount(e.target.value)} />
-                    </label>
-                    <div className="admin-inline-actions">
-                      <button className="btn btn-small" type="button" onClick={() => void onMarkOrderPaid()} disabled={markingOrderPaid}>
-                        {markingOrderPaid ? "Guardando..." : "Marcar como pagada"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
                 <h4>Pagos</h4>
                 {orderPayments.length === 0 ? (
                   <p className="muted">Sin pagos para esta orden.</p>

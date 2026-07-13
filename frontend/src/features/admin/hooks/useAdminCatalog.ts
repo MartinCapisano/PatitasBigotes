@@ -13,7 +13,6 @@ import {
   patchAdminProduct,
   patchAdminVariant
 } from "../../../services/admin-catalog-api";
-import type { VariantOption } from "../types";
 
 function normalizeVariantsByProduct(
   payload: Record<string, AdminVariant[]>
@@ -512,21 +511,6 @@ export function useAdminCatalog() {
     return productsSorted.filter((product) => String(product.category || "") === catalogCategoryFilter);
   }, [productsSorted, catalogCategoryFilter]);
 
-  const variantOptions = useMemo<VariantOption[]>(() => {
-    const rows: VariantOption[] = [];
-    for (const product of products) {
-      const variants = variantsByProduct[product.id] ?? [];
-      for (const variant of variants) {
-        rows.push({
-          value: String(variant.id),
-          label: `${product.name} | ${variant.sku} (${variant.size || "-"} / ${variant.color || "-"})`,
-          priceCents: Number(variant.price ?? 0)
-        });
-      }
-    }
-    return rows.sort((a, b) => a.label.localeCompare(b.label));
-  }, [products, variantsByProduct]);
-
   return {
     categories,
     editingCategoryId,
@@ -542,7 +526,6 @@ export function useAdminCatalog() {
     visibleProducts,
     categoryNames,
     variantsByProduct,
-    variantOptions,
     catalogCategoryFilter,
     setCatalogCategoryFilter,
     showAddStockModal,

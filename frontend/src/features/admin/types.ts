@@ -26,14 +26,3 @@ export const ADMIN_SALES_SECTIONS: AdminSection[] = [
   "incidencias_pago"
 ];
 
-export type ManualOrderItem = {
-  variant_id: number;
-  quantity: number;
-  label: string;
-};
-
-export type VariantOption = {
-  value: string;
-  label: string;
-  priceCents?: number;
-};
