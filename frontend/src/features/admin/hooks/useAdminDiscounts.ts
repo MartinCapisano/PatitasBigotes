@@ -26,6 +26,7 @@ export function useAdminDiscounts(params: {
   const [newDiscountActive, setNewDiscountActive] = useState(true);
   const [discountPendingDeleteId, setDiscountPendingDeleteId] = useState<number | null>(null);
   const [deletingDiscount, setDeletingDiscount] = useState(false);
+  const [togglingDiscountId, setTogglingDiscountId] = useState<number | null>(null);
 
   async function loadDiscounts() {
     setDiscountsLoading(true);
@@ -150,11 +151,14 @@ export function useAdminDiscounts(params: {
 
   async function onToggleDiscountActive(discount: AdminDiscount) {
     setDiscountsError("");
+    setTogglingDiscountId(discount.id);
     try {
       await patchAdminDiscount(discount.id, { is_active: !discount.is_active });
       await loadDiscounts();
     } catch {
       setDiscountsError("No se pudo actualizar el descuento.");
+    } finally {
+      setTogglingDiscountId(null);
     }
   }
 
@@ -238,6 +242,7 @@ export function useAdminDiscounts(params: {
     toggleDiscountVariantSelection,
     onCreateDiscount,
     onToggleDiscountActive,
+    togglingDiscountId,
     discountPendingDeleteId,
     deletingDiscount,
     onRequestDeleteDiscount,

@@ -38,6 +38,7 @@ export function DiscountsSection(props: {
   toggleDiscountVariantSelection: (productId: number, variantId: number, checked: boolean) => void;
   onCreateDiscount: () => Promise<void>;
   onToggleDiscountActive: (discount: AdminDiscount) => Promise<void>;
+  togglingDiscountId: number | null;
   discountPendingDeleteId: number | null;
   deletingDiscount: boolean;
   onRequestDeleteDiscount: (discountId: number) => void;
@@ -79,6 +80,7 @@ export function DiscountsSection(props: {
     toggleDiscountVariantSelection,
     onCreateDiscount,
     onToggleDiscountActive,
+    togglingDiscountId,
     discountPendingDeleteId,
     deletingDiscount,
     onRequestDeleteDiscount,
@@ -285,8 +287,13 @@ export function DiscountsSection(props: {
                   onToggle={() => setOpenDiscountMenuId((prev) => (prev === discount.id ? null : discount.id))}
                   label="Opciones de descuento"
                 >
-                  <button className="btn btn-small btn-ghost" type="button" onClick={() => void onToggleDiscountActive(discount)}>
-                    {discount.is_active ? "Desactivar" : "Activar"}
+                  <button
+                    className="btn btn-small btn-ghost"
+                    type="button"
+                    disabled={togglingDiscountId === discount.id}
+                    onClick={() => void onToggleDiscountActive(discount)}
+                  >
+                    {togglingDiscountId === discount.id ? "Guardando..." : discount.is_active ? "Desactivar" : "Activar"}
                   </button>
                   <button className="btn btn-small btn-danger" type="button" onClick={() => onRequestDeleteDiscount(discount.id)}>
                     Eliminar

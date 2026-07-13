@@ -13,6 +13,7 @@ export function useAdminPaymentIncidents(params: { adminSection: AdminSection })
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
   const [incidents, setIncidents] = useState<AdminPaymentIncident[]>([]);
+  const [processingIncidentId, setProcessingIncidentId] = useState<number | null>(null);
 
   async function loadIncidents() {
     if (adminSection !== "incidencias_pago") return;
@@ -36,6 +37,7 @@ export function useAdminPaymentIncidents(params: { adminSection: AdminSection })
     }
     setError("");
     setSuccess("");
+    setProcessingIncidentId(incidentId);
     try {
       await resolveAdminPaymentIncidentRefund({
         incident_id: incidentId,
@@ -46,6 +48,8 @@ export function useAdminPaymentIncidents(params: { adminSection: AdminSection })
       setSuccess(`Incidencia #${incidentId} resuelta con reembolso.`);
     } catch {
       setError("No se pudo resolver con reembolso.");
+    } finally {
+      setProcessingIncidentId(null);
     }
   }
 
@@ -57,6 +61,7 @@ export function useAdminPaymentIncidents(params: { adminSection: AdminSection })
     }
     setError("");
     setSuccess("");
+    setProcessingIncidentId(incidentId);
     try {
       await resolveAdminPaymentIncidentNoRefund({
         incident_id: incidentId,
@@ -66,6 +71,8 @@ export function useAdminPaymentIncidents(params: { adminSection: AdminSection })
       setSuccess(`Incidencia #${incidentId} cerrada sin reembolso.`);
     } catch {
       setError("No se pudo cerrar la incidencia.");
+    } finally {
+      setProcessingIncidentId(null);
     }
   }
 
@@ -80,6 +87,7 @@ export function useAdminPaymentIncidents(params: { adminSection: AdminSection })
     incidents,
     resolveWithRefund,
     resolveWithoutRefund,
+    processingIncidentId,
     reload: loadIncidents
   };
 }

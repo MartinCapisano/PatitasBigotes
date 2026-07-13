@@ -149,6 +149,7 @@ export function AdminPage() {
           toggleDiscountVariantSelection={discounts.toggleDiscountVariantSelection}
           onCreateDiscount={discounts.onCreateDiscount}
           onToggleDiscountActive={discounts.onToggleDiscountActive}
+          togglingDiscountId={discounts.togglingDiscountId}
           discountPendingDeleteId={discounts.discountPendingDeleteId}
           deletingDiscount={discounts.deletingDiscount}
           onRequestDeleteDiscount={discounts.onRequestDeleteDiscount}
@@ -301,9 +302,11 @@ export function AdminPage() {
           removeManualItem={ordersPayments.removeManualItem}
           setManualItems={ordersPayments.setManualItems}
           onCreateManualOrder={ordersPayments.onCreateManualOrder}
+          creatingManualOrder={ordersPayments.creatingManualOrder}
           ordersListLoading={ordersPayments.ordersListLoading}
           ordersList={ordersPayments.ordersList}
           loadAdminOrder={ordersPayments.loadAdminOrder}
+          loadingOrderDetail={ordersPayments.loadingOrderDetail}
           closeSelectedOrder={ordersPayments.closeSelectedOrder}
           paymentsFilter={ordersPayments.paymentsFilter}
           setPaymentsFilter={ordersPayments.setPaymentsFilter}
@@ -324,6 +327,7 @@ export function AdminPage() {
           manualPayAmount={ordersPayments.manualPayAmount}
           setManualPayAmount={ordersPayments.setManualPayAmount}
           onMarkOrderPaid={ordersPayments.onMarkOrderPaid}
+          markingOrderPaid={ordersPayments.markingOrderPaid}
           formatArs={formatArs}
         />
       )}
@@ -336,6 +340,7 @@ export function AdminPage() {
           incidents={paymentIncidents.incidents}
           resolveWithRefund={paymentIncidents.resolveWithRefund}
           resolveWithoutRefund={paymentIncidents.resolveWithoutRefund}
+          processingIncidentId={paymentIncidents.processingIncidentId}
           formatArs={formatArs}
         />
       )}

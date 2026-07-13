@@ -43,11 +43,19 @@ export function useAdminOrdersPayments(params: {
   const [manualItems, setManualItems] = useState<ManualOrderItem[]>([]);
   const [manualPayRef, setManualPayRef] = useState("");
   const [manualPayAmount, setManualPayAmount] = useState("");
+  const [loadingOrderDetail, setLoadingOrderDetail] = useState(false);
+  const [creatingManualOrder, setCreatingManualOrder] = useState(false);
+  const [markingOrderPaid, setMarkingOrderPaid] = useState(false);
 
   async function loadAdminOrder(orderId: number) {
-    const [order, payments] = await Promise.all([getAdminOrder(orderId), listAdminOrderPayments(orderId)]);
-    setSelectedOrder(order);
-    setOrderPayments(payments);
+    setLoadingOrderDetail(true);
+    try {
+      const [order, payments] = await Promise.all([getAdminOrder(orderId), listAdminOrderPayments(orderId)]);
+      setSelectedOrder(order);
+      setOrderPayments(payments);
+    } finally {
+      setLoadingOrderDetail(false);
+    }
   }
 
   function closeSelectedOrder() {
@@ -88,6 +96,7 @@ export function useAdminOrdersPayments(params: {
       setOrderError("Agrega al menos un item.");
       return;
     }
+    setCreatingManualOrder(true);
     try {
       const response = await createAdminSale({
         customer: {
@@ -107,6 +116,8 @@ export function useAdminOrdersPayments(params: {
       setShowCreateManualOrderForm(false);
     } catch {
       setOrderError("No se pudo crear la orden manual.");
+    } finally {
+      setCreatingManualOrder(false);
     }
   }
 
@@ -123,6 +134,7 @@ export function useAdminOrdersPayments(params: {
     }
     setOrderError("");
     setOrderSuccess("");
+    setMarkingOrderPaid(true);
     try {
       const result = await registerAdminOrderManualPayment({
         order_id: selectedOrder.id,
@@ -135,6 +147,8 @@ export function useAdminOrdersPayments(params: {
       setOrderSuccess(`Orden #${selectedOrder.id} marcada como pagada.`);
     } catch {
       setOrderError("No se pudo marcar la orden como pagada.");
+    } finally {
+      setMarkingOrderPaid(false);
     }
   }
 
@@ -234,6 +248,9 @@ export function useAdminOrdersPayments(params: {
     setManualPayRef,
     manualPayAmount,
     setManualPayAmount,
-    onMarkOrderPaid
+    onMarkOrderPaid,
+    loadingOrderDetail,
+    creatingManualOrder,
+    markingOrderPaid
   };
 }

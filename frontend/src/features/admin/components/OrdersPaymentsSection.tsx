@@ -33,9 +33,11 @@ export function OrdersPaymentsSection(props: {
   removeManualItem: (variantId: number) => void;
   setManualItems: (value: Array<{ variant_id: number; quantity: number; label: string }>) => void;
   onCreateManualOrder: () => Promise<void>;
+  creatingManualOrder: boolean;
   ordersListLoading: boolean;
   ordersList: AdminOrder[];
   loadAdminOrder: (orderId: number) => Promise<void>;
+  loadingOrderDetail: boolean;
   closeSelectedOrder: () => void;
   paymentsFilter: "all" | "pending" | "paid" | "cancelled" | "expired";
   setPaymentsFilter: (value: "all" | "pending" | "paid" | "cancelled" | "expired") => void;
@@ -56,6 +58,7 @@ export function OrdersPaymentsSection(props: {
   manualPayAmount: string;
   setManualPayAmount: (value: string) => void;
   onMarkOrderPaid: () => Promise<void>;
+  markingOrderPaid: boolean;
   formatArs: (cents: number | null) => string;
 }) {
   const {
@@ -90,9 +93,11 @@ export function OrdersPaymentsSection(props: {
     removeManualItem,
     setManualItems,
     onCreateManualOrder,
+    creatingManualOrder,
     ordersListLoading,
     ordersList,
     loadAdminOrder,
+    loadingOrderDetail,
     closeSelectedOrder,
     paymentsFilter,
     setPaymentsFilter,
@@ -113,6 +118,7 @@ export function OrdersPaymentsSection(props: {
     manualPayAmount,
     setManualPayAmount,
     onMarkOrderPaid,
+    markingOrderPaid,
     formatArs
   } = props;
 
@@ -214,11 +220,11 @@ export function OrdersPaymentsSection(props: {
                 </div>
               )}
               <div className="admin-inline-actions">
-                <button className="btn" type="button" onClick={() => setManualItems([])}>
+                <button className="btn" type="button" onClick={() => setManualItems([])} disabled={creatingManualOrder}>
                   Limpiar items
                 </button>
-                <button className="btn" type="button" onClick={() => void onCreateManualOrder()}>
-                  Crear orden manual
+                <button className="btn" type="button" onClick={() => void onCreateManualOrder()} disabled={creatingManualOrder}>
+                  {creatingManualOrder ? "Creando..." : "Crear orden manual"}
                 </button>
               </div>
             </>
@@ -237,8 +243,8 @@ export function OrdersPaymentsSection(props: {
                   <p className="muted">Estado: {order.status}</p>
                   <p className="muted">Total: {formatArs(order.total_amount)}</p>
                   <div className="admin-product-actions">
-                    <button className="btn btn-small" type="button" onClick={() => void loadAdminOrder(order.id)}>
-                      Ver detalle
+                    <button className="btn btn-small" type="button" onClick={() => void loadAdminOrder(order.id)} disabled={loadingOrderDetail}>
+                      {loadingOrderDetail ? "Cargando..." : "Ver detalle"}
                     </button>
                   </div>
                 </div>
@@ -283,8 +289,13 @@ export function OrdersPaymentsSection(props: {
                   <p className="muted">Monto: {formatArs(payment.amount)}</p>
                   {payment.has_open_incident ? <p className="error">Incidencia pago tardio pendiente</p> : null}
                   <div className="admin-product-actions">
-                    <button className="btn btn-small" type="button" onClick={() => void loadAdminOrder(payment.order_id)}>
-                      Ver orden #{payment.order_id}
+                    <button
+                      className="btn btn-small"
+                      type="button"
+                      onClick={() => void loadAdminOrder(payment.order_id)}
+                      disabled={loadingOrderDetail}
+                    >
+                      {loadingOrderDetail ? "Cargando..." : `Ver orden #${payment.order_id}`}
                     </button>
                   </div>
                 </div>
@@ -337,8 +348,8 @@ export function OrdersPaymentsSection(props: {
                       <input className="input" type="number" min={1} value={manualPayAmount} onChange={(e) => setManualPayAmount(e.target.value)} />
                     </label>
                     <div className="admin-inline-actions">
-                      <button className="btn btn-small" type="button" onClick={() => void onMarkOrderPaid()}>
-                        Marcar como pagada
+                      <button className="btn btn-small" type="button" onClick={() => void onMarkOrderPaid()} disabled={markingOrderPaid}>
+                        {markingOrderPaid ? "Guardando..." : "Marcar como pagada"}
                       </button>
                     </div>
                   </div>

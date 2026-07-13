@@ -19,9 +19,10 @@ export function PaymentIncidentsSection(props: {
   incidents: AdminPaymentIncident[];
   resolveWithRefund: (incidentId: number, amount: number | undefined, reason: string) => Promise<void>;
   resolveWithoutRefund: (incidentId: number, reason: string) => Promise<void>;
+  processingIncidentId: number | null;
   formatArs: (cents: number | null) => string;
 }) {
-  const { error, success, loading, incidents, resolveWithRefund, resolveWithoutRefund, formatArs } = props;
+  const { error, success, loading, incidents, resolveWithRefund, resolveWithoutRefund, processingIncidentId, formatArs } = props;
   const [reasonByIncident, setReasonByIncident] = useState<Record<number, string>>({});
   const [amountByIncident, setAmountByIncident] = useState<Record<number, string>>({});
 
@@ -46,6 +47,8 @@ export function PaymentIncidentsSection(props: {
             const reason = reasonByIncident[incident.id] ?? "";
             const amountRaw = amountByIncident[incident.id] ?? "";
             const parsedAmount = amountRaw.trim() ? Number.parseInt(amountRaw, 10) : undefined;
+            const isProcessingThis = processingIncidentId === incident.id;
+            const anyProcessing = processingIncidentId !== null;
             return (
               <div className="admin-variant-row" key={incident.id}>
                 <p>
@@ -100,6 +103,7 @@ export function PaymentIncidentsSection(props: {
                   <button
                     className="btn btn-small"
                     type="button"
+                    disabled={anyProcessing}
                     onClick={() =>
                       void resolveWithRefund(
                         incident.id,
@@ -108,14 +112,15 @@ export function PaymentIncidentsSection(props: {
                       )
                     }
                   >
-                    Resolver con reembolso
+                    {isProcessingThis ? "Procesando..." : "Resolver con reembolso"}
                   </button>
                   <button
                     className="btn btn-small btn-ghost"
                     type="button"
+                    disabled={anyProcessing}
                     onClick={() => void resolveWithoutRefund(incident.id, reason)}
                   >
-                    Cerrar sin reembolso
+                    {isProcessingThis ? "Procesando..." : "Cerrar sin reembolso"}
                   </button>
                 </div>
               </div>
