@@ -101,7 +101,7 @@ def _build_request_options(
 
 
 def _handle_response_status(status: int, *, operation: str) -> None:
-    if status in {400, 404, 422}:
+    if status in {400, 402, 404, 409, 422}:
         raise PaymentProviderValidationError(f"mercadopago {operation} rejected")
     if status in {401, 403}:
         raise PaymentProviderAuthError("mercadopago credentials rejected")

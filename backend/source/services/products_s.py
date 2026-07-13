@@ -464,8 +464,8 @@ def decrement_stock(product_id: int, quantity: int, db: Session) -> dict:
     with _write_session_scope(db) as (session, _):
         product = (
             session.query(Product)
-            .options(joinedload(Product.variants), joinedload(Product.category))
             .filter(Product.id == product_id)
+            .with_for_update()
             .first()
         )
         if product is None:
@@ -874,6 +874,7 @@ def add_variant_stock(variant_id: int, quantity: int, db: Session) -> dict:
         variant = (
             session.query(ProductVariant)
             .filter(ProductVariant.id == variant_id, ProductVariant.is_active.is_(True))
+            .with_for_update()
             .first()
         )
         if variant is None:
@@ -892,6 +893,7 @@ def decrement_variant_stock(variant_id: int, quantity: int, db: Session) -> dict
         variant = (
             session.query(ProductVariant)
             .filter(ProductVariant.id == variant_id, ProductVariant.is_active.is_(True))
+            .with_for_update()
             .first()
         )
         if variant is None:
