@@ -586,7 +586,9 @@ def change_order_status(
 ) -> dict:
     expire_active_reservations_for_order(order_id=order_id, now=_utc_now(), db=db)
 
-    order_filter = [Order.id == order_id, Order.user_id == user_id]
+    order_filter = [Order.id == order_id]
+    if not is_admin:
+        order_filter.append(Order.user_id == user_id)
 
     order = (
         _order_lock_query(db)
