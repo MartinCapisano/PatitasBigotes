@@ -375,6 +375,8 @@ def get_webhook_reprocess_metrics(
     )
     oldest_failed_age_seconds = 0
     if oldest_failed_received_at is not None:
+        if oldest_failed_received_at.tzinfo is None:
+            oldest_failed_received_at = oldest_failed_received_at.replace(tzinfo=UTC)
         oldest_failed_age_seconds = max(
             0,
             int((now - oldest_failed_received_at).total_seconds()),
