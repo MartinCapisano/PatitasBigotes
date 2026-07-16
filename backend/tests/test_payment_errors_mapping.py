@@ -12,11 +12,17 @@ import os
 os.environ.setdefault("MERCADOPAGO_ACCESS_TOKEN", "test-access-token")
 os.environ.setdefault("MERCADOPAGO_TIMEOUT_SECONDS", "10")
 
-from source.services.mercadopago_client import _handle_response_status, get_payment_by_id
+from source.services.mercadopago_client import (
+    _handle_response_status,
+    create_checkout_preference,
+    create_refund,
+    get_payment_by_id,
+)
 from source.services.payment_errors import (
     PaymentProviderAuthError,
     PaymentProviderError,
     PaymentProviderTimeoutError,
+    PaymentProviderUnavailableError,
     PaymentProviderValidationError,
 )
 
@@ -61,6 +67,135 @@ class MercadopagoClientTimeoutMappingTests(unittest.TestCase):
         ):
             with self.assertRaises(PaymentProviderTimeoutError):
                 get_payment_by_id("123")
+
+
+class _QueuedResource:
+    """Fake mercadopago SDK sub-resource (preference()/payment()/refund()) that
+    replays a fixed sequence of responses or exceptions, one per call."""
+
+    def __init__(self, responses: list) -> None:
+        self._responses = list(responses)
+
+    def _next(self, *args, **kwargs) -> dict:
+        if not self._responses:
+            raise AssertionError("no more queued fake SDK responses")
+        item = self._responses.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    create = _next
+    get = _next
+    search = _next
+
+
+class _FakeSdk:
+    def __init__(self, *, preference=None, payment=None, refund=None) -> None:
+        self._preference = _QueuedResource(preference or [])
+        self._payment = _QueuedResource(payment or [])
+        self._refund = _QueuedResource(refund or [])
+
+    def preference(self) -> _QueuedResource:
+        return self._preference
+
+    def payment(self) -> _QueuedResource:
+        return self._payment
+
+    def refund(self) -> _QueuedResource:
+        return self._refund
+
+
+def _ok_response(status: int, data: dict) -> dict:
+    return {"status": status, "response": data}
+
+
+class MercadopagoClientFullFunctionTests(unittest.TestCase):
+    def _patched_sdk(self, fake_sdk: _FakeSdk):
+        return patch("source.services.mercadopago_client._get_sdk", return_value=fake_sdk)
+
+    def _no_sleep(self):
+        return patch("source.services.mercadopago_client.time.sleep")
+
+    def test_create_checkout_preference_happy_path(self) -> None:
+        fake_sdk = _FakeSdk(
+            preference=[
+                _ok_response(201, {"id": "pref-1", "init_point": "https://mp.test/checkout/pref-1"}),
+            ]
+        )
+        with self._patched_sdk(fake_sdk), self._no_sleep():
+            data = create_checkout_preference({"items": []})
+
+        self.assertEqual(data["id"], "pref-1")
+
+    def test_create_checkout_preference_retries_after_5xx_then_succeeds(self) -> None:
+        fake_sdk = _FakeSdk(
+            preference=[
+                _ok_response(500, {}),
+                _ok_response(201, {"id": "pref-2", "init_point": "https://mp.test/checkout/pref-2"}),
+            ]
+        )
+        with self._patched_sdk(fake_sdk), self._no_sleep():
+            data = create_checkout_preference({"items": []})
+
+        self.assertEqual(data["id"], "pref-2")
+
+    def test_create_checkout_preference_raises_after_exhausting_retries_on_5xx(self) -> None:
+        fake_sdk = _FakeSdk(
+            preference=[_ok_response(500, {}), _ok_response(500, {}), _ok_response(500, {})]
+        )
+        with self._patched_sdk(fake_sdk), self._no_sleep():
+            with self.assertRaises(PaymentProviderUnavailableError):
+                create_checkout_preference({"items": []})
+
+    def test_create_checkout_preference_rejects_response_missing_checkout_url(self) -> None:
+        fake_sdk = _FakeSdk(preference=[_ok_response(201, {"id": "pref-3"})])
+        with self._patched_sdk(fake_sdk), self._no_sleep():
+            with self.assertRaises(PaymentProviderValidationError):
+                create_checkout_preference({"items": []})
+
+    def test_create_checkout_preference_maps_validation_status_from_sdk(self) -> None:
+        fake_sdk = _FakeSdk(preference=[_ok_response(400, {})])
+        with self._patched_sdk(fake_sdk), self._no_sleep():
+            with self.assertRaises(PaymentProviderValidationError):
+                create_checkout_preference({"items": []})
+
+    def test_get_payment_by_id_happy_path(self) -> None:
+        fake_sdk = _FakeSdk(payment=[_ok_response(200, {"id": "pay-1", "status": "approved"})])
+        with self._patched_sdk(fake_sdk), self._no_sleep():
+            data = get_payment_by_id("pay-1")
+
+        self.assertEqual(data["status"], "approved")
+
+    def test_get_payment_by_id_raises_after_exhausting_retries_on_generic_sdk_exception(self) -> None:
+        fake_sdk = _FakeSdk(
+            payment=[RuntimeError("network down"), RuntimeError("network down"), RuntimeError("network down")]
+        )
+        with self._patched_sdk(fake_sdk), self._no_sleep():
+            with self.assertRaises(PaymentProviderUnavailableError):
+                get_payment_by_id("pay-1")
+
+    def test_create_refund_happy_path(self) -> None:
+        fake_sdk = _FakeSdk(refund=[_ok_response(201, {"id": "refund-1", "status": "approved"})])
+        with self._patched_sdk(fake_sdk), self._no_sleep():
+            data = create_refund(payment_id="pay-1", amount=1000)
+
+        self.assertEqual(data["id"], "refund-1")
+
+    def test_create_refund_raises_when_response_payload_is_not_a_dict(self) -> None:
+        fake_sdk = _FakeSdk(
+            refund=[
+                _ok_response(201, None),
+                _ok_response(201, None),
+                _ok_response(201, None),
+            ]
+        )
+        with self._patched_sdk(fake_sdk), self._no_sleep():
+            with self.assertRaises(PaymentProviderUnavailableError):
+                create_refund(payment_id="pay-1")
+
+    def test_create_refund_rejects_non_positive_amount(self) -> None:
+        with self.assertRaises(PaymentProviderValidationError):
+            create_refund(payment_id="pay-1", amount=0)
 
 
 if __name__ == "__main__":
