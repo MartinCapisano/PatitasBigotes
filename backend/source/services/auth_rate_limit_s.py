@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone, UTC
 from sqlalchemy.orm import Session
 
 from source.db.models import AuthLoginThrottle
+from source.services.anti_abuse_s import get_or_create_locked_row
 
 MAX_FAILED_ATTEMPTS = 6
 WINDOW_MINUTES = 15
@@ -28,26 +29,6 @@ def _normalize_ip(ip: str | None) -> str:
     return normalized if normalized else "unknown"
 
 
-def _get_or_create_row(*, scope: str, key: str, now: datetime, db: Session) -> AuthLoginThrottle:
-    row = (
-        db.query(AuthLoginThrottle)
-        .filter(AuthLoginThrottle.scope == scope, AuthLoginThrottle.key == key)
-        .first()
-    )
-    if row is None:
-        row = AuthLoginThrottle(
-            scope=scope,
-            key=key,
-            failed_count=0,
-            window_started_at=now,
-            blocked_until=None,
-            updated_at=now,
-        )
-        db.add(row)
-        db.flush()
-    return row
-
-
 def _get_row(*, scope: str, key: str, db: Session) -> AuthLoginThrottle | None:
     return (
         db.query(AuthLoginThrottle)
@@ -57,8 +38,8 @@ def _get_row(*, scope: str, key: str, db: Session) -> AuthLoginThrottle | None:
 
 
 def _iter_rows(*, email: str, ip: str, now: datetime, db: Session) -> tuple[AuthLoginThrottle, AuthLoginThrottle]:
-    email_row = _get_or_create_row(scope="email", key=_normalize_email(email), now=now, db=db)
-    ip_row = _get_or_create_row(scope="ip", key=_normalize_ip(ip), now=now, db=db)
+    email_row, _ = get_or_create_locked_row(scope="email", key=_normalize_email(email), now=now, db=db)
+    ip_row, _ = get_or_create_locked_row(scope="ip", key=_normalize_ip(ip), now=now, db=db)
     return email_row, ip_row
 
 

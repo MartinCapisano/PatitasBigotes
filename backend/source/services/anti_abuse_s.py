@@ -52,7 +52,7 @@ def _normalize_ip(value: str) -> str:
     return normalized if normalized else "unknown"
 
 
-def _get_or_create_locked_row(
+def get_or_create_locked_row(
     *,
     scope: str,
     key: str,
@@ -238,19 +238,19 @@ def _enforce_public_email_ip_limits(
     normalized_email = _normalize_email(email)
     now = _utc_now()
 
-    ip_row, _ = _get_or_create_locked_row(
+    ip_row, _ = get_or_create_locked_row(
         scope=ip_scope,
         key=normalized_ip,
         now=now,
         db=db,
     )
-    email_window_row, _ = _get_or_create_locked_row(
+    email_window_row, _ = get_or_create_locked_row(
         scope=email_window_scope,
         key=normalized_email,
         now=now,
         db=db,
     )
-    email_interval_row, email_interval_created = _get_or_create_locked_row(
+    email_interval_row, email_interval_created = get_or_create_locked_row(
         scope=email_interval_scope,
         key=normalized_email,
         now=now,
