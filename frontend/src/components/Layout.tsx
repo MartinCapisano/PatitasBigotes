@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { clearPendingVerificationEmail, readPendingVerificationEmail } from "../features/auth/verification-storage";
 import { cartCount, subscribeToCartUpdates } from "../lib/cart-storage";
+import { useClickOutside } from "../lib/useClickOutside";
 import type { NotificationItem } from "../types";
 import { getUnreadNotificationCount, listNotifications, readAllNotifications, readNotification } from "../services/notifications-api";
 
@@ -12,6 +13,8 @@ export function Layout() {
   const [currentCartCount, setCurrentCartCount] = useState(() => cartCount());
   const isAdminRoute = location.pathname.startsWith("/admin");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const notificationsWrapRef = useRef<HTMLDivElement>(null);
+  useClickOutside(notificationsWrapRef, notificationsOpen, () => setNotificationsOpen(false));
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -122,7 +125,7 @@ export function Layout() {
             <Link to="/checkout">Carrito ({currentCartCount})</Link>
             {isAuthenticated && <Link to="/profile">Mi cuenta</Link>}
             {isAuthenticated && (
-              <div className="notifications-wrap">
+              <div className="notifications-wrap" ref={notificationsWrapRef}>
                 <button
                   className="notifications-bell-btn"
                   type="button"
