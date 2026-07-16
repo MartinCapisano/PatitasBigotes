@@ -10,23 +10,8 @@ from auth.security import ensure_password_policy, hash_password
 from source.db.models import User, UserRefreshSession
 from source.schemas import (
     CreateAdminUserRequest,
-    CreateUserRequest,
     ResolveUserRequest,
 )
-
-
-def _serialize_user_created(user: User) -> dict:
-    return {
-        "id": int(user.id),
-        "first_name": user.first_name,
-        "last_name": user.last_name,
-        "email": user.email,
-        "dni": user.dni,
-        "phone": user.phone,
-        "has_account": bool(user.has_account),
-        "is_admin": bool(user.is_admin),
-        "status": "created",
-    }
 
 
 def serialize_user_basic(user: User) -> dict:
@@ -119,25 +104,18 @@ def create_auth_user(
     return user
 
 
-def create_user(payload: CreateUserRequest, db: Session) -> dict:
-    user_data = payload.model_dump()
-    user = create_auth_user(
-        first_name=user_data["first_name"],
-        last_name=user_data["last_name"],
-        email=user_data["email"],
-        password=user_data["password"],
-        db=db,
-    )
-    return _serialize_user_created(user)
-
-
 def create_admin_user(payload: CreateAdminUserRequest, db: Session) -> dict:
     user_data = payload.model_dump()
     normalized_email = str(user_data["email"]).strip().lower()
     if not normalized_email:
         raise HTTPException(status_code=400, detail="email is required")
 
-    existing_user = db.query(User).filter(User.email == normalized_email).first()
+    existing_user = (
+        db.query(User)
+        .filter(User.email == normalized_email)
+        .with_for_update()
+        .first()
+    )
     if existing_user is not None:
         raise HTTPException(status_code=409, detail="email already exists")
     ensure_password_policy(user_data["password"])

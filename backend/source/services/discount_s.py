@@ -213,6 +213,8 @@ def _validate_discount_payload(payload: dict, *, db: Session) -> None:
     starts_at = _coerce_datetime(payload.get("starts_at"))
     ends_at = _coerce_datetime(payload.get("ends_at"))
 
+    if not str(payload.get("name", "")).strip():
+        raise ValueError("name is required")
     if discount_type not in ALLOWED_DISCOUNT_TYPES:
         raise ValueError("invalid discount type")
     if scope not in ALLOWED_DISCOUNT_SCOPES:

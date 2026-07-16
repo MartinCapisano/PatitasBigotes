@@ -1,14 +1,6 @@
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
-class CreateUserRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    first_name: str
-    last_name: str
-    email: EmailStr
-    password: str = Field(min_length=8)
-
-
 class CreateAdminUserRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     first_name: str = Field(min_length=1, max_length=80)
