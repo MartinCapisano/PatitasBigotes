@@ -747,6 +747,154 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
         self.assertEqual(payload["refund"]["status"], "approved")
         self.assertEqual(payload["refund"]["provider_refund_id"], "9001")
 
+    def test_get_payment_by_id_over_http(self) -> None:
+        user_id = self._create_user(email="pay-get-owner@example.com", verified=True)
+        db = self._db()
+        try:
+            order_id = create_submitted_order_with_reservation_for_user(db, user_id=user_id)
+            payment_id = create_retryable_payment(
+                db,
+                order_id=order_id,
+                method="bank_transfer",
+                status="pending",
+            )
+        finally:
+            db.close()
+        login_response = self._login(email="pay-get-owner@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        response = self.client.get(f"/payments/{payment_id}")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["data"]
+        self.assertEqual(int(payload["id"]), payment_id)
+        self.assertEqual(payload["method"], "bank_transfer")
+
+    def test_get_payment_by_id_rejects_other_users_payment_over_http(self) -> None:
+        owner_id = self._create_user(email="pay-get-owner-2@example.com", verified=True)
+        db = self._db()
+        try:
+            order_id = create_submitted_order_with_reservation_for_user(db, user_id=owner_id)
+            payment_id = create_retryable_payment(
+                db,
+                order_id=order_id,
+                method="bank_transfer",
+                status="pending",
+            )
+        finally:
+            db.close()
+        self._create_user(email="pay-get-intruder@example.com", verified=True)
+        login_response = self._login(email="pay-get-intruder@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        response = self.client.get(f"/payments/{payment_id}")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "payment not found")
+
+    def test_admin_list_pending_bank_transfer_payments_over_http(self) -> None:
+        user_id = self._create_user(email="pay-bank-owner@example.com", verified=True)
+        db = self._db()
+        try:
+            order_id = create_submitted_order_with_reservation_for_user(db, user_id=user_id)
+            pending_id = create_retryable_payment(
+                db,
+                order_id=order_id,
+                method="bank_transfer",
+                status="pending",
+            )
+        finally:
+            db.close()
+        self._create_user(email="pay-bank-admin@example.com", is_admin=True, verified=True)
+        login_response = self._login(email="pay-bank-admin@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        response = self.client.get("/admin/payments/bank-transfer/pending")
+
+        self.assertEqual(response.status_code, 200)
+        rows = response.json()["data"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(int(rows[0]["id"]), pending_id)
+
+    def test_admin_list_pending_bank_transfer_payments_requires_admin_over_http(self) -> None:
+        response = self.client.get("/admin/payments/bank-transfer/pending")
+        self.assertEqual(response.status_code, 401)
+
+        self._create_user(email="pay-bank-regular@example.com", verified=True)
+        login_response = self._login(email="pay-bank-regular@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        response = self.client.get("/admin/payments/bank-transfer/pending")
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_list_payments_filters_by_status_over_http(self) -> None:
+        user_id = self._create_user(email="pay-list-owner@example.com", verified=True)
+        db = self._db()
+        try:
+            order_id = create_submitted_order_with_reservation_for_user(db, user_id=user_id)
+            create_retryable_payment(db, order_id=order_id, method="bank_transfer", status="pending")
+            create_retryable_payment(db, order_id=order_id, method="mercadopago", status="cancelled")
+        finally:
+            db.close()
+        self._create_user(email="pay-list-admin@example.com", is_admin=True, verified=True)
+        login_response = self._login(email="pay-list-admin@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        response = self.client.get("/admin/payments", params={"status": "cancelled"})
+
+        self.assertEqual(response.status_code, 200)
+        rows = response.json()["data"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], "cancelled")
+
+    def test_admin_list_payments_rejects_invalid_status_over_http(self) -> None:
+        self._create_user(email="pay-list-admin-2@example.com", is_admin=True, verified=True)
+        login_response = self._login(email="pay-list-admin-2@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        response = self.client.get("/admin/payments", params={"status": "bogus"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "invalid status")
+
+    def test_admin_list_payment_incidents_over_http(self) -> None:
+        db = self._db()
+        try:
+            incident_id = create_payment_incident(db)
+        finally:
+            db.close()
+        self._create_user(email="pay-incidents-admin@example.com", is_admin=True, verified=True)
+        login_response = self._login(email="pay-incidents-admin@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        response = self.client.get("/admin/payment-incidents")
+
+        self.assertEqual(response.status_code, 200)
+        rows = response.json()["data"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(int(rows[0]["id"]), incident_id)
+        self.assertEqual(rows[0]["status"], "pending_review")
+        self.assertEqual(rows[0]["payment"]["method"], "mercadopago")
+
+    def test_admin_list_payment_incidents_filters_by_status_over_http(self) -> None:
+        db = self._db()
+        try:
+            create_payment_incident(db)
+        finally:
+            db.close()
+        self._create_user(email="pay-incidents-admin-2@example.com", is_admin=True, verified=True)
+        login_response = self._login(email="pay-incidents-admin-2@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        response = self.client.get("/admin/payment-incidents", params={"status": "resolved_refunded"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"], [])
+
+    def test_admin_list_payment_incidents_requires_admin_over_http(self) -> None:
+        response = self.client.get("/admin/payment-incidents")
+        self.assertEqual(response.status_code, 401)
+
     def test_resolve_payment_incident_no_refund_requires_reason_over_http(self) -> None:
         db = self._db()
         try:
