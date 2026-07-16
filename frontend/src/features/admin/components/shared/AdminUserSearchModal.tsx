@@ -1,3 +1,4 @@
+import { useModalA11y } from "../../../../lib/useModalA11y";
 import type { AdminSearchUser } from "../../../../services/admin-sales-api";
 
 export function AdminUserSearchModal(props: {
@@ -45,10 +46,12 @@ export function AdminUserSearchModal(props: {
     onConfirmPendingUser
   } = props;
 
+  const modalRef = useModalA11y<HTMLDivElement>(show, onClose);
+
   if (!show) return null;
 
   return (
-    <div className="admin-modal-overlay" role="dialog" aria-modal="true">
+    <div className="admin-modal-overlay" role="dialog" aria-modal="true" ref={modalRef} tabIndex={-1}>
       <div className="card admin-modal">
         <div className="admin-modal-header">
           <h3>{title}</h3>

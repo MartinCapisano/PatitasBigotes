@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useModalA11y } from "../../../../lib/useModalA11y";
 
 type ConfirmModalProps = {
   title: string;
@@ -21,30 +21,21 @@ export function ConfirmModal({
   onConfirm,
   onCancel
 }: ConfirmModalProps) {
-  const cancelButtonRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    cancelButtonRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCancel();
-      }
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onCancel]);
+  const modalRef = useModalA11y<HTMLDivElement>(true, onCancel);
 
   return (
-    <div className="admin-modal-overlay" role="dialog" aria-modal="true" aria-label={title}>
+    <div
+      ref={modalRef}
+      className="admin-modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      tabIndex={-1}
+    >
       <div className="card admin-modal admin-modal-confirm">
         <div className="admin-modal-header">
           <h3>{title}</h3>
           <button
-            ref={cancelButtonRef}
             className="btn btn-small btn-ghost"
             type="button"
             onClick={onCancel}

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import type { AdminCategory, AdminProduct, AdminVariant } from "../services";
 import type { VariantEditPayload } from "../hooks/useAdminCatalog";
+import { useModalA11y } from "../../../lib/useModalA11y";
 import { AdminActionsMenu } from "./shared/AdminActionsMenu";
 import { AdminExpandButton } from "./shared/AdminExpandButton";
 import { ConfirmModal } from "./shared/ConfirmModal";
@@ -455,6 +456,14 @@ export function CatalogSection(props: {
   const [stockSearch, setStockSearch] = useState("");
   const [selectedStockVariantIds, setSelectedStockVariantIds] = useState<number[]>([]);
 
+  const onCloseAddStockModal = useCallback(() => setShowAddStockModal(false), [setShowAddStockModal]);
+  const addStockModalRef = useModalA11y<HTMLDivElement>(showAddStockModal, onCloseAddStockModal);
+  const onCloseDeleteCategoryModal = useCallback(
+    () => setShowDeleteCategoryModal(false),
+    [setShowDeleteCategoryModal]
+  );
+  const deleteCategoryModalRef = useModalA11y<HTMLDivElement>(showDeleteCategoryModal, onCloseDeleteCategoryModal);
+
   const groupedEntries =
     catalogCategoryFilter === "all"
       ? Object.entries(productsByCategory).sort(([a], [b]) => a.localeCompare(b))
@@ -637,7 +646,7 @@ export function CatalogSection(props: {
       )}
 
       {showAddStockModal ? (
-        <div className="admin-modal-overlay" role="dialog" aria-modal="true">
+        <div className="admin-modal-overlay" role="dialog" aria-modal="true" ref={addStockModalRef} tabIndex={-1}>
           <div className="card admin-modal">
             <div className="admin-modal-header">
               <h3>Agregar stock</h3>
@@ -729,7 +738,13 @@ export function CatalogSection(props: {
       ) : null}
 
       {showDeleteCategoryModal ? (
-        <div className="admin-modal-overlay" role="dialog" aria-modal="true">
+        <div
+          className="admin-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          ref={deleteCategoryModalRef}
+          tabIndex={-1}
+        >
           <div className="card admin-modal">
             <div className="admin-modal-header">
               <h3>Eliminar categoria</h3>

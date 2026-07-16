@@ -1,3 +1,5 @@
+import { useCallback } from "react";
+import { useModalA11y } from "../../../lib/useModalA11y";
 import type { AdminPayment } from "../../../services/admin-orders-api";
 import type { AdminSearchUser } from "../../../services/admin-sales-api";
 import { AdminUserSearchModal } from "./shared/AdminUserSearchModal";
@@ -90,6 +92,9 @@ export function RegisterPaymentSection(props: {
     onConfirmPayment,
     formatArs
   } = props;
+
+  const onCloseConfirmModal = useCallback(() => setShowConfirmModal(false), [setShowConfirmModal]);
+  const confirmModalRef = useModalA11y<HTMLDivElement>(showConfirmModal, onCloseConfirmModal);
 
   return (
     <article className="card admin-orders-section">
@@ -227,7 +232,13 @@ export function RegisterPaymentSection(props: {
       />
 
       {showConfirmModal && selectedPayment && selectedUser && selectedMethod && (
-        <div className="admin-modal-overlay" role="dialog" aria-modal="true">
+        <div
+          className="admin-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          ref={confirmModalRef}
+          tabIndex={-1}
+        >
           <div className="card admin-modal">
             <div className="admin-modal-header">
               <h3>Confirmar pago</h3>

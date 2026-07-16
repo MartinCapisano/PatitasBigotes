@@ -1,3 +1,4 @@
+import { useModalA11y } from "../../../lib/useModalA11y";
 import type { AdminOrder, AdminPayment } from "../services";
 import type { AdminSection } from "../types";
 
@@ -61,6 +62,8 @@ export function OrdersPaymentsSection(props: {
     orderPayments,
     formatArs
   } = props;
+
+  const orderDetailModalRef = useModalA11y<HTMLDivElement>(Boolean(selectedOrder), closeSelectedOrder);
 
   return (
     <article className="card admin-orders-section">
@@ -170,7 +173,13 @@ export function OrdersPaymentsSection(props: {
       )}
 
       {selectedOrder && (
-        <div className="admin-modal-overlay" role="dialog" aria-modal="true">
+        <div
+          className="admin-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          ref={orderDetailModalRef}
+          tabIndex={-1}
+        >
           <div className="card admin-modal">
             <div className="admin-modal-header">
               <h3>Detalle de orden</h3>

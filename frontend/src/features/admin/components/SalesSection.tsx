@@ -1,3 +1,4 @@
+import { useModalA11y } from "../../../lib/useModalA11y";
 import type { AdminSearchUser } from "../../../services/admin-sales-api";
 import type { AdminProduct, AdminVariant } from "../../../services/admin-catalog-api";
 import { AdminUserSearchModal } from "./shared/AdminUserSearchModal";
@@ -144,6 +145,8 @@ export function SalesSection(props: {
     onSubmit,
     formatArs
   } = props;
+
+  const productSearchModalRef = useModalA11y<HTMLDivElement>(showProductSearch, closeProductSearchModal);
 
   return (
     <article className="card admin-orders-section">
@@ -326,7 +329,13 @@ export function SalesSection(props: {
       />
 
       {showProductSearch && (
-        <div className="admin-modal-overlay" role="dialog" aria-modal="true">
+        <div
+          className="admin-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          ref={productSearchModalRef}
+          tabIndex={-1}
+        >
           <div className="card admin-modal">
             <div className="admin-modal-header">
               <h3>Buscar producto</h3>
