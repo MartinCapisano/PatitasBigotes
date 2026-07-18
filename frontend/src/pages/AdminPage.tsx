@@ -172,6 +172,8 @@ export function AdminPage() {
           categoryNames={catalog.categoryNames}
           catalogCategoryFilter={catalog.catalogCategoryFilter}
           setCatalogCategoryFilter={catalog.setCatalogCategoryFilter}
+          catalogShowAll={catalog.catalogShowAll}
+          setCatalogShowAll={catalog.setCatalogShowAll}
           showAddStockModal={catalog.showAddStockModal}
           setShowAddStockModal={catalog.setShowAddStockModal}
           stockProductId={catalog.stockProductId}

@@ -225,6 +225,7 @@ def _query_admin_products(
     category: str | None = None,
     sort_by: Literal["price", "name"] | None = None,
     sort_order: Literal["asc", "desc"] = "asc",
+    limit: int | None = None,
 ) -> list[Product]:
     min_price_subquery = (
         session.query(
@@ -258,6 +259,9 @@ def _query_admin_products(
     else:
         query = query.order_by(Product.id.asc())
 
+    if limit is not None:
+        query = query.limit(limit)
+
     return query.all()
 
 
@@ -268,6 +272,7 @@ def filter_and_sort_products(
     category: str | None = None,
     sort_by: Literal["price", "name"] | None = None,
     sort_order: Literal["asc", "desc"] = "asc",
+    limit: int | None = None,
 ) -> list[dict]:
     with _read_session_scope(db) as (session, _):
         products = _query_admin_products(
@@ -277,6 +282,7 @@ def filter_and_sort_products(
             category=category,
             sort_by=sort_by,
             sort_order=sort_order,
+            limit=limit,
         )
         return [_product_to_dict(product) for product in products]
 
@@ -289,6 +295,7 @@ def list_admin_products_with_variants(
     category: str | None = None,
     sort_by: Literal["price", "name"] | None = None,
     sort_order: Literal["asc", "desc"] = "asc",
+    limit: int | None = None,
 ) -> dict:
     with _read_session_scope(db) as (session, _):
         products = _query_admin_products(
@@ -298,6 +305,7 @@ def list_admin_products_with_variants(
             category=category,
             sort_by=sort_by,
             sort_order=sort_order,
+            limit=limit,
         )
         return {
             "products": [_product_to_dict(product) for product in products],
@@ -305,9 +313,9 @@ def list_admin_products_with_variants(
         }
 
 
-def list_admin_catalog(*, db: Session | None = None) -> dict:
+def list_admin_catalog(*, db: Session | None = None, limit: int | None = None) -> dict:
     with _read_session_scope(db) as (session, _):
-        products = _query_admin_products(session)
+        products = _query_admin_products(session, limit=limit)
         categories = session.query(Category).order_by(Category.id.asc()).all()
         return {
             "categories": [_category_to_dict(category) for category in categories],

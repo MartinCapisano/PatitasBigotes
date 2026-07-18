@@ -89,6 +89,7 @@ export function useAdminCatalog() {
   const [editCategoryName, setEditCategoryName] = useState("");
   const [openCategoryMenuId, setOpenCategoryMenuId] = useState<number | null>(null);
   const [catalogCategoryFilter, setCatalogCategoryFilter] = useState<string>("all");
+  const [catalogShowAll, setCatalogShowAll] = useState(false);
   const [showAddStockModal, setShowAddStockModal] = useState(false);
   const [stockProductId, setStockProductId] = useState("");
   const [stockQuantity, setStockQuantity] = useState("1");
@@ -111,7 +112,7 @@ export function useAdminCatalog() {
     setLoading(true);
     setError("");
     try {
-      const catalog: AdminCatalog = await getAdminCatalog();
+      const catalog: AdminCatalog = await getAdminCatalog({ limit: catalogShowAll ? 1000 : 200 });
       const normalizedVariants = normalizeVariantsByProduct(catalog.variants_by_product);
       setProducts(catalog.products);
       setCategories(catalog.categories);
@@ -124,7 +125,7 @@ export function useAdminCatalog() {
     } finally {
       setLoading(false);
     }
-  }, [newCategory]);
+  }, [newCategory, catalogShowAll]);
 
   useEffect(() => {
     void loadAll();
@@ -528,6 +529,8 @@ export function useAdminCatalog() {
     variantsByProduct,
     catalogCategoryFilter,
     setCatalogCategoryFilter,
+    catalogShowAll,
+    setCatalogShowAll,
     showAddStockModal,
     setShowAddStockModal,
     stockProductId,

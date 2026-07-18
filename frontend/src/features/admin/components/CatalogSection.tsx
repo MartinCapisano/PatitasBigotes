@@ -276,6 +276,8 @@ export function CatalogSection(props: {
   categoryNames: string[];
   catalogCategoryFilter: string;
   setCatalogCategoryFilter: (value: string) => void;
+  catalogShowAll: boolean;
+  setCatalogShowAll: (value: boolean | ((prev: boolean) => boolean)) => void;
   showAddStockModal: boolean;
   setShowAddStockModal: (value: boolean | ((prev: boolean) => boolean)) => void;
   stockProductId: string;
@@ -372,6 +374,8 @@ export function CatalogSection(props: {
     categoryNames,
     catalogCategoryFilter,
     setCatalogCategoryFilter,
+    catalogShowAll,
+    setCatalogShowAll,
     showAddStockModal,
     setShowAddStockModal,
     stockProductId,
@@ -502,6 +506,9 @@ export function CatalogSection(props: {
           </button>
           <button className="btn btn-small btn-ghost" type="button" onClick={onOpenAddStockModal}>
             Agregar stock
+          </button>
+          <button className="btn btn-small" type="button" onClick={() => setCatalogShowAll((v) => !v)}>
+            {catalogShowAll ? "Mostrar primeros 200" : "Mostrar todo el catálogo"}
           </button>
         </div>
 

@@ -35,8 +35,10 @@ export type AdminCatalog = {
   variants_by_product: Record<string, AdminVariant[]>;
 };
 
-export async function getAdminCatalog(): Promise<AdminCatalog> {
-  const response = await http.get<{ data: AdminCatalog }>("/admin/catalog");
+export async function getAdminCatalog(params?: { limit?: number }): Promise<AdminCatalog> {
+  const qs = new URLSearchParams();
+  if (params?.limit) qs.set("limit", String(params.limit));
+  const response = await http.get<{ data: AdminCatalog }>(`/admin/catalog?${qs.toString()}`);
   return response.data.data;
 }
 

@@ -47,9 +47,12 @@ def get_products(
     sort_by: Optional[Literal["price", "name"]] = Query(None),
     sort_order: Literal["asc", "desc"] = Query("asc"),
     include_variants: bool = Query(False),
+    limit: Optional[int] = Query(None),
     _: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    safe_limit = None if limit is None else max(1, min(int(limit), 1000))
+
     if include_variants:
         payload = list_admin_products_with_variants(
             db=db,
@@ -58,6 +61,7 @@ def get_products(
             category=category,
             sort_by=sort_by,
             sort_order=sort_order,
+            limit=safe_limit,
         )
     else:
         payload = filter_and_sort_products(
@@ -67,6 +71,7 @@ def get_products(
             category=category,
             sort_by=sort_by,
             sort_order=sort_order,
+            limit=safe_limit,
         )
 
     return {
@@ -80,16 +85,19 @@ def get_products(
                 "sort_order": sort_order,
             },
             "include_variants": include_variants,
+            "limit": safe_limit,
         },
     }
 
 
 @router.get("/admin/catalog")
 def get_admin_catalog(
+    limit: int = Query(200),
     _: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    return {"data": list_admin_catalog(db=db)}
+    safe_limit = max(1, min(int(limit), 1000))
+    return {"data": list_admin_catalog(db=db, limit=safe_limit)}
 
 
 @router.get("/products/{product_id}")
