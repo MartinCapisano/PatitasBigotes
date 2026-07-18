@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import type { AdminCategory, AdminProduct, AdminVariant } from "../services";
 import type { VariantEditPayload } from "../hooks/useAdminCatalog";
 import { useModalA11y } from "../../../lib/useModalA11y";
@@ -6,13 +6,16 @@ import { AdminActionsMenu } from "./shared/AdminActionsMenu";
 import { AdminExpandButton } from "./shared/AdminExpandButton";
 import { ConfirmModal } from "./shared/ConfirmModal";
 
-function ProductRow(props: {
+const EMPTY_VARIANTS: AdminVariant[] = [];
+const noopAsync = async () => {};
+
+function ProductRowImpl(props: {
   product: AdminProduct;
   categories: AdminCategory[];
-  variantsByProduct: Record<number, AdminVariant[]>;
-  expandedProducts: Record<number, boolean>;
+  variants: AdminVariant[];
+  isExpanded: boolean;
   toggleProductExpanded: (productId: number) => void;
-  openProductMenuId: number | null;
+  isMenuOpen: boolean;
   setOpenProductMenuId: (value: number | null | ((prev: number | null) => number | null)) => void;
   onStartEdit: (product: AdminProduct) => void;
   onRequestDeleteProduct: (productId: number) => void;
@@ -54,10 +57,10 @@ function ProductRow(props: {
   const {
     product,
     categories,
-    variantsByProduct,
-    expandedProducts,
+    variants,
+    isExpanded,
     toggleProductExpanded,
-    openProductMenuId,
+    isMenuOpen,
     setOpenProductMenuId,
     onStartEdit,
     onRequestDeleteProduct,
@@ -97,13 +100,11 @@ function ProductRow(props: {
     formatArs
   } = props;
 
-  const variants = variantsByProduct[product.id] ?? [];
-
   return (
     <article className="card" key={product.id}>
       <div className="admin-catalog-row">
         <AdminExpandButton
-          expanded={!!expandedProducts[product.id]}
+          expanded={isExpanded}
           onToggle={() => toggleProductExpanded(product.id)}
           expandLabel="Expandir producto"
           collapseLabel="Contraer producto"
@@ -115,7 +116,7 @@ function ProductRow(props: {
         <p className="muted">{formatArs(product.min_var_price)}</p>
         <p className="muted">{product.active ? "Activo" : "Inactivo"}</p>
         <AdminActionsMenu
-          isOpen={openProductMenuId === product.id}
+          isOpen={isMenuOpen}
           onToggle={() => setOpenProductMenuId((prev) => (prev === product.id ? null : product.id))}
           label="Opciones de producto"
         >
@@ -173,7 +174,7 @@ function ProductRow(props: {
         </div>
       )}
 
-      {expandedProducts[product.id] &&
+      {isExpanded &&
         (variants.length === 0 ? (
           <p className="muted">Sin variantes.</p>
         ) : (
@@ -260,6 +261,8 @@ function ProductRow(props: {
     </article>
   );
 }
+
+const ProductRow = memo(ProductRowImpl);
 
 export function CatalogSection(props: {
   error: string;
@@ -599,54 +602,59 @@ export function CatalogSection(props: {
                 <p>Estado</p>
                 <p>Acciones</p>
               </div>
-              {products.map((product) => (
-                <ProductRow
-                  key={product.id}
-                  product={product}
-                  categories={categories}
-                  variantsByProduct={variantsByProduct}
-                  expandedProducts={expandedProducts}
-                  toggleProductExpanded={toggleProductExpanded}
-                  openProductMenuId={openProductMenuId}
-                  setOpenProductMenuId={setOpenProductMenuId}
-                  onStartEdit={onStartEdit}
-                  onRequestDeleteProduct={onRequestDeleteProduct}
-                  editingProductId={editingProductId}
-                  editName={editName}
-                  setEditName={setEditName}
-                  editCategory={editCategory}
-                  setEditCategory={setEditCategory}
-                  editDescription={editDescription}
-                  setEditDescription={setEditDescription}
-                  editImgUrl={editImgUrl}
-                  setEditImgUrl={setEditImgUrl}
-                  editActive={editActive}
-                  setEditActive={setEditActive}
-                  onSaveProductEdit={onSaveProductEdit}
-                  setEditingProductId={setEditingProductId}
-                  editingVariantId={editingVariantId}
-                  onStartVariantEdit={onStartVariantEdit}
-                  editVariantSku={editVariantSku}
-                  setEditVariantSku={setEditVariantSku}
-                  editVariantSize={editVariantSize}
-                  setEditVariantSize={setEditVariantSize}
-                  editVariantColor={editVariantColor}
-                  setEditVariantColor={setEditVariantColor}
-                  editVariantImgUrl={editVariantImgUrl}
-                  setEditVariantImgUrl={setEditVariantImgUrl}
-                  editVariantStock={editVariantStock}
-                  setEditVariantStock={setEditVariantStock}
-                  editVariantActive={editVariantActive}
-                  setEditVariantActive={setEditVariantActive}
-                  enableVariantPriceEdit={enableVariantPriceEdit}
-                  setEnableVariantPriceEdit={setEnableVariantPriceEdit}
-                  editVariantPrice={editVariantPrice}
-                  setEditVariantPrice={setEditVariantPrice}
-                  onSaveVariantEdit={onSaveVariantEdit}
-                  setEditingVariantId={setEditingVariantId}
-                  formatArs={formatArs}
-                />
-              ))}
+              {products.map((product) => {
+                const productVariants = variantsByProduct[product.id] ?? EMPTY_VARIANTS;
+                const isEditingThisProduct = editingProductId === product.id;
+                const isEditingVariantHere = productVariants.some((variant) => variant.id === editingVariantId);
+                return (
+                  <ProductRow
+                    key={product.id}
+                    product={product}
+                    categories={categories}
+                    variants={productVariants}
+                    isExpanded={Boolean(expandedProducts[product.id])}
+                    toggleProductExpanded={toggleProductExpanded}
+                    isMenuOpen={openProductMenuId === product.id}
+                    setOpenProductMenuId={setOpenProductMenuId}
+                    onStartEdit={onStartEdit}
+                    onRequestDeleteProduct={onRequestDeleteProduct}
+                    editingProductId={editingProductId}
+                    editName={isEditingThisProduct ? editName : ""}
+                    setEditName={setEditName}
+                    editCategory={isEditingThisProduct ? editCategory : ""}
+                    setEditCategory={setEditCategory}
+                    editDescription={isEditingThisProduct ? editDescription : ""}
+                    setEditDescription={setEditDescription}
+                    editImgUrl={isEditingThisProduct ? editImgUrl : ""}
+                    setEditImgUrl={setEditImgUrl}
+                    editActive={isEditingThisProduct ? editActive : false}
+                    setEditActive={setEditActive}
+                    onSaveProductEdit={isEditingThisProduct ? onSaveProductEdit : noopAsync}
+                    setEditingProductId={setEditingProductId}
+                    editingVariantId={editingVariantId}
+                    onStartVariantEdit={onStartVariantEdit}
+                    editVariantSku={isEditingVariantHere ? editVariantSku : ""}
+                    setEditVariantSku={setEditVariantSku}
+                    editVariantSize={isEditingVariantHere ? editVariantSize : ""}
+                    setEditVariantSize={setEditVariantSize}
+                    editVariantColor={isEditingVariantHere ? editVariantColor : ""}
+                    setEditVariantColor={setEditVariantColor}
+                    editVariantImgUrl={isEditingVariantHere ? editVariantImgUrl : ""}
+                    setEditVariantImgUrl={setEditVariantImgUrl}
+                    editVariantStock={isEditingVariantHere ? editVariantStock : ""}
+                    setEditVariantStock={setEditVariantStock}
+                    editVariantActive={isEditingVariantHere ? editVariantActive : false}
+                    setEditVariantActive={setEditVariantActive}
+                    enableVariantPriceEdit={isEditingVariantHere ? enableVariantPriceEdit : false}
+                    setEnableVariantPriceEdit={setEnableVariantPriceEdit}
+                    editVariantPrice={isEditingVariantHere ? editVariantPrice : ""}
+                    setEditVariantPrice={setEditVariantPrice}
+                    onSaveVariantEdit={isEditingVariantHere ? onSaveVariantEdit : noopAsync}
+                    setEditingVariantId={setEditingVariantId}
+                    formatArs={formatArs}
+                  />
+                );
+              })}
             </section>
           ))}
         </div>

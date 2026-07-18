@@ -322,10 +322,10 @@ export function useAdminCatalog() {
     }
   }
 
-  function onRequestDeleteProduct(productId: number) {
+  const onRequestDeleteProduct = useCallback((productId: number) => {
     setOpenProductMenuId(null);
     setProductPendingDeleteId(productId);
-  }
+  }, []);
 
   function onCancelDeleteProduct() {
     setProductPendingDeleteId(null);
@@ -346,16 +346,19 @@ export function useAdminCatalog() {
     }
   }
 
-  function onStartEdit(product: AdminProduct) {
-    setExpandedProducts((prev) => ({ ...prev, [product.id]: true }));
-    setOpenProductMenuId(null);
-    setEditingProductId(product.id);
-    setEditName(product.name || "");
-    setEditDescription(product.description || "");
-    setEditImgUrl(product.img_url || "");
-    setEditCategory(product.category || categories[0]?.name || "");
-    setEditActive(Boolean(product.active));
-  }
+  const onStartEdit = useCallback(
+    (product: AdminProduct) => {
+      setExpandedProducts((prev) => ({ ...prev, [product.id]: true }));
+      setOpenProductMenuId(null);
+      setEditingProductId(product.id);
+      setEditName(product.name || "");
+      setEditDescription(product.description || "");
+      setEditImgUrl(product.img_url || "");
+      setEditCategory(product.category || categories[0]?.name || "");
+      setEditActive(Boolean(product.active));
+    },
+    [categories]
+  );
 
   async function onSaveProductEdit() {
     if (!editingProductId) return;
@@ -387,7 +390,7 @@ export function useAdminCatalog() {
     }
   }
 
-  function onStartVariantEdit(variant: AdminVariant) {
+  const onStartVariantEdit = useCallback((variant: AdminVariant) => {
     setEditingVariantId(variant.id);
     setEditVariantSku(variant.sku || "");
     setEditVariantSize(variant.size || "");
@@ -398,11 +401,11 @@ export function useAdminCatalog() {
     setEnableVariantPriceEdit(false);
     setEditVariantPrice(String(variant.price ?? 0));
     setEditVariantOriginalPrice(variant.price ?? 0);
-  }
+  }, []);
 
-  function toggleProductExpanded(productId: number) {
+  const toggleProductExpanded = useCallback((productId: number) => {
     setExpandedProducts((prev) => ({ ...prev, [productId]: !prev[productId] }));
-  }
+  }, []);
 
   async function applyVariantEdit(variant: AdminVariant, payload: VariantEditPayload) {
     try {
