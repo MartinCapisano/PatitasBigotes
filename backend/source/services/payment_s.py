@@ -1726,6 +1726,23 @@ def list_payments_for_order(
     return [_payment_to_dict(payment) for payment in payments]
 
 
+def list_payments_for_orders(order_ids: list[int], db: Session) -> dict[int, list[dict]]:
+    unique_ids = list(dict.fromkeys(order_ids))
+    payments_by_order_id: dict[int, list[dict]] = {order_id: [] for order_id in unique_ids}
+    if not unique_ids:
+        return payments_by_order_id
+
+    payments = (
+        db.query(Payment)
+        .filter(Payment.order_id.in_(unique_ids))
+        .order_by(Payment.created_at.desc(), Payment.id.desc())
+        .all()
+    )
+    for payment in payments:
+        payments_by_order_id[payment.order_id].append(_payment_to_dict(payment))
+    return payments_by_order_id
+
+
 def list_payments_for_order_admin(
     *,
     order_id: int,

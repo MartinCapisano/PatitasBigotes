@@ -13,6 +13,9 @@ import {
   patchAdminProduct,
   patchAdminVariant
 } from "../../../services/admin-catalog-api";
+import type { AdminSection } from "../types";
+
+const CATALOG_DEPENDENT_SECTIONS: AdminSection[] = ["categorias", "catalogo", "descuentos", "registrar_venta"];
 
 function normalizeVariantsByProduct(
   payload: Record<string, AdminVariant[]>
@@ -51,7 +54,7 @@ function deriveProductFromVariants(product: AdminProduct, variants: AdminVariant
   };
 }
 
-export function useAdminCatalog() {
+export function useAdminCatalog(adminSection: AdminSection) {
   const [products, setProducts] = useState<AdminProduct[]>([]);
   const [categories, setCategories] = useState<AdminCategory[]>([]);
   const [variantsByProduct, setVariantsByProduct] = useState<Record<number, AdminVariant[]>>({});
@@ -128,8 +131,10 @@ export function useAdminCatalog() {
   }, [newCategory, catalogShowAll]);
 
   useEffect(() => {
-    void loadAll();
-  }, [loadAll]);
+    if (CATALOG_DEPENDENT_SECTIONS.includes(adminSection)) {
+      void loadAll();
+    }
+  }, [adminSection, loadAll]);
 
   async function onCreateProduct(event: FormEvent) {
     event.preventDefault();

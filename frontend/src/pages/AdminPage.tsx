@@ -32,7 +32,7 @@ export function AdminPage() {
 
   const adminSection = adminMode === "ver" ? viewSection : salesSection;
 
-  const catalog = useAdminCatalog();
+  const catalog = useAdminCatalog(adminSection);
   const turns = useAdminTurns(adminSection);
   const discounts = useAdminDiscounts({
     adminSection,

@@ -73,12 +73,10 @@ export function useProfilePage() {
 
   async function refreshOrders() {
     setOrdersError("");
-    const nextOrders = await getMyOrders();
+    const { orders: nextOrders, paymentsByOrderId: nextPaymentsByOrderId } = await getMyOrders({
+      includePayments: true
+    });
     setOrders(nextOrders);
-    const paymentsByOrderEntries = await Promise.all(
-      nextOrders.map(async (order) => [order.id, await listMyOrderPayments(order.id)] as const)
-    );
-    const nextPaymentsByOrderId = Object.fromEntries(paymentsByOrderEntries);
     setPaymentsByOrderId(nextPaymentsByOrderId);
     return {
       orders: nextOrders,

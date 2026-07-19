@@ -21,6 +21,7 @@ from source.services.discount_s import (
 from source.services.payment_s import (
     MERCADOPAGO_ALLOWED_CHECKOUT_HOSTS,
     confirm_manual_payment_for_order,
+    list_payments_for_orders,
 )
 from source.services.products_s import list_products_by_ids
 from source.services.stock_reservations_s import (
@@ -475,6 +476,12 @@ def list_orders_for_user(user_id: int, db: Session) -> list[dict]:
         .all()
     )
     return [_order_to_dict(order) for order in orders]
+
+
+def list_orders_with_payments_for_user(user_id: int, db: Session) -> dict:
+    orders = list_orders_for_user(user_id, db=db)
+    payments_by_order_id = list_payments_for_orders([order["id"] for order in orders], db=db)
+    return {"orders": orders, "payments_by_order_id": payments_by_order_id}
 
 
 def get_order_for_admin(order_id: int, db: Session) -> dict | None:

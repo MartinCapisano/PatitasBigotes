@@ -28,6 +28,7 @@ from source.services.orders_s import (
     get_public_order_snapshot_by_payment_token,
     list_orders_for_admin,
     list_orders_for_user,
+    list_orders_with_payments_for_user,
     replace_draft_order_items,
 )
 from source.services.anti_abuse_s import enforce_public_guest_checkout_limits
@@ -477,15 +478,19 @@ def get_order(
 
 @router.get("/orders")
 def list_orders(
+    include_payments: bool = False,
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     user_id = get_current_user_id(current_user)
     try:
-        orders = list_orders_for_user(user_id=user_id, db=db)
+        if include_payments:
+            data = list_orders_with_payments_for_user(user_id=user_id, db=db)
+        else:
+            data = list_orders_for_user(user_id=user_id, db=db)
     except Exception as exc:
         raise_http_error_from_exception(exc, db=db)
-    return {"data": orders}
+    return {"data": data}
 
 
 @router.get("/public/orders/by-payment-token", response_model=dict[str, PublicOrderSnapshotResponse])

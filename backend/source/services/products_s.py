@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from typing import Literal
 
 from sqlalchemy import asc, desc, func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from source.db.models import Category, Product, ProductVariant
 from source.db.session import SessionLocal
@@ -582,7 +582,7 @@ def list_storefront_products(
                 aggregates_subquery,
                 Product.id == aggregates_subquery.c.product_id,
             )
-            .options(joinedload(Product.category), joinedload(Product.variants))
+            .options(joinedload(Product.category), selectinload(Product.variants))
             .filter(aggregates_subquery.c.active_variant_count > 0)
         )
 
@@ -596,7 +596,19 @@ def list_storefront_products(
             query = query.order_by(
                 desc(Product.name) if sort_order == "desc" else asc(Product.name)
             )
-        rows = query.all()
+
+        # min_price/max_price and sort_by="price" need the discount-aware final price,
+        # which is only computable in Python (see _build_storefront_product_pricing) —
+        # those paths must fetch every matching row before filtering/sorting/paging.
+        # Without them, name-sorted browsing (the common case) can page in SQL directly.
+        can_paginate_in_sql = min_price is None and max_price is None and sort_by == "name"
+
+        if can_paginate_in_sql:
+            total = query.count()
+            rows = query.offset(safe_offset).limit(safe_limit).all()
+        else:
+            rows = query.all()
+
         discounts = list_discounts(db=session)
 
         data = []
@@ -614,6 +626,10 @@ def list_storefront_products(
                     has_discount=has_discount,
                 )
             )
+
+        if can_paginate_in_sql:
+            return data, total
+
         if min_price is not None:
             data = [
                 product

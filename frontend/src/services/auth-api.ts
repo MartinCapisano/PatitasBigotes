@@ -1,5 +1,5 @@
 import { http } from "./http";
-import type { ApiEnvelope, LoginResponse, MyOrder, MyProfile } from "../types";
+import type { ApiEnvelope, LoginResponse, MyOrder, MyPayment, MyProfile } from "../types";
 
 export async function login(email: string, password: string) {
   const response = await http.post<ApiEnvelope<LoginResponse>>("/auth/login", {
@@ -82,7 +82,18 @@ export async function updateMyProfile(payload: {
   };
 }
 
-export async function getMyOrders() {
-  const response = await http.get<ApiEnvelope<MyOrder[]>>("/orders");
-  return response.data.data;
+export async function getMyOrders(
+  params?: { includePayments?: boolean }
+): Promise<{ orders: MyOrder[]; paymentsByOrderId: Record<number, MyPayment[]> }> {
+  if (!params?.includePayments) {
+    const response = await http.get<ApiEnvelope<MyOrder[]>>("/orders");
+    return { orders: response.data.data, paymentsByOrderId: {} };
+  }
+  const response = await http.get<
+    ApiEnvelope<{ orders: MyOrder[]; payments_by_order_id: Record<number, MyPayment[]> }>
+  >("/orders", { params: { include_payments: true } });
+  return {
+    orders: response.data.data.orders,
+    paymentsByOrderId: response.data.data.payments_by_order_id
+  };
 }
