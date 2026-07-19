@@ -201,7 +201,7 @@ class HttpCheckoutFundamentalsTests(HttpFundamentalsBase):
         variant_id = self._seed_variant()
 
         with patch("source.routes.orders_r.enforce_public_guest_checkout_limits", return_value=None), patch(
-            "source.services.payment_s.create_checkout_preference",
+            "source.services.mercadopago_normalization_s.create_checkout_preference",
             return_value={
                 "id": "pref-guest-mp",
                 "init_point": "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-guest-mp",

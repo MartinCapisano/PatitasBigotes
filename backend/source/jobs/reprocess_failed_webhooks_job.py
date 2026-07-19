@@ -16,7 +16,7 @@ from source.services.mercadopago_client import (
     process_mercadopago_event_payload,
 )
 from source.services.post_commit_actions_s import clear_post_commit_actions, dispatch_post_commit_actions
-from source.services.payment_s import (
+from source.services.webhook_events_s import (
     acquire_webhook_event,
     get_webhook_reprocess_metrics,
     list_retryable_failed_webhook_events,

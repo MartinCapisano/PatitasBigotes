@@ -12,7 +12,7 @@ from source.services.mercadopago_client import (
     WebhookNoOpError,
     resolver_evento_webhook_mercadopago,
 )
-from source.services.payment_s import replay_webhook_event_by_key
+from source.services.webhook_events_s import replay_webhook_event_by_key
 from source.services.post_commit_actions_s import clear_post_commit_actions, dispatch_post_commit_actions
 
 router = APIRouter()

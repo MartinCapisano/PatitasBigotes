@@ -8,11 +8,13 @@ from source.schemas import (
     PaymentIncidentResolveNoRefundRequest,
     PaymentIncidentResolveRefundRequest,
 )
+from source.services.payment_admin_queries_s import (
+    list_payments_for_admin,
+    list_pending_bank_transfer_payments_for_admin,
+)
 from source.services.payment_s import (
     get_payment_for_user,
     get_payment_public_status,
-    list_payments_for_admin,
-    list_pending_bank_transfer_payments_for_admin,
 )
 from source.services.refund_s import (
     create_mercadopago_refund,

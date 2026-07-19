@@ -21,7 +21,7 @@ class ProviderFailureCheckoutTests(HttpFundamentalsBase):
 
         # Simulate provider failure during checkout preference creation
         with patch("source.routes.orders_r.enforce_public_guest_checkout_limits", return_value=None), patch(
-            "source.services.payment_s.create_checkout_preference", side_effect=Exception("mp down")
+            "source.services.mercadopago_normalization_s.create_checkout_preference", side_effect=Exception("mp down")
         ):
             response = self.client.post("/checkout/guest", json=payload, headers=headers)
 

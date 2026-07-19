@@ -331,11 +331,12 @@ def process_mercadopago_event_payload(
     data_id: str,
     db: Session,
 ) -> dict:
-    # Local imports avoid a module cycle: payment_s imports this client module.
+    # Local imports avoid a module cycle: mercadopago_normalization_s imports this
+    # client module at module level (for create_checkout_preference).
+    from source.services.mercadopago_normalization_s import normalize_mp_payment_state
     from source.services.payment_s import (
         apply_mercadopago_normalized_state,
         find_payment_for_mercadopago_event,
-        normalize_mp_payment_state,
     )
 
     mp_payment = get_payment_by_id(data_id)
@@ -385,8 +386,7 @@ def resolver_evento_webhook_mercadopago(
 
     event_key = _build_mp_event_key(payload, data_id)
 
-    # Local imports avoid a module cycle: payment_s imports this client module.
-    from source.services.payment_s import (
+    from source.services.webhook_events_s import (
         acquire_webhook_event,
         mark_webhook_event_failed,
         mark_webhook_event_processed,

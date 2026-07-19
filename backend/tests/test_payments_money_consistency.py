@@ -18,8 +18,8 @@ from source.db.models import (
     PaymentIncident,
     StockReservation,
 )
+from source.services.mercadopago_normalization_s import _build_mercadopago_payload
 from source.services.payment_s import (
-    _build_mercadopago_payload,
     apply_mercadopago_normalized_state,
     create_payment_for_order,
 )
@@ -109,7 +109,7 @@ class PaymentsMoneyConsistencyTests(unittest.TestCase):
 
     def test_build_mercadopago_payload_rejects_invalid_checkout_url(self) -> None:
         with patch(
-            "source.services.payment_s.create_checkout_preference",
+            "source.services.mercadopago_normalization_s.create_checkout_preference",
             return_value={
                 "id": "pref-invalid",
                 "init_point": "https://evil.example.com/pay?pref_id=pref-invalid",

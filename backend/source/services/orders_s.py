@@ -18,8 +18,8 @@ from source.services.discount_s import (
     reprice_order_items,
     validate_order_pricing_before_submit,
 )
+from source.services.mercadopago_normalization_s import MERCADOPAGO_ALLOWED_CHECKOUT_HOSTS
 from source.services.payment_s import (
-    MERCADOPAGO_ALLOWED_CHECKOUT_HOSTS,
     confirm_manual_payment_for_order,
     list_payments_for_orders,
 )

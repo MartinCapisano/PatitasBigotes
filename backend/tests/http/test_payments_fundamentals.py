@@ -54,7 +54,7 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
         self.assertEqual(login_response.status_code, 200)
 
         with patch(
-            "source.services.payment_s.create_checkout_preference",
+            "source.services.mercadopago_normalization_s.create_checkout_preference",
             return_value={
                 "id": "pref-public-token",
                 "init_point": "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-public-token",
@@ -328,7 +328,7 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
         self.assertEqual(login_response.status_code, 200)
 
         with patch(
-            "source.services.payment_s.create_checkout_preference",
+            "source.services.mercadopago_normalization_s.create_checkout_preference",
             return_value={
                 "id": "pref-retry-mp",
                 "init_point": "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-retry-mp",
@@ -471,7 +471,7 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
         self.assertEqual(login_response.status_code, 200)
 
         with patch(
-            "source.services.payment_s.create_checkout_preference",
+            "source.services.mercadopago_normalization_s.create_checkout_preference",
             side_effect=RuntimeError("boom"),
         ):
             response = self.client.post(
@@ -527,7 +527,7 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
         self.assertEqual(login_response.status_code, 200)
 
         with patch(
-            "source.services.payment_s.create_checkout_preference",
+            "source.services.mercadopago_normalization_s.create_checkout_preference",
             return_value={
                 "id": "pref-retry-same-key",
                 "init_point": "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-retry-same-key",
@@ -642,7 +642,7 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
             db.close()
 
         with patch(
-            "source.services.payment_s.create_checkout_preference",
+            "source.services.mercadopago_normalization_s.create_checkout_preference",
             return_value={
                 "id": "pref-guest-retry-same-key",
                 "init_point": "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-guest-retry-same-key",
@@ -680,7 +680,7 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
             db.close()
 
         with patch(
-            "source.services.payment_s.create_checkout_preference",
+            "source.services.mercadopago_normalization_s.create_checkout_preference",
             return_value={
                 "id": "pref-guest-retry-different-key",
                 "init_point": "https://www.mercadopago.com/checkout/v1/redirect?pref_id=pref-guest-retry-different-key",

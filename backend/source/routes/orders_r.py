@@ -45,6 +45,7 @@ from source.services.idempotency_s import (
     prune_expired_records,
 )
 from source.services.payment_errors import PaymentCheckoutInitializationError
+from source.services.payment_admin_queries_s import list_payments_for_order_admin
 from source.services.payment_s import (
     PAYMENT_PROVIDER_SETUP_FAILED,
     RETRY_FAILED_MERCADOPAGO_CHECKOUT_UNAVAILABLE,
@@ -53,7 +54,6 @@ from source.services.payment_s import (
     create_retry_payment_for_order,
     create_retry_payment_for_payment_token,
     initialize_mercadopago_checkout_for_payment,
-    list_payments_for_order_admin,
     list_payments_for_order,
     mark_payment_checkout_setup_failed,
 )
