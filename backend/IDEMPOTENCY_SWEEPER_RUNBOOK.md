@@ -1,5 +1,21 @@
 Idempotency Sweeper — Runbook (staging -> production)
 
+⚠️ PENDING DECISIONS — BLOCKING PRODUCTION DEPLOY ⚠️
+This runbook is intentionally incomplete below (placeholders <REGISTRY_URL>/<TAG> etc.) until
+someone with production infra authority confirms these. Do not deploy to production before
+every item here is answered and the placeholders further down are replaced:
+- [ ] Registry URL and image tag to use for production.
+- [ ] Production namespace name (manifests currently default to `staging`).
+- [ ] Desired schedule frequency for prod (cron expression).
+- [ ] Production IDEMPOTENCY_PROCESSING_TIMEOUT_MINUTES and IDEMPOTENCY_SWEEPER_LIMIT.
+- [ ] Where secrets live in production (K8s Secret, ExternalSecrets, Vault) — see
+      backend/k8s_idempotency_sweeper_secret.yaml / _externalsecret.yaml for the current templates.
+- [ ] Whether Prometheus scraping / alerting should be added (omitted so far — no
+      monitoring integration exists yet for this job).
+
+Once these are answered, replace the placeholders in this file and in
+backend/k8s_idempotency_sweeper_cronjob.yaml, then delete this section.
+
 Purpose
 - Periodically mark idempotency records stuck in 'processing' past timeout as 'failed'.
 - Prune expired completed/failed records.
@@ -48,14 +64,4 @@ Rollback and remediation
 - If sweeper over-marks: stop CronJob, inspect records, and (if safe) revert using DB snapshot or manually set record.status back to processing/completed as per runbook. Prefer manual fixes for small numbers.
 
 Questions required to finalize production deployment
-- Registry URL and image tag to use for production.
-- Production namespace name.
-- Desired schedule frequency for prod (cron expression).
-- Production IDEMPOTENCY_PROCESSING_TIMEOUT_MINUTES and IDEMPOTENCY_SWEEPER_LIMIT.
-- Where should secrets live in production (K8s Secret, ExternalSecrets, Vault)?
-- Prometheus scraping: omitted per request (no monitoring/metrics integration).
-- Alert recipient: omit (no monitoring requested).
-If you confirm values for the questions above, I will:
-- Replace placeholders in manifests and commit them to the repo under backend/.
-- Provide exact kubectl commands for staging -> prod apply and a one-click checklist.
-- Optionally add lightweight Prometheus metrics to the sweeper job code (low-effort) and a ServiceMonitor snippet.
+- See the "PENDING DECISIONS" checklist at the top of this file — kept in one place to avoid drift.
