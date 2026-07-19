@@ -2,7 +2,7 @@ export { AdminSectionTabs } from "./AdminSectionTabs";
 export { CategoriesSection } from "./CategoriesSection";
 export { CatalogSection } from "./CatalogSection";
 export { DiscountsSection } from "./DiscountsSection";
-export { TurnsSection } from "./sections/turns/TurnsSection";
+export { TurnsSection } from "./TurnsSection";
 export { OrdersPaymentsSection } from "./OrdersPaymentsSection";
 export { PaymentIncidentsSection } from "./PaymentIncidentsSection";
 export { RegisterPaymentSection } from "./RegisterPaymentSection";
