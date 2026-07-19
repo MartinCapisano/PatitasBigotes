@@ -4,9 +4,11 @@ FROM python:3.11-slim
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1
 
-# Install runtime deps from project's requirements
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+# Install only the sweeper's own deps (sqlalchemy/psycopg/dotenv) — it's a
+# DB-only CronJob, not a web service, so it doesn't need fastapi/uvicorn/
+# python-jose/passlib/mercadopago from the main requirements.txt.
+COPY requirements-sweeper.txt /app/requirements-sweeper.txt
+RUN pip install --no-cache-dir -r /app/requirements-sweeper.txt
 
 # Copy only needed files to keep image small
 COPY source /app/source
