@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from source.db.config import get_cors_allow_origins
 from source.dependencies.csrf_d import CSRFMiddleware
+from source.dependencies.security_headers_d import SecurityHeadersMiddleware
 from source.routes.auth_r import router as auth_router
 from source.routes.discounts_r import router as discounts_router
 from source.routes.mercadopago_r import router as mercadopago_router
@@ -24,6 +25,7 @@ app = FastAPI(
 logger = logging.getLogger(__name__)
 
 allowed_origins = get_cors_allow_origins()
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
