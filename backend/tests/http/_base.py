@@ -26,7 +26,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault("MERCADOPAGO_WEBHOOK_SECRET", "test-webhook-secret")
 
-from auth.security import hash_password
+from source.services.auth_security_s import hash_password
 from main import app
 from source.db.models import Base, Category, Product, ProductVariant, User
 from source.db.session import get_db, get_db_transactional

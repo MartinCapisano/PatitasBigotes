@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from auth.security import hash_password
+from source.services.auth_security_s import hash_password
 from source.db.models import Category, Discount, Product, ProductVariant, User
 from source.db.session import SessionLocal
 from source.services.discount_s import create_discount, update_discount

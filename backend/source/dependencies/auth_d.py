@@ -1,7 +1,7 @@
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from auth.security import decode_access_token, parsear_sub_a_user_id
+from source.services.auth_security_s import decode_access_token, parsear_sub_a_user_id
 from source.db.models import User
 from source.db.session import get_db
 from source.services.auth_cookies_s import get_access_token_from_request

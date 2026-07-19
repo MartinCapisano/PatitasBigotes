@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from auth.security import ensure_password_policy, hash_password
+from source.services.auth_security_s import ensure_password_policy, hash_password
 from source.db.models import User, UserRefreshSession
 from source.schemas import (
     CreateAdminUserRequest,

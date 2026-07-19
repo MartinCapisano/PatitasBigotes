@@ -4,14 +4,14 @@ from datetime import datetime, timedelta, UTC
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
-from auth.auth_s import (
+from source.services.auth_s import (
     authenticate_user,
     issue_token_pair,
     logout_with_refresh_token,
     refresh_with_token,
     set_user_password_and_invalidate_sessions,
 )
-from auth.security import ensure_password_policy, obtener_config_jwt, verify_password
+from source.services.auth_security_s import ensure_password_policy, obtener_config_jwt, verify_password
 from source.db.config import get_app_base_url
 from source.db.models import User
 from source.dependencies.auth_d import get_current_user, get_current_user_id

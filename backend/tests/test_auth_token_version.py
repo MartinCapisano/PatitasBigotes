@@ -13,12 +13,12 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
-from auth.auth_s import (
+from source.services.auth_s import (
     issue_token_pair,
     logout_with_refresh_token,
     refresh_with_token,
 )
-from auth.security import create_access_token, decode_access_token
+from source.services.auth_security_s import create_access_token, decode_access_token
 from source.db.models import Base, User, UserRefreshSession
 from source.dependencies.auth_d import get_current_user
 from tests.factories.users import create_user
