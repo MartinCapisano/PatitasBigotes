@@ -47,6 +47,7 @@ class Product(Base):
         Integer,
         ForeignKey("categories.id", ondelete="RESTRICT"),
         nullable=False,
+        index=True,
     )
 
     category = relationship("Category", back_populates="products")
@@ -177,6 +178,7 @@ class Order(Base):
         Integer,
         ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,
+        index=True,
     )
 
     status = Column(String, nullable=False, default="draft")
@@ -243,17 +245,20 @@ class OrderItem(Base):
         Integer,
         ForeignKey("orders.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
 
     product_id = Column(
         Integer,
         ForeignKey("products.id", ondelete="RESTRICT"),
         nullable=False,
+        index=True,
     )
     variant_id = Column(
         Integer,
         ForeignKey("product_variants.id", ondelete="RESTRICT"),
         nullable=False,
+        index=True,
     )
 
     quantity = Column(Integer, nullable=False)
@@ -262,6 +267,7 @@ class OrderItem(Base):
         Integer,
         ForeignKey("discounts.id", ondelete="SET NULL"),
         nullable=True,
+        index=True,
     )
     discount_amount = Column(Integer, nullable=False, default=0)
     final_unit_price = Column(Integer, nullable=False, default=0)

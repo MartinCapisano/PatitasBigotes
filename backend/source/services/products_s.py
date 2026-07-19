@@ -337,6 +337,20 @@ def get_product_by_id(product_id: int, db: Session | None = None) -> dict | None
         return _product_to_dict(product)
 
 
+def list_products_by_ids(product_ids: list[int], db: Session | None = None) -> dict[int, dict]:
+    unique_ids = list(dict.fromkeys(product_ids))
+    if not unique_ids:
+        return {}
+    with _read_session_scope(db) as (session, _):
+        products = (
+            session.query(Product)
+            .options(joinedload(Product.category), joinedload(Product.variants))
+            .filter(Product.id.in_(unique_ids))
+            .all()
+        )
+        return {product.id: _product_to_dict(product) for product in products}
+
+
 def update_product(product_id: int, updates: dict, db: Session) -> dict | None:
     allowed_fields = {"name", "description", "img_url", "category", "active"}
     with _write_session_scope(db) as (session, _):

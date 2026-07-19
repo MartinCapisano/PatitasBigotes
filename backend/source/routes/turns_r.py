@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from source.dependencies.auth_d import get_current_user, get_current_user_id, require_admin
@@ -32,7 +32,7 @@ def create_turn(
 @router.get("/admin/turns")
 def admin_list_turns(
     status: str | None = None,
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=200),
     _: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):

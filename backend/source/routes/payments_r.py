@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from source.dependencies.auth_d import get_current_user, get_current_user_id, require_admin
@@ -60,7 +60,7 @@ def get_public_payment_status(
 
 @router.get("/admin/payments/bank-transfer/pending")
 def list_pending_bank_transfer_payments(
-    limit: int = 100,
+    limit: int = Query(default=100, ge=1, le=500),
     _: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -77,7 +77,7 @@ def list_pending_bank_transfer_payments(
 @router.get("/admin/payments")
 def list_admin_payments(
     status: str | None = None,
-    limit: int = 10,
+    limit: int = Query(default=10, ge=1, le=500),
     sort_by: str = "created_at",
     sort_dir: str = "desc",
     _: dict = Depends(require_admin),
@@ -99,7 +99,7 @@ def list_admin_payments(
 @router.get("/admin/payment-incidents")
 def list_admin_payment_incidents(
     status: str | None = "pending_review",
-    limit: int = 100,
+    limit: int = Query(default=100, ge=1, le=500),
     _: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):

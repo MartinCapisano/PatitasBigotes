@@ -1,6 +1,6 @@
 ﻿from datetime import datetime, timedelta, UTC
 
-from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request, Response, status
 import logging
 from sqlalchemy.orm import Session
 
@@ -523,7 +523,7 @@ def get_order_admin(
 @router.get("/admin/orders")
 def list_orders_admin(
     status: str | None = None,
-    limit: int = 10,
+    limit: int = Query(default=10, ge=1, le=500),
     sort_by: str = "created_at",
     sort_dir: str = "desc",
     _: dict = Depends(require_admin),

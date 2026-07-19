@@ -22,7 +22,7 @@ from source.services.payment_s import (
     MERCADOPAGO_ALLOWED_CHECKOUT_HOSTS,
     confirm_manual_payment_for_order,
 )
-from source.services.products_s import get_product_by_id
+from source.services.products_s import list_products_by_ids
 from source.services.stock_reservations_s import (
     expire_active_reservations_for_order,
     list_reservations_for_order,
@@ -335,11 +335,9 @@ def _recalculate_order_total(order: Order, db: Session, *, force: bool = False) 
         "pricing_frozen": bool(order.pricing_frozen),
     }
 
-    products_by_id: dict[int, dict] = {}
-    for item in order_payload["items"]:
-        product = get_product_by_id(item["product_id"], db=db)
-        if product is not None:
-            products_by_id[item["product_id"]] = product
+    products_by_id = list_products_by_ids(
+        [item["product_id"] for item in order_payload["items"]], db=db
+    )
 
     reprice_order_items(
         order=order_payload,
