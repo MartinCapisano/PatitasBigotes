@@ -17,11 +17,15 @@ backend/.env.*
 # Frontend
 frontend/node_modules/
 frontend/dist/
+frontend/src/types/api.generated.ts
 frontend/tmp/logs/*
 frontend/tmp/tsbuildinfo/*
 frontend/*.tsbuildinfo
 !frontend/tmp/logs/.gitkeep
 !frontend/tmp/tsbuildinfo/.gitkeep
+
+# Backend: generated OpenAPI schema (regenerated via backend/scripts/export_openapi.py)
+backend/openapi.json
 
 # Backend tmp convention
 backend/tmp/logs/*
