@@ -20,7 +20,7 @@ function category(overrides: Partial<AdminCategory> = {}): AdminCategory {
 }
 
 function product(overrides: Partial<AdminProduct> = {}): AdminProduct {
-  return { id: 1, name: "Collar", category: "Accesorios" } as AdminProduct;
+  return { id: 1, name: "Collar", category: "Accesorios", ...overrides } as AdminProduct;
 }
 
 function makeParams(overrides: Partial<UseAdminCategoriesParams> = {}): UseAdminCategoriesParams {

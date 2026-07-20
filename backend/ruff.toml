@@ -1,0 +1,19 @@
+# Ruff configuration for the PatitasBigotes backend.
+# Scope kept intentionally close to Ruff's curated default (pyflakes `F`
+# plus the high-signal pycodestyle `E` subset) so linting catches real
+# problems -- unused imports/vars, undefined names, syntax issues -- without
+# imposing large style-only churn on the existing codebase.
+line-length = 120
+target-version = "py312"
+extend-exclude = [".venv"]
+
+[lint]
+extend-select = ["W"]
+
+[lint.per-file-ignores]
+# Tests bootstrap sys.path before importing `source.*`, so their module-level
+# imports intentionally come after that setup (E402).
+"tests/**" = ["E402"]
+# Alembic's env.py / schema_snapshot follow the standard migration import
+# ordering, which also trips E402.
+"alembic/**" = ["E402"]

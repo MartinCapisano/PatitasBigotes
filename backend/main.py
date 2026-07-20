@@ -20,7 +20,7 @@ from source.routes.users_r import router as users_router
 app = FastAPI(
     title="Sales API",
     version="0.1.0",
-    
+
 )
 logger = logging.getLogger(__name__)
 

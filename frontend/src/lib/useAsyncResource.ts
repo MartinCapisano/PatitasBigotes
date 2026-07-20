@@ -31,7 +31,6 @@ export function useAsyncResource<T>(
       setLoading(false);
     }
     // errorMessage is a stable literal at each call site; fetcher is read via ref.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [errorMessage]);
 
   useEffect(() => {

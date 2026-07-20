@@ -392,7 +392,7 @@ class HttpPaymentsFundamentalsTests(HttpFundamentalsBase):
                 with_reservation=True,
                 reservation_status="expired",
             )
-            payment_id = create_retryable_payment(
+            create_retryable_payment(
                 db,
                 order_id=int(graph["order_id"]),
                 method="mercadopago",

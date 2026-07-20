@@ -7,7 +7,7 @@ import logging
 
 from sqlalchemy.orm import Session, joinedload
 
-from source.db.models import Order, Payment, PaymentIncident, PaymentRefund
+from source.db.models import Payment, PaymentIncident, PaymentRefund
 from source.services.mercadopago_client import create_refund
 from source.services.domain_events_s import publish_domain_event
 

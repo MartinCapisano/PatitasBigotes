@@ -34,6 +34,15 @@ El proyecto tambien incluye jobs programados para tareas de mantenimiento y sinc
 
 Con el entorno preparado, el backend puede iniciarse con `backend/scripts/start-backend.ps1` en el puerto `8000`, y el frontend con `backend/scripts/start-frontend.ps1` en el puerto `5173`. Si se prefiere abrir ambos juntos, puede usarse `backend/scripts/start-app.ps1`, que lanza backend y frontend en ventanas separadas.
 
+## Testing y CI
+
+El proyecto tiene tests automatizados en backend y frontend.
+
+- Backend: desde la raiz del repo, con la virtualenv del proyecto activa, se corren con `python -m pytest backend/tests -q`. Usan SQLite en memoria, por lo que no requieren PostgreSQL ni un `.env` real.
+- Frontend: desde `frontend/`, se corren con `npm test` (Vitest). Para el chequeo de tipos y build se usa `npm run build`.
+
+La integracion continua esta configurada en `.github/workflows/ci.yml` y corre en cada push y pull request contra `main`. Ejecuta tres jobs: los tests de backend, la exportacion del schema OpenAPI, y el build + tests de frontend (que consume ese schema para generar los tipos TypeScript). La version de Node usada por CI queda fijada en `frontend/.nvmrc` para mantener consistencia con el entorno de desarrollo.
+
 ## Variables A Completar
 
 Quien levante la app debe revisar y completar en `backend/.env` las variables que dependen de su entorno o de credenciales propias:
