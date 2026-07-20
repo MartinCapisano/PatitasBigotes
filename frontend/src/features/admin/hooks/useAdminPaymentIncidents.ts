@@ -1,33 +1,27 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   listAdminPaymentIncidents,
   resolveAdminPaymentIncidentNoRefund,
-  resolveAdminPaymentIncidentRefund,
-  type AdminPaymentIncident
+  resolveAdminPaymentIncidentRefund
 } from "../../../services/admin-orders-api";
+import { useAsyncResource } from "../../../lib/useAsyncResource";
 import type { AdminSection } from "../types";
 
 export function useAdminPaymentIncidents(params: { adminSection: AdminSection }) {
   const { adminSection } = params;
-  const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [incidents, setIncidents] = useState<AdminPaymentIncident[]>([]);
   const [processingIncidentId, setProcessingIncidentId] = useState<number | null>(null);
 
-  async function loadIncidents() {
-    if (adminSection !== "incidencias_pago") return;
-    setLoading(true);
-    setError("");
-    try {
-      const rows = await listAdminPaymentIncidents({ status: "pending_review", limit: 200 });
-      setIncidents(rows);
-    } catch {
-      setError("No se pudieron cargar las incidencias de pago.");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const {
+    data: incidents,
+    loading,
+    error,
+    setError,
+    reload: loadIncidents
+  } = useAsyncResource(() => listAdminPaymentIncidents({ status: "pending_review", limit: 200 }), [], {
+    enabled: adminSection === "incidencias_pago",
+    errorMessage: "No se pudieron cargar las incidencias de pago."
+  });
 
   async function resolveWithRefund(incidentId: number, amount: number | undefined, reason: string) {
     const normalizedReason = reason.trim();
@@ -75,10 +69,6 @@ export function useAdminPaymentIncidents(params: { adminSection: AdminSection })
       setProcessingIncidentId(null);
     }
   }
-
-  useEffect(() => {
-    void loadIncidents();
-  }, [adminSection]);
 
   return {
     error,

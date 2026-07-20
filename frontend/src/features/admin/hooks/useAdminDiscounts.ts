@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { createAdminDiscount, deleteAdminDiscount, listAdminDiscounts, patchAdminDiscount, type AdminDiscount } from "../../../services/admin-discounts-api";
 import type { AdminCategory, AdminProduct, AdminVariant } from "../../../services/admin-catalog-api";
+import { useAsyncResource } from "../../../lib/useAsyncResource";
 import type { AdminSection } from "../types";
 
 export function useAdminDiscounts(params: {
@@ -10,9 +11,16 @@ export function useAdminDiscounts(params: {
   variantsByProduct: Record<number, AdminVariant[]>;
 }) {
   const { adminSection, categories, productsSorted, variantsByProduct } = params;
-  const [discounts, setDiscounts] = useState<AdminDiscount[]>([]);
-  const [discountsLoading, setDiscountsLoading] = useState(false);
-  const [discountsError, setDiscountsError] = useState("");
+  const {
+    data: discounts,
+    loading: discountsLoading,
+    error: discountsError,
+    setError: setDiscountsError,
+    reload: loadDiscounts
+  } = useAsyncResource<AdminDiscount[]>(() => listAdminDiscounts(), [], {
+    enabled: adminSection === "descuentos",
+    errorMessage: "No se pudieron cargar los descuentos."
+  });
   const [showCreateDiscountForm, setShowCreateDiscountForm] = useState(false);
   const [newDiscountName, setNewDiscountName] = useState("");
   const [newDiscountType, setNewDiscountType] = useState<"percent" | "fixed">("percent");
@@ -27,25 +35,6 @@ export function useAdminDiscounts(params: {
   const [discountPendingDeleteId, setDiscountPendingDeleteId] = useState<number | null>(null);
   const [deletingDiscount, setDeletingDiscount] = useState(false);
   const [togglingDiscountId, setTogglingDiscountId] = useState<number | null>(null);
-
-  async function loadDiscounts() {
-    setDiscountsLoading(true);
-    setDiscountsError("");
-    try {
-      const rows = await listAdminDiscounts();
-      setDiscounts(rows);
-    } catch {
-      setDiscountsError("No se pudieron cargar los descuentos.");
-    } finally {
-      setDiscountsLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    if (adminSection === "descuentos") {
-      void loadDiscounts();
-    }
-  }, [adminSection]);
 
   function toggleDiscountPickerProductExpanded(productId: number) {
     setDiscountPickerExpandedProducts((prev) => ({ ...prev, [productId]: !prev[productId] }));
