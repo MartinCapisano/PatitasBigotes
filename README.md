@@ -2,6 +2,12 @@
 
 PatitasBigotes es una aplicacion full stack orientada a mostrar un flujo completo de tienda online y gestion operativa: catalogo, autenticacion, carrito, checkout, pagos, panel administrativo y procesos de soporte en backend. El proyecto esta pensado como demo tecnica para evaluacion y tambien como base funcional para pruebas reales en entorno local.
 
+## Alcance
+
+El alcance actual del proyecto es local / demo: la aplicacion esta pensada para correr en el entorno de desarrollo local descrito mas abajo. No hay un despliegue a produccion activo, y desplegarlo no forma parte del alcance actual.
+
+Por eso, el backend (API) y el frontend no estan containerizados. El repositorio si incluye artefactos de contenedor y Kubernetes para el job de barrido de idempotencia (`backend/Dockerfile.sweeper` y `backend/k8s_idempotency_sweeper_*.yaml`), pero son plantillas de referencia: no estan conectadas a ningun entorno real y quedan como punto de partida para un eventual despliegue futuro. Si en algun momento se decide llevar el proyecto a produccion, `backend/IDEMPOTENCY_SWEEPER_RUNBOOK.md` documenta las decisiones de infraestructura que habria que resolver primero.
+
 ## Stack
 
 - Backend: FastAPI, SQLAlchemy, Alembic, PostgreSQL

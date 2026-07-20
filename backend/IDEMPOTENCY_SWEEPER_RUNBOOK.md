@@ -1,9 +1,13 @@
 Idempotency Sweeper — Runbook (staging -> production)
 
-⚠️ PENDING DECISIONS — BLOCKING PRODUCTION DEPLOY ⚠️
-This runbook is intentionally incomplete below (placeholders <REGISTRY_URL>/<TAG> etc.) until
-someone with production infra authority confirms these. Do not deploy to production before
-every item here is answered and the placeholders further down are replaced:
+ℹ️ SCOPE: LOCAL / DEMO — REFERENCE TEMPLATE ℹ️
+The project's current scope is local/demo (see the "Alcance" section in the repo README):
+there is no active production deployment, and the backend/frontend are intentionally not
+containerized. This runbook and the sweeper's Docker/K8s manifests are reference templates,
+kept as a starting point in case the project is later taken to production. The placeholders
+below (<REGISTRY_URL>/<TAG>, namespace, etc.) are intentionally unfilled — they can only be
+resolved once real production infrastructure exists. If/when this project is deployed to
+production, resolve every item here first and replace the placeholders:
 - [ ] Registry URL and image tag to use for production.
 - [ ] Production namespace name (manifests currently default to `staging`).
 - [ ] Desired schedule frequency for prod (cron expression).
@@ -13,8 +17,9 @@ every item here is answered and the placeholders further down are replaced:
 - [ ] Whether Prometheus scraping / alerting should be added (omitted so far — no
       monitoring integration exists yet for this job).
 
-Once these are answered, replace the placeholders in this file and in
-backend/k8s_idempotency_sweeper_cronjob.yaml, then delete this section.
+If/when the project is deployed, replace the placeholders in this file and in
+backend/k8s_idempotency_sweeper_cronjob.yaml (note: the manifests currently mix `staging` and
+`production` namespaces — reconcile them to one per environment), then delete this section.
 
 Purpose
 - Periodically mark idempotency records stuck in 'processing' past timeout as 'failed'.
