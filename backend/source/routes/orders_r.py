@@ -65,9 +65,9 @@ MERCADOPAGO_CHECKOUT_SETUP_ERROR_DETAIL = "no se pudo inicializar el checkout de
 
 
 def _client_ip_from_request(request: Request) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
+    # See the matching note on auth_r._extract_client_ip: this relies on Uvicorn's
+    # ProxyHeadersMiddleware to safely translate X-Forwarded-For, which requires
+    # FORWARDED_ALLOW_IPS to be set to the real reverse proxy's IP/CIDR in production.
     if request.client is not None and request.client.host:
         return request.client.host
     return "unknown"

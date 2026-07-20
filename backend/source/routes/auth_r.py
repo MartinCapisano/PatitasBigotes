@@ -58,9 +58,12 @@ PASSWORD_RESET_TTL_MINUTES = 30
 
 
 def _extract_client_ip(request: Request) -> str:
-    forwarded = str(request.headers.get("x-forwarded-for", "")).strip()
-    if forwarded:
-        return forwarded.split(",")[0].strip() or "unknown"
+    # request.client.host is trustworthy as-is: Uvicorn's ProxyHeadersMiddleware
+    # (proxy_headers=True by default) already rewrites it from X-Forwarded-For,
+    # but only when the connection comes from an IP listed in FORWARDED_ALLOW_IPS
+    # (env var read by Uvicorn at startup; defaults to 127.0.0.1). In production
+    # behind a real reverse proxy, FORWARDED_ALLOW_IPS must be set to that proxy's
+    # IP/CIDR, or this will silently fall back to the proxy's own IP for every request.
     if request.client is not None and request.client.host:
         return str(request.client.host).strip()
     return "unknown"
