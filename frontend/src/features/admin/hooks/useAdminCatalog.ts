@@ -4,16 +4,14 @@ import {
   type AdminCatalog,
   type AdminProduct,
   type AdminVariant,
-  createAdminCategory,
   createAdminProduct,
-  deleteAdminCategory,
   deleteAdminProduct,
   getAdminCatalog,
-  patchAdminCategory,
   patchAdminProduct,
   patchAdminVariant
 } from "../../../services/admin-catalog-api";
 import type { AdminSection } from "../types";
+import { useAdminCategories } from "./useAdminCategories";
 
 const CATALOG_DEPENDENT_SECTIONS: AdminSection[] = ["categorias", "catalogo", "descuentos", "registrar_venta"];
 
@@ -85,22 +83,12 @@ export function useAdminCatalog(adminSection: AdminSection) {
   const [newImgUrl, setNewImgUrl] = useState("");
   const [newCategory, setNewCategory] = useState("");
   const [savingNew, setSavingNew] = useState(false);
-  const [showCreateCategoryForm, setShowCreateCategoryForm] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState("");
-  const [creatingCategory, setCreatingCategory] = useState(false);
-  const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
-  const [editCategoryName, setEditCategoryName] = useState("");
-  const [openCategoryMenuId, setOpenCategoryMenuId] = useState<number | null>(null);
-  const [catalogCategoryFilter, setCatalogCategoryFilter] = useState<string>("all");
   const [catalogShowAll, setCatalogShowAll] = useState(false);
   const [showAddStockModal, setShowAddStockModal] = useState(false);
   const [stockProductId, setStockProductId] = useState("");
   const [stockQuantity, setStockQuantity] = useState("1");
   const [addingStock, setAddingStock] = useState(false);
   const [stockSuccessMessage, setStockSuccessMessage] = useState("");
-  const [showDeleteCategoryModal, setShowDeleteCategoryModal] = useState(false);
-  const [deleteCategoryId, setDeleteCategoryId] = useState("");
-  const [deletingCategory, setDeletingCategory] = useState(false);
   const [productPendingDeleteId, setProductPendingDeleteId] = useState<number | null>(null);
   const [deletingProduct, setDeletingProduct] = useState(false);
   const [variantPriceConfirmation, setVariantPriceConfirmation] = useState<{
@@ -108,8 +96,6 @@ export function useAdminCatalog(adminSection: AdminSection) {
     payload: VariantEditPayload;
   } | null>(null);
   const [savingVariant, setSavingVariant] = useState(false);
-
-  const hasCategories = categories.length > 0;
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -136,9 +122,18 @@ export function useAdminCatalog(adminSection: AdminSection) {
     }
   }, [adminSection, loadAll]);
 
+  const categoriesState = useAdminCategories({
+    categories,
+    products,
+    reload: loadAll,
+    setError,
+    newCategory,
+    setNewCategory
+  });
+
   async function onCreateProduct(event: FormEvent) {
     event.preventDefault();
-    if (!hasCategories) {
+    if (!categoriesState.hasCategories) {
       setError("Primero crea al menos una categoria en admin.");
       return;
     }
@@ -160,94 +155,6 @@ export function useAdminCatalog(adminSection: AdminSection) {
       setError("No se pudo crear el producto.");
     } finally {
       setSavingNew(false);
-    }
-  }
-
-  async function onCreateCategory(event: FormEvent) {
-    event.preventDefault();
-    const normalizedName = newCategoryName.trim();
-    if (!normalizedName) {
-      setError("Nombre de categoria requerido.");
-      return;
-    }
-    setCreatingCategory(true);
-    setError("");
-    try {
-      await createAdminCategory({ name: normalizedName });
-      setNewCategoryName("");
-      setShowCreateCategoryForm(false);
-      await loadAll();
-      setCatalogCategoryFilter(normalizedName);
-      setNewCategory(normalizedName);
-    } catch {
-      setError("No se pudo crear la categoria.");
-    } finally {
-      setCreatingCategory(false);
-    }
-  }
-
-  function onOpenDeleteCategoryModal() {
-    const usedCategoryNames = new Set(products.map((product) => String(product.category || "")));
-    const deletable = categories.filter((category) => !usedCategoryNames.has(category.name));
-    if (!deletable.length) {
-      setError("No hay categorias eliminables (todas tienen productos).");
-      return;
-    }
-    setDeleteCategoryId(String(deletable[0].id));
-    setShowDeleteCategoryModal(true);
-    setError("");
-  }
-
-  async function onConfirmDeleteCategory() {
-    const categoryId = Number.parseInt(deleteCategoryId, 10);
-    if (Number.isNaN(categoryId) || categoryId <= 0) {
-      setError("Selecciona una categoria valida.");
-      return;
-    }
-    setDeletingCategory(true);
-    setError("");
-    try {
-      await deleteAdminCategory(categoryId);
-      setShowDeleteCategoryModal(false);
-      setDeleteCategoryId("");
-      setCatalogCategoryFilter("all");
-      await loadAll();
-    } catch {
-      setError("No se pudo eliminar la categoria.");
-    } finally {
-      setDeletingCategory(false);
-    }
-  }
-
-  function onStartCategoryEdit(category: AdminCategory) {
-    setOpenCategoryMenuId(null);
-    setEditingCategoryId(category.id);
-    setEditCategoryName(category.name);
-    setError("");
-  }
-
-  async function onSaveCategoryEdit() {
-    if (!editingCategoryId) return;
-    const normalizedName = editCategoryName.trim();
-    if (!normalizedName) {
-      setError("Nombre de categoria requerido.");
-      return;
-    }
-    setError("");
-    try {
-      const previousCategory = categories.find((category) => category.id === editingCategoryId) ?? null;
-      await patchAdminCategory(editingCategoryId, { name: normalizedName });
-      setEditingCategoryId(null);
-      setEditCategoryName("");
-      await loadAll();
-      if (previousCategory && catalogCategoryFilter === previousCategory.name) {
-        setCatalogCategoryFilter(normalizedName);
-      }
-      if (newCategory === previousCategory?.name) {
-        setNewCategory(normalizedName);
-      }
-    } catch {
-      setError("No se pudo actualizar la categoria.");
     }
   }
 
@@ -504,39 +411,22 @@ export function useAdminCatalog(adminSection: AdminSection) {
     return grouped;
   }, [productsSorted]);
 
-  const categoryNames = useMemo(
-    () => categories.map((category) => category.name).sort((a, b) => a.localeCompare(b)),
-    [categories]
-  );
-  const deletableCategories = useMemo(() => {
-    const usedCategoryNames = new Set(products.map((product) => String(product.category || "")));
-    return categories.filter((category) => !usedCategoryNames.has(category.name));
-  }, [categories, products]);
-
   const visibleProducts = useMemo(() => {
-    if (catalogCategoryFilter === "all") {
+    if (categoriesState.catalogCategoryFilter === "all") {
       return productsSorted;
     }
-    return productsSorted.filter((product) => String(product.category || "") === catalogCategoryFilter);
-  }, [productsSorted, catalogCategoryFilter]);
+    return productsSorted.filter(
+      (product) => String(product.category || "") === categoriesState.catalogCategoryFilter
+    );
+  }, [productsSorted, categoriesState.catalogCategoryFilter]);
 
   return {
     categories,
-    editingCategoryId,
-    setEditingCategoryId,
-    editCategoryName,
-    setEditCategoryName,
-    openCategoryMenuId,
-    setOpenCategoryMenuId,
-    onStartCategoryEdit,
-    onSaveCategoryEdit,
+    ...categoriesState,
     productsSorted,
     productsByCategory,
     visibleProducts,
-    categoryNames,
     variantsByProduct,
-    catalogCategoryFilter,
-    setCatalogCategoryFilter,
     catalogShowAll,
     setCatalogShowAll,
     showAddStockModal,
@@ -552,20 +442,6 @@ export function useAdminCatalog(adminSection: AdminSection) {
     showCreateProductForm,
     setShowCreateProductForm,
     onCreateProduct,
-    showCreateCategoryForm,
-    setShowCreateCategoryForm,
-    onCreateCategory,
-    showDeleteCategoryModal,
-    setShowDeleteCategoryModal,
-    deleteCategoryId,
-    setDeleteCategoryId,
-    deletingCategory,
-    deletableCategories,
-    onOpenDeleteCategoryModal,
-    onConfirmDeleteCategory,
-    newCategoryName,
-    setNewCategoryName,
-    creatingCategory,
     savingNew,
     newName,
     setNewName,
