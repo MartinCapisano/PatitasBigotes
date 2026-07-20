@@ -1,20 +1,28 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone, UTC
 
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from source.services.auth_security_s import (
     create_access_token,
     create_refresh_token,
     decode_refresh_token,
+    ensure_password_policy,
     hash_password,
     hash_refresh_token,
     obtener_config_jwt,
     parsear_sub_a_user_id,
     verify_password,
 )
+from source.services.auth_tokens_s import ACTION_EMAIL_VERIFY, create_one_time_token
+from source.services.email_s import send_email_verification
+from source.db.config import get_app_base_url
 from source.db.models import User, UserRefreshSession
+
+VERIFY_EMAIL_TTL_HOURS = 24
+PASSWORD_RESET_TTL_MINUTES = 30
 
 
 def _ts_to_utc_datetime(raw_ts: object) -> datetime:
@@ -207,3 +215,116 @@ def set_user_password_and_invalidate_sessions(
         db.delete(refresh_session)
     db.flush()
     return user
+
+
+def find_user_by_email(*, email: str, db: Session) -> User | None:
+    normalized = str(email).strip().lower()
+    if not normalized:
+        return None
+    return db.query(User).filter(User.email == normalized).first()
+
+
+def serialize_my_profile(user: User) -> dict:
+    return {
+        "id": int(user.id),
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "email": user.email,
+        "phone": user.phone,
+        "has_account": bool(user.has_account),
+        "is_admin": bool(user.is_admin),
+        "email_verified": user.email_verified_at is not None,
+        "email_verified_at": user.email_verified_at,
+        "created_at": user.created_at,
+    }
+
+
+def get_user_profile(*, user_id: int, db: Session) -> dict:
+    user = db.query(User).filter(User.id == int(user_id)).first()
+    if user is None:
+        raise LookupError("user not found")
+    return serialize_my_profile(user)
+
+
+def change_user_password(
+    *,
+    user_id: int,
+    current_password: str,
+    new_password: str,
+    db: Session,
+) -> None:
+    user = (
+        db.query(User)
+        .filter(User.id == int(user_id))
+        .with_for_update()
+        .first()
+    )
+    if user is None:
+        raise LookupError("user not found")
+    if not verify_password(current_password, user.password_hash):
+        raise ValueError("current password is invalid")
+    ensure_password_policy(new_password)
+
+    set_user_password_and_invalidate_sessions(
+        user_id=int(user_id),
+        new_password=new_password,
+        db=db,
+    )
+
+
+def update_user_profile(
+    *,
+    user_id: int,
+    first_name: str,
+    last_name: str,
+    phone: str,
+    email: str,
+    client_ip: str,
+    db: Session,
+) -> dict:
+    user = (
+        db.query(User)
+        .filter(User.id == int(user_id))
+        .with_for_update()
+        .first()
+    )
+    if user is None:
+        raise LookupError("user not found")
+
+    normalized_email = str(email).strip().lower()
+    if not normalized_email:
+        raise ValueError("email is required")
+
+    verification_email_sent = False
+    if normalized_email != str(user.email or "").strip().lower():
+        existing = (
+            db.query(User)
+            .filter(User.email == normalized_email, User.id != int(user_id))
+            .first()
+        )
+        if existing is not None:
+            raise HTTPException(status_code=409, detail="email already exists")
+
+        user.email = normalized_email
+        user.email_verified_at = None
+        user.email_verification_sent_at = datetime.now(UTC)
+        raw_token = create_one_time_token(
+            user_id=int(user.id),
+            action=ACTION_EMAIL_VERIFY,
+            ttl=timedelta(hours=VERIFY_EMAIL_TTL_HOURS),
+            requested_ip=client_ip,
+            db=db,
+        )
+        verify_link = f"{get_app_base_url()}/verify-email?token={raw_token}"
+        send_email_verification(to_email=user.email, verify_link=verify_link)
+        verification_email_sent = True
+
+    user.first_name = str(first_name).strip()
+    user.last_name = str(last_name).strip()
+    user.phone = str(phone).strip()
+    db.flush()
+
+    return {
+        "profile": serialize_my_profile(user),
+        "verification_email_sent": verification_email_sent,
+    }

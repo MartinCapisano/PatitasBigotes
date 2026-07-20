@@ -5,15 +5,20 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from source.services.auth_s import (
+    PASSWORD_RESET_TTL_MINUTES,
+    VERIFY_EMAIL_TTL_HOURS,
     authenticate_user,
+    change_user_password,
+    find_user_by_email,
+    get_user_profile,
     issue_token_pair,
     logout_with_refresh_token,
     refresh_with_token,
     set_user_password_and_invalidate_sessions,
+    update_user_profile,
 )
-from source.services.auth_security_s import ensure_password_policy, obtener_config_jwt, verify_password
+from source.services.auth_security_s import ensure_password_policy, obtener_config_jwt
 from source.db.config import get_app_base_url
-from source.db.models import User
 from source.dependencies.auth_d import get_current_user, get_current_user_id
 from source.db.session import get_db, get_db_transactional
 from source.errors import raise_http_error_from_exception
@@ -53,8 +58,6 @@ from source.services.users_s import create_auth_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-VERIFY_EMAIL_TTL_HOURS = 24
-PASSWORD_RESET_TTL_MINUTES = 30
 
 
 def _extract_client_ip(request: Request) -> str:
@@ -185,28 +188,6 @@ def logout(
     return {"data": {"logged_out": True}}
 
 
-def _find_user_by_email(*, email: str, db: Session) -> User | None:
-    normalized = str(email).strip().lower()
-    if not normalized:
-        return None
-    return db.query(User).filter(User.email == normalized).first()
-
-
-def _serialize_my_profile(user: User) -> dict:
-    return {
-        "id": int(user.id),
-        "first_name": user.first_name,
-        "last_name": user.last_name,
-        "email": user.email,
-        "phone": user.phone,
-        "has_account": bool(user.has_account),
-        "is_admin": bool(user.is_admin),
-        "email_verified": user.email_verified_at is not None,
-        "email_verified_at": user.email_verified_at,
-        "created_at": user.created_at,
-    }
-
-
 @router.post("/auth/register", status_code=status.HTTP_201_CREATED)
 def register(
     payload: RegisterRequest,
@@ -256,7 +237,7 @@ def email_verify_request(
             email=str(payload.email),
             db=db,
         )
-        user = _find_user_by_email(email=str(payload.email), db=db)
+        user = find_user_by_email(email=str(payload.email), db=db)
         if user is not None and bool(user.has_account) and user.email_verified_at is None:
             raw_token = create_one_time_token(
                 user_id=int(user.id),
@@ -306,7 +287,7 @@ def password_reset_request(
             email=str(payload.email),
             db=db,
         )
-        user = _find_user_by_email(email=str(payload.email), db=db)
+        user = find_user_by_email(email=str(payload.email), db=db)
         if user is not None and bool(user.has_account) and user.email_verified_at is not None:
             raw_token = create_one_time_token(
                 user_id=int(user.id),
@@ -354,19 +335,9 @@ def password_change(
 ):
     user_id = get_current_user_id(current_user)
     try:
-        user = (
-            db.query(User)
-            .filter(User.id == int(user_id))
-            .with_for_update()
-            .first()
-        )
-        if user is None:
-            raise LookupError("user not found")
-        if not verify_password(payload.current_password, user.password_hash):
-            raise ValueError("current password is invalid")
-        ensure_password_policy(payload.new_password)
-        set_user_password_and_invalidate_sessions(
+        change_user_password(
             user_id=int(user_id),
+            current_password=payload.current_password,
             new_password=payload.new_password,
             db=db,
         )
@@ -383,12 +354,10 @@ def get_my_profile(
 ):
     user_id = get_current_user_id(current_user)
     try:
-        user = db.query(User).filter(User.id == int(user_id)).first()
-        if user is None:
-            raise LookupError("user not found")
+        profile = get_user_profile(user_id=int(user_id), db=db)
     except Exception as exc:
         raise_http_error_from_exception(exc, db=db)
-    return {"data": _serialize_my_profile(user)}
+    return {"data": profile}
 
 
 @router.patch("/auth/me")
@@ -401,51 +370,27 @@ def update_my_profile(
     user_id = get_current_user_id(current_user)
     client_ip = _extract_client_ip(request)
     try:
-        user = (
-            db.query(User)
-            .filter(User.id == int(user_id))
-            .with_for_update()
-            .first()
+        result = update_user_profile(
+            user_id=int(user_id),
+            first_name=payload.first_name,
+            last_name=payload.last_name,
+            phone=payload.phone,
+            email=str(payload.email),
+            client_ip=client_ip,
+            db=db,
         )
-        if user is None:
-            raise LookupError("user not found")
-
-        normalized_email = str(payload.email).strip().lower()
-        if not normalized_email:
-            raise ValueError("email is required")
-
-        verification_email_sent = False
-        if normalized_email != str(user.email or "").strip().lower():
-            existing = db.query(User).filter(User.email == normalized_email, User.id != int(user_id)).first()
-            if existing is not None:
-                raise HTTPException(status_code=409, detail="email already exists")
-
-            user.email = normalized_email
-            user.email_verified_at = None
-            user.email_verification_sent_at = datetime.now(UTC)
-            raw_token = create_one_time_token(
-                user_id=int(user.id),
-                action=ACTION_EMAIL_VERIFY,
-                ttl=timedelta(hours=VERIFY_EMAIL_TTL_HOURS),
-                requested_ip=client_ip,
-                db=db,
-            )
-            verify_link = f"{get_app_base_url()}/verify-email?token={raw_token}"
-            send_email_verification(to_email=user.email, verify_link=verify_link)
-            verification_email_sent = True
-
-        user.first_name = str(payload.first_name).strip()
-        user.last_name = str(payload.last_name).strip()
-        user.phone = str(payload.phone).strip()
-        db.flush()
     except Exception as exc:
         raise_http_error_from_exception(exc, db=db)
 
-    logger.info("event=auth_profile_updated user_id=%s email_changed=%s", int(user_id), bool(verification_email_sent))
+    logger.info(
+        "event=auth_profile_updated user_id=%s email_changed=%s",
+        int(user_id),
+        bool(result["verification_email_sent"]),
+    )
     return {
-        "data": _serialize_my_profile(user),
+        "data": result["profile"],
         "meta": {
-            "verification_email_sent": verification_email_sent,
+            "verification_email_sent": result["verification_email_sent"],
         },
     }
 
