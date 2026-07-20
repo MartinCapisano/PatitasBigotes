@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import secrets
 from datetime import UTC, datetime
 
 from source.services.auth_security_s import hash_password
+from source.db.config import get_app_env
 from source.db.models import Category, Discount, Product, ProductVariant, User
 from source.db.session import SessionLocal
 from source.services.discount_s import create_discount, update_discount
 
 DEMO_ADMIN_EMAIL = "admin@demo.com"
-DEMO_ADMIN_PASSWORD = "AdminDemo!123"
+ALLOWED_SEED_ENVIRONMENTS = {"local", "demo"}
 
 DEMO_CATALOG = [
     {
@@ -121,7 +123,7 @@ def _upsert_variant(*, product_id: int, payload: dict, db) -> ProductVariant:
     return variant
 
 
-def _ensure_demo_admin(*, db) -> User:
+def _ensure_demo_admin(*, db, password: str) -> User:
     admin = db.query(User).filter(User.email == DEMO_ADMIN_EMAIL).first()
     if admin is None:
         admin = User(
@@ -129,7 +131,7 @@ def _ensure_demo_admin(*, db) -> User:
             last_name="Admin",
             email=DEMO_ADMIN_EMAIL,
             phone="1111111111",
-            password_hash=hash_password(DEMO_ADMIN_PASSWORD),
+            password_hash=hash_password(password),
             has_account=True,
             is_admin=True,
             email_verified_at=datetime.now(UTC),
@@ -142,7 +144,7 @@ def _ensure_demo_admin(*, db) -> User:
     admin.first_name = "Demo"
     admin.last_name = "Admin"
     admin.phone = admin.phone or "1111111111"
-    admin.password_hash = hash_password(DEMO_ADMIN_PASSWORD)
+    admin.password_hash = hash_password(password)
     admin.has_account = True
     admin.is_admin = True
     admin.email_verified_at = admin.email_verified_at or datetime.now(UTC)
@@ -162,9 +164,18 @@ def _upsert_discount_by_name(*, name: str, payload: dict, db) -> dict:
 
 
 def seed_demo_data() -> None:
+    app_env = get_app_env()
+    if app_env not in ALLOWED_SEED_ENVIRONMENTS:
+        raise RuntimeError(
+            f"seed_demo_data solo puede correr con APP_ENV in {sorted(ALLOWED_SEED_ENVIRONMENTS)!r}, "
+            f"pero APP_ENV='{app_env}'. Revisa backend/.env antes de continuar."
+        )
+
+    demo_admin_password = secrets.token_urlsafe(12)
+
     db = SessionLocal()
     try:
-        admin = _ensure_demo_admin(db=db)
+        admin = _ensure_demo_admin(db=db, password=demo_admin_password)
 
         categories: dict[str, Category] = {}
         products: dict[str, Product] = {}
@@ -231,7 +242,8 @@ def seed_demo_data() -> None:
         discount_count = db.query(Discount).count()
 
         print("Demo seed completed")
-        print(f"Admin: {admin.email} / {DEMO_ADMIN_PASSWORD}")
+        print(f"Admin: {admin.email} / {demo_admin_password}")
+        print("Guarda esta password ahora: no se vuelve a mostrar ni se guarda en el repo.")
         print(
             "Catalog:",
             f"{category_count} categories, {product_count} products, {variant_count} variants, {discount_count} discounts",

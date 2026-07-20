@@ -106,7 +106,6 @@ if ($SeedDemo) {
 
     Write-Step 'Loading demo seed data'
     & powershell -NoProfile -ExecutionPolicy Bypass -File $seedDemoScript
-    Write-Host 'Demo credentials: admin@demo.com / AdminDemo!123'
 }
 else {
     Write-Step 'Skipping demo seed (use -SeedDemo to load demo data)'

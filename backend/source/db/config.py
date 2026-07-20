@@ -17,6 +17,10 @@ def get_database_url() -> str:
     raise RuntimeError("DATABASE_URL is required")
 
 
+def get_app_env() -> str:
+    return os.getenv("APP_ENV", "local").strip().lower() or "local"
+
+
 def get_mercadopago_access_token() -> str:
     access_token = os.getenv("MERCADOPAGO_ACCESS_TOKEN", "").strip()
     if access_token:

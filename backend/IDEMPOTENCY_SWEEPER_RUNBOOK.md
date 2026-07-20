@@ -23,7 +23,8 @@ Purpose
 Artifacts included
 - backend/Dockerfile.sweeper  (image build)
 - backend/k8s_idempotency_sweeper_secret.yaml  (Secret template)
-- backend/k8s_idempotency_sweeper_sa.yaml      (ServiceAccount + Role + RoleBinding)
+- backend/k8s_idempotency_sweeper_sa.yaml      (ServiceAccount; sin Role/RoleBinding — el pod recibe
+  los secrets via envFrom en el CronJob, no via RBAC de la API de Secrets)
 - backend/k8s_idempotency_sweeper_cronjob.yaml (CronJob manifest)
 
 Pre-deploy checklist
