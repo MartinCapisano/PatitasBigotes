@@ -135,6 +135,32 @@ def _build_order_paid_event_payload(*, order: Order, payment: Payment) -> dict:
     }
 
 
+def _apply_order_paid_transition(
+    *,
+    order: Order,
+    payment: Payment,
+    now: datetime,
+    db: Session,
+) -> None:
+    """Single definition of what "the order got paid" means, shared by every payment method.
+
+    Only valid from `submitted`: callers must have ruled out cancelled/already-paid orders
+    (the provider path also decides on late-payment incidents before getting here).
+    The flush is intentional -- manual confirmation can be creating the Payment row in the
+    same call, so its id only exists after flushing and the event payload needs it.
+    """
+    consume_reservations_for_paid_order(order_id=order.id, db=db)
+    order.status = "paid"
+    if order.paid_at is None:
+        order.paid_at = now
+    db.flush()
+    publish_domain_event(
+        event_type="order_paid",
+        payload=_build_order_paid_event_payload(order=order, payment=payment),
+        db=db,
+    )
+
+
 def _assert_valid_payment_transition(current_status: str, next_status: str) -> None:
     allowed = ALLOWED_PAYMENT_TRANSITIONS.get(current_status, {current_status})
     if next_status not in allowed:
@@ -176,6 +202,36 @@ def _validate_active_pending_compatibility(
         raise ValueError(
             "there is already an active pending payment with a different currency"
         )
+
+
+def _resolve_payment_by_idempotency_key(
+    db: Session,
+    key: str,
+    *,
+    expected_order_id: int,
+    expected_method: str,
+    expected_user_id: int | None,
+) -> Payment | None:
+    """Replay lookup for an idempotency key, validating it belongs to the same request.
+
+    `expected_user_id=None` skips the ownership check for the flows that identify the
+    caller by capability token instead of by session (guest retry by public_status_token).
+    """
+    payment = (
+        db.query(Payment)
+        .options(joinedload(Payment.order))
+        .filter(Payment.idempotency_key == key)
+        .first()
+    )
+    if payment is None:
+        return None
+    if payment.order_id != expected_order_id:
+        raise ValueError("idempotency key already used for a different order")
+    if payment.method != expected_method:
+        raise ValueError("idempotency key already used for a different payment method")
+    if expected_user_id is not None and int(payment.order.user_id) != int(expected_user_id):
+        raise LookupError("order not found")
+    return payment
 
 
 def _build_bank_transfer_payload(
@@ -399,7 +455,6 @@ def apply_mercadopago_normalized_state(
             payment.paid_at = now
 
     if internal_status == "paid":
-        order_was_submitted = str(order.status) == "submitted"
         duplicate_paid_payment = (
             db.query(Payment.id)
             .filter(
@@ -430,20 +485,10 @@ def apply_mercadopago_normalized_state(
             raise ValueError("order can only be paid from submitted status")
 
         if order.status == "submitted":
-            consume_reservations_for_paid_order(order_id=order.id, db=db)
-            order.status = "paid"
-            if order.paid_at is None:
-                order.paid_at = now
+            _apply_order_paid_transition(order=order, payment=payment, now=now, db=db)
         elif order.status == "paid":
             if order.paid_at is None:
                 order.paid_at = now
-
-        if order_was_submitted and str(order.status) == "paid":
-            publish_domain_event(
-                event_type="order_paid",
-                payload=_build_order_paid_event_payload(order=order, payment=payment),
-                db=db,
-            )
     elif internal_status == "cancelled":
         # A provider-level cancellation should only close this payment attempt.
         # The order stays in its current state so the customer can retry payment.
@@ -481,23 +526,14 @@ def create_payment_for_order(
     if currency is not None and str(currency).strip().upper() != "ARS":
         raise ValueError("only ARS currency is supported")
 
-    existing_payment = (
-        db.query(Payment)
-        .options(joinedload(Payment.order))
-        .filter(Payment.idempotency_key == normalized_key)
-        .first()
+    existing_payment = _resolve_payment_by_idempotency_key(
+        db,
+        normalized_key,
+        expected_order_id=order_id,
+        expected_method=method,
+        expected_user_id=user_id,
     )
     if existing_payment is not None:
-        if existing_payment.order_id != order_id:
-            raise ValueError(
-                "idempotency key already used for a different order"
-            )
-        if existing_payment.method != method:
-            raise ValueError(
-                "idempotency key already used for a different payment method"
-            )
-        if user_id is not None and int(existing_payment.order.user_id) != int(user_id):
-            raise LookupError("order not found")
         return _payment_to_dict(existing_payment)
 
     order = (
@@ -642,49 +678,25 @@ def create_payment_for_order(
     return _payment_to_dict(payment)
 
 
-def create_retry_payment_for_order(
-    order_id: int,
-    method: str,
-    db: Session,
-    *,
-    user_id: int,
-    idempotency_key: str,
-    currency: str | None = None,
-    expires_in_minutes: int = 60,
-    initialize_provider: bool = True,
-) -> dict:
-    normalized_key = idempotency_key.strip()
-    if not normalized_key:
-        raise ValueError("idempotency_key is required")
-    existing_payment = (
-        db.query(Payment)
-        .options(joinedload(Payment.order))
-        .filter(Payment.idempotency_key == normalized_key)
-        .first()
-    )
-    if existing_payment is not None:
-        if existing_payment.order_id != order_id:
-            raise ValueError("idempotency key already used for a different order")
-        if existing_payment.method != method:
-            raise ValueError("idempotency key already used for a different payment method")
-        if int(existing_payment.order.user_id) != int(user_id):
-            raise LookupError("order not found")
-        return _payment_to_dict(existing_payment)
+def _guard_order_retryable(db: Session, *, order_id: int, user_id: int | None) -> Order:
+    """Expire stale reservations and lock the order, rejecting every non-retryable state.
 
+    `user_id=None` skips the ownership filter for the guest flow, where the caller already
+    proved possession of the payment's public_status_token.
+    """
     expire_active_reservations_for_order(
         order_id=order_id,
         now=datetime.now(UTC),
         db=db,
     )
 
-    order = (
-        db.query(Order)
-        .filter(Order.id == order_id, Order.user_id == user_id)
-        .with_for_update()
-        .first()
-    )
+    order_query = db.query(Order).filter(Order.id == order_id)
+    if user_id is not None:
+        order_query = order_query.filter(Order.user_id == user_id)
+    order = order_query.with_for_update().first()
     if order is None:
         raise LookupError("order not found")
+
     if str(order.status) == "cancelled":
         has_expired_reservation = (
             db.query(1)
@@ -704,20 +716,42 @@ def create_retry_payment_for_order(
         raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_NOT_SUBMITTED)
     if not list_active_reservations_for_order(order_id=int(order.id), db=db):
         raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_STOCK_RESERVATION_EXPIRED)
+    return order
 
-    latest_attempt = (
+
+def _latest_attempt_query(db: Session, *, order_id: int, method: str):
+    """Newest payment attempt for (order, method), locked for update.
+
+    The row lock is what makes the retryable-state check below safe: without it two
+    concurrent retries for the same order both read the same cancelled attempt, both
+    conclude the retry is allowed, and the order ends up with two pending payments.
+    Locking here serialises them, so the loser re-reads the attempt the winner already
+    cancelled and gets RETRY_NOT_ALLOWED_PAYMENT_STATE_CHANGED.
+
+    SQLite ignores FOR UPDATE, so the tests assert the clause by compiling this statement
+    against the PostgreSQL dialect rather than by racing two sessions.
+    """
+    return (
         db.query(Payment)
-        .join(Order, Payment.order_id == Order.id)
         .filter(
             Payment.order_id == order_id,
             Payment.method == method,
-            Order.user_id == user_id,
         )
+        .with_for_update()
         .order_by(Payment.created_at.desc(), Payment.id.desc())
-        .first()
     )
+
+
+def _guard_retryable_latest_attempt(db: Session, *, order_id: int, method: str) -> None:
+    """Reject the retry unless the last attempt for this method is in a retryable state.
+
+    A pending attempt whose provider checkout never got set up counts as retryable and is
+    closed here, so the new attempt is not blocked by an unusable one.
+    """
+    latest_attempt = _latest_attempt_query(db, order_id=order_id, method=method).first()
     if latest_attempt is None:
         raise ValueError("no previous payment attempt found for this method")
+
     latest_status = str(latest_attempt.status)
     latest_provider_status = str(latest_attempt.provider_status or "").strip().lower() or None
     is_setup_failed_pending = (
@@ -729,6 +763,34 @@ def create_retry_payment_for_order(
     if is_setup_failed_pending:
         latest_attempt.status = "cancelled"
         db.flush()
+
+
+def create_retry_payment_for_order(
+    order_id: int,
+    method: str,
+    db: Session,
+    *,
+    user_id: int,
+    idempotency_key: str,
+    currency: str | None = None,
+    expires_in_minutes: int = 60,
+    initialize_provider: bool = True,
+) -> dict:
+    normalized_key = idempotency_key.strip()
+    if not normalized_key:
+        raise ValueError("idempotency_key is required")
+    existing_payment = _resolve_payment_by_idempotency_key(
+        db,
+        normalized_key,
+        expected_order_id=order_id,
+        expected_method=method,
+        expected_user_id=user_id,
+    )
+    if existing_payment is not None:
+        return _payment_to_dict(existing_payment)
+
+    order = _guard_order_retryable(db, order_id=order_id, user_id=user_id)
+    _guard_retryable_latest_attempt(db, order_id=int(order.id), method=method)
 
     return create_payment_for_order(
         order_id=order_id,
@@ -770,77 +832,23 @@ def create_retry_payment_for_payment_token(
     )
     if token_payment is None:
         raise LookupError("payment not found")
-    existing_payment = (
-        db.query(Payment)
-        .filter(Payment.idempotency_key == normalized_key)
-        .first()
+    existing_payment = _resolve_payment_by_idempotency_key(
+        db,
+        normalized_key,
+        expected_order_id=int(token_payment.order_id),
+        expected_method="mercadopago",
+        # The public status token is the capability here; there is no session user to match.
+        expected_user_id=None,
     )
     if existing_payment is not None:
-        if existing_payment.order_id != int(token_payment.order_id):
-            raise ValueError("idempotency key already used for a different order")
-        if existing_payment.method != "mercadopago":
-            raise ValueError("idempotency key already used for a different payment method")
         return _payment_to_dict(existing_payment)
 
-    order_id = int(token_payment.order_id)
-    expire_active_reservations_for_order(
-        order_id=order_id,
-        now=datetime.now(UTC),
-        db=db,
+    order = _guard_order_retryable(
+        db,
+        order_id=int(token_payment.order_id),
+        user_id=None,
     )
-
-    order = (
-        db.query(Order)
-        .filter(Order.id == order_id)
-        .with_for_update()
-        .first()
-    )
-    if order is None:
-        raise LookupError("order not found")
-    if str(order.status) == "cancelled":
-        has_expired_reservation = (
-            db.query(1)
-            .filter(
-                StockReservation.order_id == int(order.id),
-                StockReservation.reason == "reservation_expired",
-            )
-            .first()
-            is not None
-        )
-        if has_expired_reservation:
-            raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_CANCELLED_STOCK_EXPIRED)
-        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_CANCELLED)
-    if str(order.status) == "paid":
-        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_ALREADY_PAID)
-    if str(order.status) != "submitted":
-        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_NOT_SUBMITTED)
-    if not list_active_reservations_for_order(order_id=int(order.id), db=db):
-        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_STOCK_RESERVATION_EXPIRED)
-
-    latest_attempt = (
-        db.query(Payment)
-        .filter(
-            Payment.order_id == int(order.id),
-            Payment.method == "mercadopago",
-        )
-        .with_for_update()
-        .order_by(Payment.created_at.desc(), Payment.id.desc())
-        .first()
-    )
-    if latest_attempt is None:
-        raise ValueError("no previous payment attempt found for this method")
-
-    latest_status = str(latest_attempt.status)
-    latest_provider_status = str(latest_attempt.provider_status or "").strip().lower() or None
-    is_setup_failed_pending = (
-        latest_status == "pending"
-        and latest_provider_status == PAYMENT_PROVIDER_SETUP_FAILED
-    )
-    if latest_status not in RETRYABLE_PAYMENT_STATUSES and not is_setup_failed_pending:
-        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_PAYMENT_STATE_CHANGED)
-    if is_setup_failed_pending:
-        latest_attempt.status = "cancelled"
-        db.flush()
+    _guard_retryable_latest_attempt(db, order_id=int(order.id), method="mercadopago")
 
     return create_payment_for_order(
         order_id=int(order.id),
@@ -989,8 +997,6 @@ def confirm_manual_payment_for_order(
     if pending_payment is None and not allow_create_if_missing:
         raise ValueError("pending payment not found for order and method")
 
-    consume_reservations_for_paid_order(order_id=order.id, db=db)
-
     now = datetime.now(UTC)
     payment = pending_payment or existing_paid_by_ref
     if payment is None:
@@ -1032,16 +1038,7 @@ def confirm_manual_payment_for_order(
         }
     )
 
-    order.status = "paid"
-    if order.paid_at is None:
-        order.paid_at = now
-
-    db.flush()
-    publish_domain_event(
-        event_type="order_paid",
-        payload=_build_order_paid_event_payload(order=order, payment=payment),
-        db=db,
-    )
+    _apply_order_paid_transition(order=order, payment=payment, now=now, db=db)
     db.refresh(payment)
     return _payment_to_dict(payment)
 

@@ -1,0 +1,33 @@
+flowchart TB
+    subgraph GH["GitHub"]
+        REPO["Repositorio main"]
+        CI["Actions: CI<br/>backend-tests · contract-schema · frontend-tests"]
+        CRON1["Actions: Maintenance ping<br/>cron */13 * * * *"]
+        CRON2["Actions: DB backup<br/>cron 0 4 * * * · pg_dump → artifact 30d"]
+    end
+
+    subgraph VERCEL["Vercel"]
+        SPA["Build estático Vite<br/>rewrites /* → /index.html"]
+    end
+
+    subgraph RENDER["Render — plan free"]
+        API["uvicorn main:app<br/>build: pip install && alembic upgrade head<br/>healthCheckPath /health<br/>💤 duerme a los 15 min"]
+    end
+
+    subgraph SUPA["Supabase — plan free"]
+        PG[("PostgreSQL<br/>⏸ se pausa a los 7 días")]
+    end
+
+    MP["Mercado Pago"]
+    SMTP["SMTP externo"]
+
+    REPO --> CI
+    REPO -->|deploy| SPA
+    REPO -->|deploy| API
+    SPA -->|"VITE_API_BASE_URL<br/>timeout 60s por cold start"| API
+    API --> PG
+    API <-->|"preferencias · refunds · lookups"| MP
+    MP -->|"webhook firmado"| API
+    API --> SMTP
+    CRON1 -->|"POST /internal/maintenance/run<br/>Bearer MAINTENANCE_RUN_TOKEN"| API
+    CRON2 --> PG

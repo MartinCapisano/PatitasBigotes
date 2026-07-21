@@ -1,0 +1,37 @@
+sequenceDiagram
+    autonumber
+    actor A as Administrador
+    participant FE as RegisterPaymentSection
+    participant S1 as GET /users/search
+    participant S2 as GET /admin/payments?status=pending
+    participant API as POST /admin/orders/{id}/payments/manual
+    participant PS as payment_s
+    participant SR as stock_reservations_s
+    participant PC as post_commit_actions_s
+    participant DB as PostgreSQL
+
+    A->>FE: ve la transferencia acreditada en el banco
+    FE->>S1: busca al cliente
+    FE->>S2: lista pagos pendientes
+    FE->>FE: filtra en el cliente por usuario ⚠️
+    A->>FE: selecciona el pago, carga monto y referencia
+    FE->>FE: normalizePaymentAmountsForOrder<br/>⚠️ heurística: prueba centavos y pesos
+    A->>FE: confirma en el modal
+    FE->>API: POST {method:"bank_transfer", paid_amount, payment_ref}
+    API->>PS: confirm_manual_payment_for_order(allow_create_if_missing=False)
+    PS->>DB: SELECT orders FOR UPDATE
+    PS->>PS: valida paid_amount == total_amount exacto
+    PS->>DB: SELECT payments WHERE status=pending AND method=bank_transfer FOR UPDATE
+    alt no hay pago pendiente de ese método
+        PS-->>API: ValueError "pending payment not found for order and method" → 400
+        Note over API: ⚠️ si el cliente eligió Mercado Pago,<br/>este endpoint NO sirve
+    end
+    PS->>SR: consume_reservations_for_paid_order
+    SR->>DB: UPDATE product_variants SET stock = stock - qty
+    PS->>DB: UPDATE payments SET status=paid, external_ref, provider_status='manual_confirmed'
+    PS->>DB: UPDATE orders SET status=paid, paid_at
+    PS->>DB: publish order_paid → notifications + encola email
+    API->>DB: db.commit()   (patrón manual, no get_db_transactional)
+    API->>PC: dispatch_post_commit_actions("admin_register_manual_payment")
+    PC->>PC: send_order_paid_email → 📧 al cliente
+    API-->>FE: {data:{order, payment}}

@@ -1,0 +1,10 @@
+flowchart LR
+    A["push a main<br/>o pull request"] --> B["backend-tests<br/>Python 3.12<br/>ruff check + pytest"]
+    A --> C["contract-schema<br/>export_openapi.py<br/>→ artifact openapi-schema"]
+    C --> D["frontend-tests<br/>needs: contract-schema<br/>Node de .nvmrc"]
+    D --> D1["npm ci"]
+    D1 --> D2["npm run gen:api-types"]
+    D2 --> D3["git diff --exit-code<br/>src/types/api.generated.ts"]
+    D3 --> D4["npm run lint"]
+    D4 --> D5["npm run build (tsc -b)"]
+    D5 --> D6["npm test"]

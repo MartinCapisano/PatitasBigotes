@@ -1,0 +1,85 @@
+sequenceDiagram
+    autonumber
+    actor U as Invitado
+    participant FE as CheckoutPage / useCheckoutPage
+    participant API as POST /checkout/guest
+    participant ID as idempotency_s
+    participant AB as anti_abuse_s
+    participant OS as orders_s
+    participant US as users_s
+    participant SR as stock_reservations_s
+    participant PS as payment_s
+    participant MPN as mercadopago_normalization_s
+    participant MP as Mercado Pago
+    participant DE as domain_events_s
+    participant DB as PostgreSQL
+
+    U->>FE: datos de contacto + método = mercadopago
+    FE->>FE: buildIdempotencyKey("guest_checkout")
+    FE->>API: POST {customer, items, website:"", payment_method}<br/>Idempotency-Key: guest_checkout_uuid
+    Note over API: CSRF por Origin · Pydantic (honeypot website max_length=0)
+
+    API->>ID: prune_expired_records(now)
+    API->>ID: acquire_record(scope="checkout_guest:email", key, hash(payload))
+    ID->>DB: INSERT idempotency_records (status=processing) en SAVEPOINT
+    alt IntegrityError y hash distinto
+        API-->>FE: 409 "idempotency key already used with a different payload"
+    else IntegrityError y status=completed
+        API-->>FE: 200 replay del payload guardado
+    else IntegrityError y status=processing
+        API-->>FE: 409 "idempotent request already in progress"
+    else IntegrityError y status=failed
+        Note over API: RN-IDEM-03: RECUPERACIÓN — reintenta<br/>solo la inicialización del checkout
+    end
+
+    API->>AB: enforce_public_guest_checkout_limits(ip, email, website)
+    AB-->>API: 400 si honeypot · 429 si supera límites
+
+    API->>OS: create_manual_submitted_order(customer, items)
+    OS->>DB: SELECT users WHERE email AND has_account=true
+    alt existe cuenta registrada
+        OS-->>API: RegisteredAccountCheckoutConflictError → 409
+        FE->>U: navigate("/login", state:{from:"/checkout", checkoutEmail, reason})
+    end
+    OS->>US: get_or_create_user_by_contact(...)
+    US->>DB: INSERT users (has_account=false, password_hash="!")
+    Note right of US: RN-AUTH-02: hash centinela, no puede loguearse
+    OS->>DB: INSERT orders (status=draft)
+    OS->>DB: INSERT order_items (precio de lista)
+    OS->>OS: _recalculate_order_total(force=True) → aplica mejor descuento
+    OS->>SR: reserve_stock_for_submitted_order(order_id)
+    SR->>DB: SELECT product_variants FOR UPDATE + SUM(reservas activas)
+    alt falta stock para algún ítem
+        SR-->>API: ValueError "insufficient stock for variant N" → 400 + ROLLBACK
+    end
+    SR->>DB: INSERT stock_reservations (TTL 42 h)
+    OS->>DB: UPDATE orders SET pricing_frozen=true, submitted_at, status=submitted
+    OS->>DE: publish_domain_event("order_submitted")
+    DE->>DB: INSERT notifications (role_target=admin, dedupe_key)
+
+    API->>PS: create_payment_for_order(method=mercadopago, initialize_provider=False)
+    PS->>DB: INSERT payments (status=pending, public_status_token, idempotency_key)
+    API->>DB: db.flush()
+    API->>PS: _initialize_mercadopago_payment_or_raise()
+    PS->>MPN: _build_mercadopago_payload(...)
+    MPN->>MP: POST /checkout/preferences<br/>(items, back_urls con public_status_token,<br/>notification_url, expires, metadata)
+    alt MP falla (timeout / 5xx / credenciales)
+        MPN-->>PS: PaymentProviderError
+        PS->>DB: UPDATE payments SET provider_status='setup_failed' + COMMIT
+        API->>ID: mark_record_failed({detail, order_id, payment_id})
+        API->>DB: COMMIT
+        API-->>FE: 502 "no se pudo inicializar el checkout de Mercado Pago"
+        Note over FE: Reintentar con la MISMA clave activa la recuperación
+    end
+    MP-->>MPN: {id, init_point, sandbox_init_point}
+    MPN->>MPN: valida HTTPS + host ∈ allowlist
+    MPN-->>PS: (external_ref, provider_payload con checkout_url)
+    PS->>DB: UPDATE payments SET preference_id, external_ref, provider_payload
+    API->>ID: mark_record_completed(response_payload)
+    API->>DB: COMMIT
+    API-->>FE: 201 {data:{customer, order, payment}}
+
+    FE->>FE: getMercadoPagoCheckoutUrl(payment)
+    FE->>FE: validateMercadoPagoCheckoutUrl (HTTPS + host) 🔒 2ª validación
+    FE->>FE: clearCart()
+    FE->>U: window.location.assign(checkout_url)

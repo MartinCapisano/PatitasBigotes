@@ -1,0 +1,30 @@
+sequenceDiagram
+    autonumber
+    actor U as Usuario
+    participant ML as Cliente de correo
+    participant FE as VerifyEmailPage
+    participant API as POST /auth/email/verify/confirm
+    participant AT as auth_tokens_s
+    participant DB as PostgreSQL
+
+    ML->>U: enlace APP_BASE_URL/verify-email?token=xxx
+    U->>FE: abre el enlace
+    FE->>FE: lee ?token= de la URL
+    FE->>API: POST {token}
+    API->>AT: consume_one_time_token(token, "email_verify")
+    AT->>AT: hash_token = SHA-256(token)
+    AT->>DB: SELECT auth_action_tokens WHERE token_hash AND action FOR UPDATE
+    alt no existe
+        AT-->>API: ValueError "invalid token" → 400
+    else used_at IS NOT NULL
+        AT-->>API: ValueError "token already used" → 400
+    else expires_at <= now
+        AT-->>API: ValueError "token expired" → 400
+    end
+    AT->>DB: SELECT users WHERE id FOR UPDATE
+    AT->>DB: UPDATE auth_action_tokens SET used_at = now
+    API->>DB: UPDATE users SET email_verified_at = now
+    API->>DB: COMMIT
+    API-->>FE: {data:{verified:true}}
+    FE->>FE: clearPendingVerificationEmail()
+    FE->>U: mensaje de éxito + link a /login

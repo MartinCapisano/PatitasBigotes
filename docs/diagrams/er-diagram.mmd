@@ -1,0 +1,275 @@
+erDiagram
+    CATEGORIES  ||--o{ PRODUCTS          : "clasifica"
+    CATEGORIES  ||--o{ DISCOUNTS         : "scope=category"
+    PRODUCTS    ||--o{ PRODUCT_VARIANTS  : "se vende como"
+    PRODUCTS    ||--o{ ORDER_ITEMS       : "aparece en"
+    PRODUCTS    ||--o{ DISCOUNT_PRODUCTS : "product_list"
+    PRODUCTS    ||--o{ DISCOUNTS         : "scope=product"
+    PRODUCT_VARIANTS ||--o{ ORDER_ITEMS       : "es el SKU vendido"
+    PRODUCT_VARIANTS ||--o{ STOCK_RESERVATIONS: "se reserva"
+
+    USERS       ||--o{ ORDERS             : "compra"
+    USERS       ||--o{ TURNS              : "solicita"
+    USERS       ||--o| USER_REFRESH_SESSIONS : "tiene 1 sesión"
+    USERS       ||--o{ AUTH_ACTION_TOKENS : "genera"
+    USERS       ||--o{ NOTIFICATIONS      : "recibe"
+    USERS       ||--o{ PAYMENT_REFUNDS    : "solicita (admin)"
+    USERS       ||--o{ PAYMENT_INCIDENTS  : "resuelve (admin)"
+
+    ORDERS      ||--o{ ORDER_ITEMS        : "contiene"
+    ORDERS      ||--o{ PAYMENTS           : "se cobra con"
+    ORDERS      ||--o{ STOCK_RESERVATIONS : "bloquea stock"
+    ORDERS      ||--o{ PAYMENT_INCIDENTS  : "puede generar"
+    ORDERS      ||--o{ PAYMENT_REFUNDS    : "puede generar"
+    ORDER_ITEMS ||--o{ STOCK_RESERVATIONS : "reserva 1 activa"
+    ORDER_ITEMS }o--o| DISCOUNTS          : "aplicó"
+
+    PAYMENTS    ||--o{ PAYMENT_INCIDENTS  : "dispara"
+    PAYMENTS    ||--o{ PAYMENT_REFUNDS    : "se reembolsa"
+    PAYMENT_INCIDENTS ||--o{ PAYMENT_REFUNDS : "justifica"
+
+    DISCOUNTS   ||--o{ DISCOUNT_PRODUCTS  : "lista"
+
+    CATEGORIES {
+        int    id PK
+        string name UK "NOT NULL, UNIQUE"
+    }
+
+    PRODUCTS {
+        int    id PK
+        string name        "NOT NULL"
+        string description "NULL"
+        string img_url     "NULL — URL externa, no hay uploads"
+        int    category_id FK "NOT NULL, ondelete RESTRICT"
+    }
+
+    PRODUCT_VARIANTS {
+        int     id PK
+        int     product_id FK "NOT NULL, ondelete CASCADE"
+        string  sku UK   "NOT NULL, UNIQUE — identificador comercial"
+        string  size     "NULL"
+        string  color    "NULL"
+        string  img_url  "NULL"
+        int     price    "NOT NULL, CHECK >= 0 — centavos"
+        int     stock    "NOT NULL, default 0 — stock FÍSICO"
+        boolean is_active "NOT NULL, default true"
+    }
+
+    USERS {
+        int      id PK
+        string   first_name "NOT NULL"
+        string   last_name  "NOT NULL"
+        string   email UK   "NOT NULL, UNIQUE, index"
+        string   dni        "NULL, index"
+        string   phone      "NULL"
+        string   password_hash "NOT NULL — '!' para invitados"
+        boolean  has_account   "NOT NULL, default false"
+        int      token_version "NOT NULL, default 1"
+        boolean  is_admin      "NOT NULL, default false"
+        datetime email_verified_at      "NULL"
+        datetime email_verification_sent_at "NULL"
+        datetime created_at "NOT NULL"
+    }
+
+    ORDERS {
+        int      id PK
+        int      user_id FK "NOT NULL, ondelete RESTRICT, index"
+        string   status     "draft|submitted|paid|cancelled"
+        string   currency   "default ARS"
+        int      subtotal        "CHECK >= 0"
+        int      discount_total  "CHECK >= 0"
+        int      total_amount    "CHECK >= 0"
+        boolean  pricing_frozen  "NOT NULL, default false"
+        datetime pricing_frozen_at "NULL"
+        datetime submitted_at "NULL"
+        datetime paid_at      "NULL"
+        datetime cancelled_at "NULL"
+        datetime created_at
+        datetime updated_at "onupdate"
+    }
+
+    ORDER_ITEMS {
+        int id PK
+        int order_id FK   "NOT NULL, ondelete CASCADE, index"
+        int product_id FK "NOT NULL, ondelete RESTRICT, index"
+        int variant_id FK "NOT NULL, ondelete RESTRICT, index"
+        int quantity        "CHECK > 0"
+        int unit_price      "CHECK >= 0 — precio de lista congelado"
+        int discount_id FK  "NULL, ondelete SET NULL, index"
+        int discount_amount    "CHECK >= 0 — por unidad"
+        int final_unit_price   "CHECK >= 0"
+        int line_total         "CHECK >= 0"
+    }
+
+    PAYMENTS {
+        int      id PK
+        int      order_id FK "NOT NULL, ondelete CASCADE, index"
+        string   method  "bank_transfer|mercadopago|cash"
+        string   status  "pending|paid|cancelled|expired"
+        int      amount  "CHECK >= 0"
+        int      change_amount "NULL, CHECK >= 0 — vuelto en efectivo"
+        string   currency "default ARS"
+        string   idempotency_key UK "NOT NULL, UNIQUE"
+        string   external_ref  "NULL, index — mp-order-N-pay-M"
+        string   preference_id "NULL, index"
+        string   public_status_token UK "NOT NULL, UNIQUE — 32 bytes urlsafe"
+        string   provider_status  "NULL"
+        string   provider_payload "NULL — JSON serializado como texto"
+        datetime expires_at "NULL — NULL para cash"
+        datetime paid_at    "NULL"
+        datetime created_at
+        datetime updated_at "onupdate"
+    }
+
+    STOCK_RESERVATIONS {
+        int      id PK
+        int      order_id FK      "NOT NULL, ondelete CASCADE, index"
+        int      order_item_id FK "NOT NULL, ondelete CASCADE, index"
+        int      variant_id FK    "NOT NULL, ondelete RESTRICT, index"
+        int      quantity  "CHECK > 0"
+        string   status    "active|consumed|released|expired"
+        int      reactivation_count "NOT NULL, default 0 — máx 1"
+        datetime expires_at "NOT NULL"
+        datetime consumed_at "NULL"
+        datetime released_at "NULL"
+        string   reason     "NULL — order_cancelled|reservation_expired|order_paid"
+        datetime created_at
+        datetime updated_at "onupdate"
+    }
+
+    DISCOUNTS {
+        int      id PK
+        string   name  "NOT NULL"
+        string   type  "percent|fixed"
+        int      value "CHECK > 0 — 1..100 si percent, centavos si fixed"
+        string   scope "all|category|product|product_list"
+        int      category_id FK "NULL, ondelete SET NULL, index"
+        int      product_id FK  "NULL, ondelete SET NULL, index"
+        boolean  is_active "NOT NULL, default true"
+        datetime starts_at "NULL"
+        datetime ends_at   "NULL"
+        datetime created_at
+        datetime updated_at "onupdate"
+    }
+
+    DISCOUNT_PRODUCTS {
+        int discount_id PK_FK "ondelete CASCADE"
+        int product_id  PK_FK "ondelete CASCADE"
+    }
+
+    PAYMENT_INCIDENTS {
+        int      id PK
+        int      order_id FK   "NOT NULL, ondelete CASCADE, index"
+        int      payment_id FK "NOT NULL, ondelete CASCADE, index"
+        string   type   "late_paid_duplicate"
+        string   status "pending_review|resolved_refunded|resolved_no_refund"
+        text     reason "NULL"
+        datetime created_at
+        datetime resolved_at "NULL"
+        int      resolved_by_user_id FK "NULL, ondelete SET NULL, index"
+    }
+
+    PAYMENT_REFUNDS {
+        int      id PK
+        int      order_id FK    "NOT NULL, ondelete CASCADE, index"
+        int      payment_id FK  "NOT NULL, ondelete CASCADE, index"
+        int      incident_id FK "NOT NULL, ondelete CASCADE, index"
+        int      amount   "CHECK > 0"
+        string   currency "default ARS"
+        string   provider "default mercadopago"
+        string   provider_refund_id "NULL, index"
+        string   status   "requested|approved|failed"
+        string   idempotency_key UK "NOT NULL, UNIQUE"
+        int      requested_by_user_id FK "NOT NULL, ondelete RESTRICT, index"
+        datetime requested_at
+        datetime updated_at "onupdate"
+        text     provider_payload "NULL"
+    }
+
+    WEBHOOK_EVENTS {
+        int      id PK
+        string   provider "NOT NULL, index"
+        string   event_key UK "NOT NULL, UNIQUE, index"
+        string   status "processing|processed|failed|dead_letter"
+        text     payload "NULL — JSON crudo del proveedor"
+        datetime received_at
+        datetime processed_at "NULL"
+        text     last_error "NULL — truncado a 2000 chars"
+        int      attempt_count "CHECK >= 0"
+        datetime next_retry_at "NULL"
+        datetime dead_letter_at "NULL"
+    }
+
+    IDEMPOTENCY_RECORDS {
+        int      id PK
+        string   scope "NOT NULL, index"
+        string   idempotency_key "NOT NULL, index"
+        string   request_hash "NOT NULL — SHA-256 del payload canónico"
+        text     response_payload "NOT NULL"
+        string   status "processing|completed|failed"
+        datetime created_at
+        datetime expires_at "NOT NULL, index — TTL 24 h"
+    }
+
+    USER_REFRESH_SESSIONS {
+        int      id PK
+        int      user_id FK UK "NOT NULL, UNIQUE, ondelete CASCADE"
+        string   token_hash "NOT NULL — SHA-256 del refresh token"
+        string   token_jti  "NOT NULL, index"
+        string   claim_sub
+        string   claim_type
+        string   claim_iss
+        datetime claim_iat
+        datetime claim_exp
+        datetime expires_at "NOT NULL, index"
+        datetime created_at
+        datetime updated_at "onupdate"
+    }
+
+    AUTH_ACTION_TOKENS {
+        int      id PK
+        int      user_id FK "NOT NULL, ondelete CASCADE, index"
+        string   action "email_verify|password_reset"
+        string   token_hash UK "NOT NULL — SHA-256 del token crudo"
+        datetime expires_at "NOT NULL, index"
+        datetime used_at "NULL, index"
+        string   requested_ip "NULL"
+        text     meta "NULL — JSON"
+        datetime created_at
+    }
+
+    AUTH_LOGIN_THROTTLES {
+        int      id PK
+        string   scope "NOT NULL, index — email|ip|public_signup_ip|..."
+        string   key   "NOT NULL, index"
+        int      failed_count "CHECK >= 0"
+        datetime window_started_at "NOT NULL"
+        datetime blocked_until "NULL, index"
+        datetime updated_at
+    }
+
+    TURNS {
+        int      id PK
+        int      user_id FK "NOT NULL, ondelete RESTRICT, index"
+        string   status "pending|confirmed|cancelled"
+        datetime scheduled_at "NULL"
+        string   notes "NULL"
+        datetime created_at
+        datetime updated_at "onupdate"
+    }
+
+    NOTIFICATIONS {
+        int      id PK
+        int      user_id FK "NULL, ondelete CASCADE, index"
+        string   role_target "NULL, index — 'admin' o NULL"
+        string   event_type "NOT NULL, index"
+        string   title "NOT NULL"
+        text     message "NOT NULL"
+        int      order_id FK    "NULL, ondelete SET NULL, index"
+        int      payment_id FK  "NULL, ondelete SET NULL, index"
+        int      incident_id FK "NULL, ondelete SET NULL, index"
+        string   dedupe_key UK "NULL, UNIQUE, index"
+        boolean  is_read "NOT NULL, default false, index"
+        datetime created_at
+        datetime read_at "NULL"
+    }

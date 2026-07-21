@@ -1,0 +1,55 @@
+sequenceDiagram
+    autonumber
+    participant SYS as Webhook / reconciliación
+    participant RF as refund_s
+    participant DE as domain_events_s
+    actor A as Administrador
+    participant FE as PaymentIncidentsSection
+    participant API as POST /admin/payment-incidents/{id}/resolve-refund
+    participant MC as mercadopago_client
+    participant MP as Mercado Pago
+    participant DB as PostgreSQL
+
+    SYS->>RF: create_late_paid_incident_if_needed(order, payment, reason)
+    RF->>DB: SELECT incidencia pending_review existente
+    alt ya existe
+        RF-->>SYS: la devuelve (idempotente)
+    end
+    RF->>DB: INSERT payment_incidents (type=late_paid_duplicate, status=pending_review)
+    RF->>DE: publish possible_refund_detected
+    DE->>DB: INSERT notifications (dedupe_key=admin:incident:{id}:possible_refund)
+
+    A->>FE: ve la campana con el aviso → sección "Incidencias de pago"
+    FE->>FE: GET /admin/payment-incidents?status=pending_review&limit=200
+    A->>FE: decide reembolsar; escribe el motivo (obligatorio)
+    FE->>API: POST {amount?, reason}
+    API->>RF: create_mercadopago_refund(...)
+    RF->>DB: SELECT payment_incidents FOR UPDATE
+    alt ya resuelta con reembolso
+        RF-->>API: devuelve el refund existente (idempotente)
+    end
+    RF->>RF: valida método=mercadopago, estado=paid, amount ≤ payment.amount
+    RF->>DB: SELECT refund activo del pago
+    alt ya hay uno activo
+        RF-->>API: ValueError "payment already has an active refund" → 400
+    end
+    RF->>DB: INSERT payment_refunds (status=requested,<br/>idempotency_key=sha256(incident:payment:amount))
+    RF->>RF: _extract_provider_payment_id(payment.provider_payload)
+    alt no encontrado
+        RF-->>API: ValueError "missing mercadopago provider payment id" → 400
+    end
+    RF->>MC: create_refund(payment_id, amount?, idempotency_key)
+    MC->>MP: POST /v1/payments/{id}/refunds<br/>x-idempotency-key · amount en decimal
+    alt error del proveedor
+        MP-->>MC: 4xx/5xx/timeout
+        RF->>DB: UPDATE payment_refunds SET status=failed + payload
+        RF->>DB: COMMIT   ⚠️ dentro del except, deliberado
+        RF-->>API: re-lanza → 502/503/504
+        Note over FE: la incidencia sigue pending_review, se puede reintentar
+    end
+    MP-->>MC: {id, status, ...}
+    RF->>DB: UPDATE payment_refunds SET status=approved, provider_refund_id
+    RF->>DB: UPDATE payment_incidents SET status=resolved_refunded,<br/>reason, resolved_at, resolved_by_user_id
+    API->>DB: COMMIT
+    API-->>FE: 201 {data:{incident, refund}}
+    FE->>A: confirmación

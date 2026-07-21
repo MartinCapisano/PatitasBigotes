@@ -1,0 +1,36 @@
+sequenceDiagram
+    autonumber
+    participant CRON as GitHub Actions */13 min
+    participant API as POST /internal/maintenance/run
+    participant MS as maintenance_s
+    participant JOB as reconcile_pending_payments_job
+    participant MC as mercadopago_client
+    participant MP as Mercado Pago
+    participant PS as payment_s
+    participant PC as post_commit_actions_s
+    participant DB as PostgreSQL
+
+    CRON->>API: POST con Bearer MAINTENANCE_RUN_TOKEN
+    API->>API: secrets.compare_digest 🔒
+    API->>MS: run_all_maintenance()
+    MS->>MS: threading.Lock (no reentrante)
+    MS->>JOB: run_once(batch_size=50, max_age_hours=24, min_age_minutes=15)
+    JOB->>DB: SELECT payments WHERE method=mercadopago AND status=pending<br/>AND external_ref IS NOT NULL<br/>AND created_at ∈ [now-24h, now-15min]<br/>AND orders.status ∈ (submitted, paid)  LIMIT 50
+    Note over JOB: min_age_minutes evita pisar pagos recién creados<br/>que aún están en el flujo del usuario
+    loop por cada pago candidato
+        JOB->>MC: find_latest_payment_by_external_reference(external_ref)
+        MC->>MP: POST /v1/payments/search
+        alt no encontrado
+            JOB->>JOB: metrics.provider_not_found += 1
+        else encontrado
+            JOB->>PS: apply_mercadopago_normalized_state(source="batch_reconcile")
+            Note over PS: mismo camino que el webhook:<br/>consume stock, orden → paid, evento order_paid
+            JOB->>DB: COMMIT (por ítem)
+            JOB->>PC: dispatch_post_commit_actions → email al cliente
+            JOB->>JOB: metrics.reconciled += 1
+        end
+    end
+    JOB-->>MS: {selected, reconciled, provider_not_found, failed}
+    MS->>MS: ...los otros 5 jobs
+    MS-->>API: {status: ok|partial, jobs:{...}}
+    API-->>CRON: 200

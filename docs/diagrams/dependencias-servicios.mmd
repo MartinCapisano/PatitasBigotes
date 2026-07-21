@@ -1,0 +1,43 @@
+flowchart LR
+    orders_s --> discount_s
+    orders_s --> payment_s
+    orders_s --> products_s
+    orders_s --> stock_reservations_s
+    orders_s --> domain_events_s
+    orders_s --> post_commit_actions_s
+    orders_s --> users_s
+
+    payment_s --> refund_s
+    payment_s --> domain_events_s
+    payment_s --> mercadopago_normalization_s
+    payment_s --> stock_reservations_s
+
+    refund_s --> mercadopago_client
+    refund_s --> domain_events_s
+
+    mercadopago_normalization_s --> mercadopago_client
+    mercadopago_normalization_s --> money_s
+
+    mercadopago_client -.->|"import diferido<br/>dentro de la función"| payment_s
+    mercadopago_client -.->|"import diferido"| webhook_events_s
+    mercadopago_client -.->|"import diferido"| mercadopago_normalization_s
+
+    webhook_events_s --> payment_s
+    webhook_events_s -.->|"import diferido"| mercadopago_client
+
+    payment_admin_queries_s --> payment_s
+    payment_admin_queries_s --> refund_s
+
+    discount_s --> money_s
+    products_s --> discount_s
+    stock_reservations_s --> domain_events_s
+    domain_events_s --> notifications_s
+    domain_events_s --> post_commit_actions_s
+    post_commit_actions_s --> email_s
+    auth_s --> auth_security_s
+    auth_s --> auth_tokens_s
+    auth_s --> email_s
+    auth_rate_limit_s --> anti_abuse_s
+    users_s --> auth_security_s
+
+    classDef cycle stroke-dasharray: 5 5

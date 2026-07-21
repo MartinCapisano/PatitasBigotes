@@ -1,0 +1,27 @@
+flowchart TD
+    A["POST /checkout/guest"] --> B["prune_expired_records()"]
+    B --> C["acquire_record(scope=checkout_guest:email, key, hash)"]
+    C --> D{"¿Se creó el registro?"}
+    D -->|No| E{"¿request_hash coincide?"}
+    E -->|No| E1["409 idempotency key already used<br/>with a different payload"]
+    E -->|Sí| F{"status del registro"}
+    F -->|completed| F1["200 replay del payload guardado"]
+    F -->|processing| F2["409 idempotent request already in progress"]
+    F -->|failed| G["RECUPERACIÓN: reintenta inicializar<br/>el checkout de MP con el payment_id guardado"]
+    G -->|ok| G1["mark_completed → 200 data"]
+    G -->|falla| G2["mark_failed → 502"]
+    D -->|Sí| H["enforce_public_guest_checkout_limits<br/>(honeypot + IP + email + intervalo)"]
+    H --> I["create_manual_submitted_order()"]
+    I --> I1["¿existe user con ese email y has_account?"]
+    I1 -->|Sí| I2["409 registered account requires login"]
+    I1 -->|No| I3["get_or_create_user_by_contact (invitado)"]
+    I3 --> I4["_create_submitted_order_for_user:<br/>crea orden draft → items → reprice →<br/>reserva stock → pricing_frozen → submitted"]
+    I4 --> I5["publish_domain_event(order_submitted)"]
+    I5 --> J{"¿payment_method?"}
+    J -->|No| K["mark_completed → commit → 201"]
+    J -->|Sí| L["create_payment_for_order(initialize_provider=False)"]
+    L --> M{"¿method == mercadopago?"}
+    M -->|No| K
+    M -->|Sí| N["_initialize_mercadopago_payment_or_raise()"]
+    N -->|ok| O["mark_completed → commit → 201 con checkout_url"]
+    N -->|falla| P["marca payment como setup_failed + commit<br/>mark_failed(order_id, payment_id) → 502"]

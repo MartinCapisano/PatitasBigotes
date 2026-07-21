@@ -1,0 +1,18 @@
+flowchart TD
+    A["Abrir 'Registrar venta'"] --> B{"¿Cliente existente?"}
+    B -->|Sí| C["Modal AdminUserSearchModal<br/>buscar por nombre/apellido/email/DNI/teléfono"]
+    C --> D["Seleccionar → mode='existing', user_id"]
+    B -->|No| E["Cargar nombre, apellido, email, teléfono, DNI<br/>→ mode='new'"]
+    D --> F["Modal de búsqueda de producto"]
+    E --> F
+    F --> G["Elegir producto → elegir variante → cantidad → Agregar"]
+    G --> H{"¿Más ítems?"}
+    H -->|Sí| F
+    H -->|No| I{"¿Cobra ahora?"}
+    I -->|No| J["register_payment=false<br/>→ orden queda submitted esperando pago"]
+    I -->|Sí| K["Método: efectivo o transferencia"]
+    K --> L["Efectivo: monto recibido + vuelto<br/>Transferencia: monto + referencia"]
+    L --> M["POST /admin/sales"]
+    J --> M
+    M --> N["Backend: crea usuario si hace falta →<br/>orden → reserva stock → submitted →<br/>confirma pago → paid → consume stock"]
+    N --> O["🔇 Email al cliente SUPRIMIDO<br/>(está presente en el mostrador)"]

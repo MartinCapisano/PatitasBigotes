@@ -1,0 +1,7 @@
+flowchart TD
+    A["backend/tests/"] --> B["tests/http/ — 13 archivos, 172 tests<br/>Integración sobre TestClient de FastAPI"]
+    A --> C["tests/*.py — 26 archivos, 133 tests<br/>Unitarios de servicio"]
+    A --> D["tests/factories/ — 7 archivos<br/>Builders de datos + helpers HTTP"]
+
+    B --> B1["HttpFundamentalsBase<br/>SQLite en memoria (StaticPool)<br/>override de get_db y get_db_transactional<br/>drop_all + create_all en cada setUp"]
+    C --> C1["Engine SQLite propio por clase<br/>Llamada directa al servicio"]

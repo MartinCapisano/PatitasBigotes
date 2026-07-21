@@ -1,0 +1,34 @@
+flowchart TD
+    ROOT["main.tsx<br/>React.StrictMode"] --> BR["BrowserRouter"]
+    BR --> APP["App"]
+    APP --> AP["AuthProvider<br/>(Context)"]
+    AP --> SUS["Suspense fallback='Cargando...'"]
+    SUS --> RTS["Routes"]
+    RTS --> LAY["Layout (ruta padre)"]
+
+    LAY --> HDR["header.topbar<br/>brand · nav · carrito(N) · campana · Ingresar/Salir"]
+    LAY --> BANNER["Banner 'Verifica tu email'<br/>(solo en /home, no autenticado,<br/>con email pendiente en localStorage)"]
+    LAY --> MAIN["main.container.page<br/>Outlet"]
+
+    MAIN --> PUB["Rutas públicas"]
+    MAIN --> PR["ProtectedRoute"]
+    MAIN --> AR["AdminRoute"]
+
+    PUB --> SF["StorefrontPage"]
+    PUB --> CAT["CategoriesPage"]
+    PUB --> PD["ProductDetailPage"]
+    PUB --> CO["CheckoutPage"]
+    PUB --> PRET["PaymentReturnPage<br/>variant: success|failure|pending"]
+    PUB --> GRO["GroomingPage"]
+    PUB --> CON["ContactPage"]
+    PUB --> LOG["LoginPage"]
+    PUB --> REG["RegisterPage"]
+    PUB --> FP["ForgotPasswordPage"]
+    PUB --> RP["ResetPasswordPage"]
+    PUB --> VE["VerifyEmailPage"]
+
+    PR --> PROF["ProfilePage"]
+    AR --> ADM["AdminPage"]
+
+    ADM --> TABS["AdminSectionTabs"]
+    ADM --> SEC["8 secciones condicionales<br/>(ver doc 06)"]

@@ -1,0 +1,41 @@
+sequenceDiagram
+    autonumber
+    actor U as Usuario
+    participant FE as React (useCheckoutPage)
+    participant AX as axios http.ts
+    participant MW as Middlewares
+    participant R as orders_r.create_order_payment
+    participant AD as auth_d.get_current_user
+    participant PS as payment_s
+    participant SR as stock_reservations_s
+    participant MPN as mercadopago_normalization_s
+    participant MP as Mercado Pago
+    participant DB as PostgreSQL
+
+    U->>FE: Clic "Finalizar compra"
+    FE->>AX: POST /orders/{id}/payments<br/>Idempotency-Key: checkout_payment_…
+    AX->>MW: withCredentials → cookies pb_at/pb_rt
+    MW->>MW: SecurityHeaders → CORS → CSRF (Origin allowlist)
+    MW->>R: request validada
+    R->>AD: Depends(get_current_user)
+    AD->>DB: SELECT users WHERE id=sub
+    AD-->>R: 401 si token_version ≠ tv del JWT
+    R->>PS: create_payment_for_order(initialize_provider=False)
+    PS->>SR: expire_active_reservations_for_order()
+    PS->>DB: SELECT orders … FOR UPDATE
+    PS->>PS: valida status=submitted, items, reservas activas, total>0
+    PS->>DB: INSERT payments (idempotency_key UNIQUE)
+    PS-->>R: dict del pago (sin preference_id)
+    R->>R: db.flush()
+    R->>PS: _initialize_mercadopago_payment_or_raise()
+    PS->>MPN: _build_mercadopago_payload()
+    MPN->>MP: POST /checkout/preferences (x-idempotency-key)
+    MP-->>MPN: {id, init_point, sandbox_init_point}
+    MPN->>MPN: valida host HTTPS ∈ allowlist
+    MPN-->>PS: (external_ref, provider_payload)
+    PS->>DB: UPDATE payments SET preference_id, external_ref, provider_payload
+    R->>DB: db.commit()
+    R-->>AX: 201 {data: {…, provider_payload_data.checkout.checkout_url}}
+    AX-->>FE: payment
+    FE->>FE: validateMercadoPagoCheckoutUrl() (2ª validación en cliente)
+    FE->>U: window.location.assign(checkout_url)

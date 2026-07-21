@@ -1,0 +1,6 @@
+flowchart LR
+    A["backend/source/schemas/*.py<br/>+ routers"] -->|"app.openapi()"| B["scripts/export_openapi.py"]
+    B --> C["backend/openapi.json<br/>(gitignored)"]
+    C -->|"npm run gen:api-types<br/>openapi-typescript"| D["frontend/src/types/api.generated.ts<br/>(COMMITEADO)"]
+    D --> E["Tipos disponibles en el frontend"]
+    C -.->|"CI: git diff --exit-code"| F["❌ CI falla si hay drift"]

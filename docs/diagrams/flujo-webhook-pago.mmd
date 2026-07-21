@@ -1,0 +1,84 @@
+sequenceDiagram
+    autonumber
+    participant MP as Mercado Pago
+    participant API as POST /payments/webhook/mercadopago
+    participant MPD as mercadopago_d
+    participant MC as mercadopago_client
+    participant WE as webhook_events_s
+    participant MPN as mercadopago_normalization_s
+    participant PS as payment_s
+    participant SR as stock_reservations_s
+    participant RF as refund_s
+    participant DE as domain_events_s
+    participant PC as post_commit_actions_s
+    participant DB as PostgreSQL
+
+    MP->>API: POST {type:"payment", data:{id}, action}<br/>x-signature: ts=…,v1=… · x-request-id
+    Note over API: 🔓 EXENTO de CSRF (server-to-server)
+    API->>MC: resolver_evento_webhook_mercadopago(payload, x_signature, x_request_id)
+    MC->>MC: topic ∈ {payment}? si no → WebhookNoOpError
+    MC->>MC: _extract_mercadopago_data_id(payload)
+    MC->>MPD: is_mercadopago_signature_valid(data_id, request_id, signature)
+    MPD->>MPD: manifest = "id:{data_id};request-id:{rid};ts:{ts};"
+    MPD->>MPD: HMAC-SHA256 + compare_digest + ventana [now-300s, now+60s]
+    alt firma inválida
+        MPD-->>API: False → WebhookInvalidSignatureError
+        API->>DB: ROLLBACK + clear_post_commit_actions
+        API-->>MP: 401 "invalid signature"
+    end
+    MC->>MC: event_key = mp:event:{id} | mp:{topic}:{data_id}:{action}
+    MC->>WE: acquire_webhook_event(provider, event_key, payload)
+    WE->>DB: INSERT webhook_events en SAVEPOINT
+    alt duplicado en processing/processed
+        WE-->>MC: False → WebhookNoOpError("duplicate webhook event")
+        API-->>MP: 200 {processed:false, reason}
+    else estaba failed/dead_letter
+        WE->>DB: revive a processing
+    end
+
+    MC->>MP: GET /v1/payments/{data_id}   (3 reintentos, timeout configurable)
+    MP-->>MC: payload del pago
+    MC->>MPN: normalize_mp_payment_state(mp_payment)
+    MPN->>MPN: mapea provider_status → internal_status
+    alt estado desconocido
+        MPN-->>MC: ValueError → webhook marcado failed (reintentable) 🔒
+    end
+    MC->>PS: find_payment_for_mercadopago_event(external_ref)
+    alt no encontrado
+        MC->>WE: mark_webhook_event_failed (reintentable — puede ser una carrera)
+        API-->>MP: 200 {processed:false, reason:"payment not found"}
+    end
+
+    MC->>PS: apply_mercadopago_normalized_state(payment_id, normalized_state, payload)
+    PS->>SR: expire_active_reservations_for_order
+    PS->>PS: 🔒 valida external_ref == payment.external_ref
+    PS->>PS: 🔒 valida amount y currency
+    PS->>PS: transición (con paid revival si el pago estaba cancelled/expired)
+    PS->>DB: UPDATE payments SET status, paid_at, provider_payload
+
+    alt internal_status = paid
+        alt orden cancelled
+            PS->>RF: create_late_paid_incident_if_needed("approved after cancellation")
+            RF->>DB: INSERT payment_incidents (pending_review)
+            RF->>DE: publish possible_refund_detected → notifications
+        else orden paid con otro pago paid
+            PS->>RF: create_late_paid_incident_if_needed("already had another paid payment")
+        else orden submitted
+            PS->>SR: consume_reservations_for_paid_order
+            SR->>DB: UPDATE product_variants SET stock = stock - qty<br/>WHERE stock >= qty   ⚡ compare-and-swap
+            alt rowcount ≠ 1
+                SR-->>PS: ValueError "insufficient stock" → webhook failed, reintenta
+            end
+            SR->>DB: UPDATE stock_reservations SET status=consumed
+            PS->>DB: UPDATE orders SET status=paid, paid_at
+            PS->>DE: publish_domain_event("order_paid")
+            DE->>DB: INSERT notifications (admin)
+            DE->>PC: enqueue_post_commit_order_paid_email(payload)
+        end
+    end
+
+    MC->>WE: mark_webhook_event_processed
+    API->>DB: COMMIT
+    API->>PC: dispatch_post_commit_actions(source="mercadopago_webhook")
+    PC->>PC: send_order_paid_email  (fallo → solo logger.exception)
+    API-->>MP: 200 {data:{processed:true, payment}}

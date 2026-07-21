@@ -1,0 +1,37 @@
+sequenceDiagram
+    participant MP as Mercado Pago
+    participant R as mercadopago_r
+    participant C as mercadopago_client
+    participant W as webhook_events_s
+    participant P as payment_s
+    participant DB as PostgreSQL
+
+    MP->>R: POST /payments/webhook/mercadopago
+    R->>C: resolver_evento_webhook_mercadopago()
+    C->>C: topic ∈ {payment}? si no → WebhookNoOpError
+    C->>C: extrae data.id
+    C->>C: valida HMAC → si falla, WebhookInvalidSignatureError → 401
+    C->>C: event_key = mp:event:{id} | mp:{topic}:{id}:{action}
+    C->>W: acquire_webhook_event()
+    W->>DB: INSERT webhook_events (event_key UNIQUE)
+    alt IntegrityError y status ∈ {failed, dead_letter}
+        W->>DB: revive a processing
+    else IntegrityError y ya processing/processed
+        W-->>C: False → WebhookNoOpError("duplicate webhook event")
+    end
+    C->>MP: GET /v1/payments/{data_id}
+    MP-->>C: payload del pago
+    C->>C: normalize_mp_payment_state()
+    C->>P: find_payment_for_mercadopago_event(external_ref)
+    alt no se encuentra
+        C->>W: mark_webhook_event_failed (reintentable)
+        C-->>R: WebhookNoOpError("payment not found") → 200 processed:false
+    end
+    C->>P: apply_mercadopago_normalized_state()
+    P->>P: valida external_ref, amount y currency contra el pago local
+    P->>P: transición de estado (con "paid revival" si aplica)
+    P->>DB: consume reservas + orden → paid + domain event order_paid
+    C->>W: mark_webhook_event_processed()
+    R->>DB: db.commit()
+    R->>R: dispatch_post_commit_actions() → email al cliente
+    R-->>MP: 200 {data:{processed:true, payment}}

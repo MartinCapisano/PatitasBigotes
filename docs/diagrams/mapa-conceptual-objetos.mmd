@@ -1,0 +1,52 @@
+flowchart TD
+    subgraph PERSIST["Persistido (17 tablas)"]
+        U[User] --> O[Order]
+        O --> OI[OrderItem]
+        O --> P[Payment]
+        O --> SR[StockReservation]
+        P --> PI[PaymentIncident]
+        PI --> PR[PaymentRefund]
+        C[Category] --> PROD[Product]
+        PROD --> PV[ProductVariant]
+        D[Discount] --> DP[DiscountProduct]
+        WE[WebhookEvent]
+        IR[IdempotencyRecord]
+        N[Notification]
+        URS[UserRefreshSession]
+        AAT[AuthActionToken]
+        ALT[AuthLoginThrottle]
+        T[Turn]
+    end
+
+    subgraph MEM["En memoria / TypedDict"]
+        DDTO[DiscountDTO]
+        PCA[PostCommitAction]
+        OPEP[OrderPaidEmailPayload]
+        WR[WebhookResult]
+        MJ[MaintenanceJob]
+        NS["normalized_state 📦"]
+    end
+
+    subgraph FE["Frontend"]
+        CI[CartItem → localStorage]
+        ACV[AuthContextValue]
+        ARA[ActiveRetryAttempt → useRef]
+        AE["ApiEnvelope&lt;T&gt;"]
+    end
+
+    subgraph CONCEPT["Conceptual (sin objeto)"]
+        OA["OrderAggregate 💭"]
+        DE["DomainEvent 💭"]
+        AL["AuditLog 💭 (ausente)"]
+        REPO["Repository 💭 (ausente)"]
+        UOW["UnitOfWork 💭 (get_db_transactional)"]
+    end
+
+    O -.->|raíz de| OA
+    OI -.-> OA
+    P -.-> OA
+    SR -.-> OA
+    D --> DDTO
+    P --> NS
+    PCA --> OPEP
+    CI -.->|se convierte en| OI

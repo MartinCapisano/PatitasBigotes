@@ -1,0 +1,35 @@
+sequenceDiagram
+    autonumber
+    participant TRIG as Disparador<br/>(job o lectura perezosa)
+    participant SR as stock_reservations_s
+    participant DE as domain_events_s
+    participant DB as PostgreSQL
+
+    TRIG->>SR: expire_active_reservations(now, limit)
+    SR->>DB: SELECT stock_reservations WHERE status=active<br/>AND expires_at <= now FOR UPDATE
+    alt ninguna
+        SR-->>TRIG: 0   (camino rápido)
+    end
+    SR->>SR: agrupa por order_id
+    loop por cada orden afectada
+        SR->>DB: SELECT orders + order_items FOR UPDATE
+        SR->>DB: UPDATE reservations SET status=expired,<br/>released_at=now, reason='reservation_expired'
+        alt orden no está submitted
+            SR->>SR: cuenta y continúa (nada que rescatar)
+        else alguna reserva ya tiene reactivation_count >= 1
+            SR->>DB: UPDATE orders SET status=cancelled, cancelled_at
+            SR->>DE: publish order_cancelled (reason="expiracion de reserva")
+            DE->>DB: INSERT notifications (admin)
+            SR->>DB: UPDATE payments SET status=cancelled,<br/>provider_status='order_cancelled_reservation_expired'<br/>WHERE status=pending
+        else todas reactivables
+            SR->>DB: para cada ítem: calcula stock disponible
+            alt alcanza para todos
+                SR->>DB: UPDATE reservations SET status=active,<br/>reactivation_count+=1, expires_at=now+12h
+                Note right of SR: RN-STK-05: segunda y última oportunidad
+            else no alcanza
+                SR->>DB: cancela la orden (igual que arriba)
+            end
+        end
+    end
+    SR->>DB: flush
+    SR-->>TRIG: cantidad de reservas expiradas

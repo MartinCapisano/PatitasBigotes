@@ -1,0 +1,10 @@
+flowchart LR
+    A["git push a main"] --> B["GitHub Actions CI<br/>tests + contrato + build"]
+    A --> C["Render detecta el push"]
+    A --> D["Vercel detecta el push"]
+    C --> C1["pip install -r requirements.txt"]
+    C1 --> C2["alembic upgrade head<br/>⚠️ contra Supabase"]
+    C2 --> C3["uvicorn main:app"]
+    C3 --> C4["health check /health"]
+    D --> D1["npm run build (tsc -b + vite)"]
+    D1 --> D2["deploy del estático al CDN"]

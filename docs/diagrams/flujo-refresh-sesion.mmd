@@ -1,0 +1,37 @@
+sequenceDiagram
+    autonumber
+    participant C as Componente
+    participant AX as axios interceptor
+    participant API as Backend
+    participant AS as auth_s
+    participant DB as PostgreSQL
+    participant CTX as AuthContext
+
+    C->>AX: GET /orders (cookie pb_at expirada)
+    AX->>API: request
+    API-->>AX: 401 (token_version o exp inválidos)
+    AX->>AX: ¿url ∈ rutas de auth? ¿ya se reintentó?  → no
+    AX->>AX: marca _retry=true; si ya hay refreshPromise, lo espera
+    AX->>API: POST /auth/refresh (cookie pb_rt)
+    API->>AS: refresh_with_token(refresh_token)
+    AS->>AS: decode_refresh_token → sub, jti
+    AS->>DB: SELECT user_refresh_sessions WHERE user_id FOR UPDATE
+    alt no existe
+        AS-->>API: LookupError → 404
+    else expires_at <= now
+        AS-->>API: ValueError "refresh token expired" → 400
+    else token_hash ≠ SHA-256(token) o jti ≠ token_jti
+        AS-->>API: ValueError "invalid refresh token" → 400
+    end
+    AS->>DB: UPDATE users SET token_version = token_version + 1
+    Note right of AS: RN-AUTH-06: invalida TODOS los access tokens previos
+    AS->>AS: issue_token_pair(user)
+    AS->>DB: UPSERT user_refresh_sessions (nuevo hash y jti)
+    API-->>AX: 200 + Set-Cookie pb_at, pb_rt nuevas
+    AX->>API: reintenta GET /orders con las cookies nuevas
+    API-->>C: 200 {data}
+
+    Note over AX,CTX: Si el refresh falla:
+    AX->>CTX: window.dispatchEvent("pb-auth-unauthorized")
+    CTX->>CTX: isAuthenticated=false, sessionExpired=true
+    CTX->>C: ProtectedRoute redirige a /login<br/>con state.reason="session_expired"

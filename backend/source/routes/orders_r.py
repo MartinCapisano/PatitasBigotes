@@ -74,7 +74,14 @@ def _client_ip_from_request(request: Request) -> str:
 
 
 def _sanitize_response_payload(payload: object) -> object:
-    """Recursively redact obvious secrets from response payloads before persisting."""
+    """Recursively redact obvious secrets from response payloads before persisting.
+
+    Currently unused: its only caller was the failure bookkeeping in
+    create_admin_sale_endpoint, which was removed because the surrounding
+    transaction discards it. Kept because R-S-06 asks for the opposite change —
+    create_guest_checkout_order persists failure payloads through
+    mark_record_failed() without redacting them, and this is the helper for that.
+    """
     if isinstance(payload, dict):
         out = {}
         for k, v in payload.items():
@@ -361,24 +368,25 @@ def create_admin_sale_endpoint(
                 db=db,
             )
     except Exception as exc:
-        if record_created and claimed_record is not None and getattr(claimed_record, "status", None) == "processing":
-            failed_payload = {"error": "internal_server_error", "message": str(exc)}
-            sanitized = _sanitize_response_payload(failed_payload)
-            try:
-                mark_record_failed(
-                    record=claimed_record,
-                    response_payload=sanitized,
-                    db=db,
-                )
-                db.flush()
-            except Exception:
-                logger.exception("Failed to mark idempotency record as failed; deleting record. scope=%s key=%s", getattr(claimed_record, "scope", None), getattr(claimed_record, "idempotency_key", None))
-                try:
-                    db.delete(claimed_record)
-                    db.flush()
-                except Exception:
-                    logger.exception("Failed to delete idempotency record after failed mark; scope=%s key=%s", getattr(claimed_record, "scope", None), getattr(claimed_record, "idempotency_key", None))
-        logger.exception("Error processing create_admin_sale_endpoint; scope=%s key=%s", getattr(claimed_record, "scope", None) if claimed_record else None, getattr(claimed_record, "idempotency_key", None) if claimed_record else None)
+        # No idempotency bookkeeping here, on purpose. This endpoint runs under
+        # get_db_transactional, so raising rolls the whole transaction back —
+        # including the acquire_record INSERT, which lives in a SAVEPOINT inside
+        # that same transaction. Any mark_record_failed()/delete() attempted here
+        # would be discarded along with it.
+        #
+        # Verified on PostgreSQL 18: after a forced failure no record remains and
+        # the same Idempotency-Key can be retried successfully. Concurrency is
+        # still safe because the unique index blocks a second request until this
+        # one commits or rolls back.
+        #
+        # Note this path cannot be exercised by the test suite: it runs on SQLite,
+        # where pysqlite's broken SAVEPOINT handling lets the INSERT escape the
+        # rollback and the record is left stranded in 'processing'.
+        logger.exception(
+            "Error processing create_admin_sale_endpoint; scope=%s key=%s",
+            getattr(claimed_record, "scope", None) if claimed_record else None,
+            getattr(claimed_record, "idempotency_key", None) if claimed_record else None,
+        )
         raise_http_error_from_exception(exc, db=db)
     return {"data": result}
 

@@ -1,0 +1,42 @@
+sequenceDiagram
+    autonumber
+    actor U as Usuario
+    participant MP as Mercado Pago
+    participant FE as PaymentReturnPage / usePaymentReturnStatus
+    participant API as GET /public/orders/by-payment-token
+    participant OS as orders_s
+    participant SR as stock_reservations_s
+    participant RT as POST /payments/{token}/retry
+    participant DB as PostgreSQL
+
+    MP->>U: redirect a /payments/success?public_status_token=xxx
+    U->>FE: carga la página
+    FE->>API: GET ?public_status_token=xxx
+    Note over API: 🎫 Sin auth. Usa get_db_transactional<br/>porque escribe (expira reservas)
+    API->>OS: get_public_order_snapshot_by_payment_token
+    OS->>DB: SELECT payments WHERE public_status_token AND method=mercadopago
+    OS->>SR: expire_active_reservations_for_order   ⚠️ un GET que muta
+    OS->>DB: SELECT todos los pagos mercadopago de la orden
+    OS->>OS: elige el "pago relevante": pending > el del token > el más reciente
+    OS->>OS: _extract_public_checkout_url  🔒 revalida HTTPS + host
+    OS->>OS: calcula flags y blocking_reason
+    API->>DB: COMMIT
+    API-->>FE: {data:{order, payment, flags, blocking_reason}}
+
+    alt flags.can_continue_payment
+        FE->>U: botón "Continuar pago"
+        U->>FE: clic
+        FE->>FE: validateMercadoPagoCheckoutUrl 🔒
+        FE->>MP: window.location.assign(checkout_url)
+    else flags.can_retry_payment
+        FE->>U: botón "Reintentar pago"
+        U->>FE: clic
+        FE->>FE: reutiliza idempotencyKey de activeRetryAttemptRef si existe
+        FE->>RT: POST /payments/{token}/retry<br/>Idempotency-Key
+        RT->>DB: valida 6 condiciones de RN-PAY-11
+        RT->>MP: crea preferencia nueva
+        RT-->>FE: 201 {data: payment con checkout_url}
+        FE->>MP: redirect
+    else blocking_reason
+        FE->>U: mensaje explicativo según el motivo:<br/>order_paid · order_cancelled · payment_pending ·<br/>payment_not_retryable · stock_reservation_expired · checkout_unavailable
+    end

@@ -1,0 +1,20 @@
+sequenceDiagram
+    autonumber
+    actor U as Usuario
+    participant PD as ProductDetailPage / useProductDetailPage
+    participant API as GET /storefront/products/{id}
+    participant CS as lib/cart-storage
+    participant LS as localStorage
+    participant LAY as Layout
+
+    U->>PD: entra a /products/42
+    PD->>API: GET /storefront/products/42
+    API-->>PD: producto + option_axis + options[] (precio con descuento)
+    PD->>U: selector de variante (talle o color según option_axis)
+    U->>PD: elige variante y cantidad → "Agregar al carrito"
+    PD->>CS: addToCart({product_id, product_name, variant_id,<br/>option_label, unit_price, quantity, img_url})
+    CS->>LS: lee pb_cart_items, suma si ya existe (product_id + variant_id)
+    CS->>LS: escribe pb_cart_items
+    CS->>LAY: window.dispatchEvent("pb-cart-updated")
+    LAY->>LAY: setCurrentCartCount(cartCount())
+    LAY->>U: "Carrito (3)" en la topbar

@@ -1,0 +1,14 @@
+flowchart LR
+    U["👤 Cliente / Admin"] --> FE["SPA React + Vite<br/>(Vercel)"]
+    FE -->|"HTTPS + cookies HttpOnly<br/>axios withCredentials"| API["FastAPI<br/>(Render)"]
+    API --> MW["Middlewares<br/>SecurityHeaders → CORS → CSRF"]
+    MW --> R["12 routers<br/>source/routes/*_r.py"]
+    R --> S["27 servicios de dominio<br/>source/services/*_s.py"]
+    S --> DB[("PostgreSQL<br/>Supabase — 17 tablas")]
+    S --> MP["Mercado Pago<br/>Checkout Pro + Refunds"]
+    S --> SMTP["SMTP<br/>verificación / reset / orden pagada"]
+    MP -.->|"webhook firmado HMAC"| API
+    CRON["GitHub Actions cron<br/>*/13 min"] -->|"POST /internal/maintenance/run<br/>Bearer token"| API
+    API --> JOBS["6 jobs de mantenimiento"]
+    JOBS --> DB
+    JOBS --> MP

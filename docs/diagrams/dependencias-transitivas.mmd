@@ -1,0 +1,19 @@
+flowchart TD
+    FASTAPI[fastapi 0.135.2] --> STARLETTE[starlette]
+    FASTAPI --> PYDANTIC[pydantic 2.12.5]
+    PYDANTIC --> PYDCORE[pydantic-core Rust]
+    PYDANTIC -.->|extra email| EV[email-validator 2.3.0]
+    EV --> DNS[dnspython]
+    JOSE[python-jose 3.5.0] --> CRYPTO[cryptography]
+    JOSE --> ECDSA[ecdsa]
+    JOSE --> RSA[rsa]
+    SQLA[sqlalchemy 2.0.48] --> GREENLET[greenlet]
+    PSY["psycopg[binary] 3.3.3"] --> PSYBIN[psycopg-binary]
+    UVICORN[uvicorn 0.42.0] --> CLICK[click]
+    UVICORN --> H11[h11]
+    MP[mercadopago 2.3.0] --> REQUESTS[requests]
+    REQUESTS --> URLLIB3[urllib3]
+    REQUESTS --> CERTIFI[certifi]
+
+    classDef risk fill:#ffe6e6,stroke:#cc0000
+    class JOSE,ECDSA,RSA risk

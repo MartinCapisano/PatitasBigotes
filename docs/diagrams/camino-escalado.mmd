@@ -1,0 +1,6 @@
+flowchart LR
+    A["Hoy<br/>Render free × 1<br/>Supabase free"] --> B["Paso 1: Render Starter<br/>sin sleep · más RAM<br/>~7 USD/mes"]
+    B --> C["Paso 2: Supabase Pro<br/>backups automáticos + PITR<br/>~25 USD/mes"]
+    C --> D["Paso 3: lock distribuido<br/>+ 2 instancias de Render"]
+    D --> E["Paso 4: Redis para caché<br/>+ Sentry + métricas"]
+    E --> F["Paso 5: worker separado<br/>para jobs (Celery/RQ/Arq)"]

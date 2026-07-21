@@ -1,0 +1,132 @@
+flowchart TD
+    subgraph ENTRY["Entrada"]
+        MAIN[main.py]
+    end
+
+    subgraph ROUTES["Routers (12)"]
+        R_ORD[orders_r]
+        R_AUTH[auth_r]
+        R_PROD[products_r]
+        R_PAY[payments_r]
+        R_MP[mercadopago_r]
+        R_STORE[storefront_r]
+        R_NOTIF[notifications_r]
+        R_USERS[users_r]
+        R_DISC[discounts_r]
+        R_TURNS[turns_r]
+        R_MAINT[maintenance_r]
+        R_STOCK[stock_reservations_r]
+    end
+
+    subgraph DEPS["Dependencias"]
+        D_AUTH[auth_d]
+        D_CSRF[csrf_d]
+        D_SEC[security_headers_d]
+        D_MP[mercadopago_d]
+    end
+
+    subgraph SVC["Servicios de dominio"]
+        S_ORD[orders_s]
+        S_PAY[payment_s]
+        S_PROD[products_s]
+        S_DISC[discount_s]
+        S_STOCK[stock_reservations_s]
+        S_REF[refund_s]
+        S_WH[webhook_events_s]
+        S_MPC[mercadopago_client]
+        S_MPN[mercadopago_normalization_s]
+        S_PAQ[payment_admin_queries_s]
+        S_AUTH[auth_s]
+        S_ASEC[auth_security_s]
+        S_ATOK[auth_tokens_s]
+        S_ACOOK[auth_cookies_s]
+        S_ARL[auth_rate_limit_s]
+        S_ABUSE[anti_abuse_s]
+        S_USERS[users_s]
+        S_NOTIF[notifications_s]
+        S_DE[domain_events_s]
+        S_PCA[post_commit_actions_s]
+        S_MAIL[email_s]
+        S_IDEM[idempotency_s]
+        S_MONEY[money_s]
+        S_TURNS[turns_s]
+        S_MAINT[maintenance_s]
+        S_PERR[payment_errors]
+    end
+
+    subgraph CORE["Núcleo"]
+        MODELS[db.models]
+        SESSION[db.session]
+        CONFIG[db.config]
+        ERRORS[errors]
+        EXC[exceptions]
+        SCHEMAS[schemas]
+    end
+
+    subgraph JOBS["Jobs (6)"]
+        J_REC[reconcile_pending_payments]
+        J_WH[reprocess_failed_webhooks]
+        J_STOCK[expire_stock_reservations]
+        J_IDEM[idempotency_sweeper]
+        J_TOK[prune_auth_action_tokens]
+        J_THR[prune_auth_login_throttles]
+    end
+
+    MAIN --> R_ORD & R_AUTH & R_PROD & R_PAY & R_MP & R_STORE & R_NOTIF & R_USERS & R_DISC & R_TURNS & R_MAINT & R_STOCK
+    MAIN --> D_CSRF & D_SEC & CONFIG
+
+    R_ORD --> S_ORD & S_PAY & S_PAQ & S_IDEM & S_ABUSE & S_PCA & S_PERR & D_AUTH & SCHEMAS & ERRORS & SESSION
+    R_AUTH --> S_AUTH & S_ASEC & S_ATOK & S_ACOOK & S_ARL & S_ABUSE & S_MAIL & S_USERS & D_AUTH & SCHEMAS & ERRORS & SESSION & CONFIG
+    R_PAY --> S_PAY & S_PAQ & S_REF & D_AUTH & SCHEMAS & ERRORS & SESSION
+    R_MP --> S_MPC & S_WH & S_PCA & D_AUTH & SCHEMAS & ERRORS & SESSION
+    R_PROD --> S_PROD & D_AUTH & SCHEMAS & ERRORS & SESSION
+    R_STORE --> S_PROD & ERRORS & SESSION
+    R_NOTIF --> S_NOTIF & D_AUTH & ERRORS & SESSION
+    R_USERS --> S_USERS & D_AUTH & SCHEMAS & ERRORS & SESSION
+    R_DISC --> S_DISC & D_AUTH & SCHEMAS & ERRORS & SESSION
+    R_TURNS --> S_TURNS & D_AUTH & SCHEMAS & ERRORS & SESSION
+    R_MAINT --> S_MAINT & CONFIG
+    R_STOCK --> S_STOCK & D_AUTH & ERRORS & SESSION
+
+    S_ORD --> S_DISC & S_PAY & S_PROD & S_STOCK & S_DE & S_PCA & S_USERS & S_MPN & MODELS & EXC
+    S_PAY --> S_REF & S_DE & S_MPN & S_STOCK & MODELS & EXC
+    S_PROD --> S_DISC & MODELS & SESSION
+    S_DISC --> S_MONEY & MODELS
+    S_STOCK --> S_DE & MODELS
+    S_REF --> S_MPC & S_DE & MODELS
+    S_WH --> S_PAY & MODELS & EXC
+    S_MPN --> S_MPC & S_MONEY & CONFIG
+    S_MPC --> D_MP & CONFIG & S_PERR
+    S_PAQ --> S_PAY & S_REF & MODELS
+    S_AUTH --> S_ASEC & S_ATOK & S_MAIL & MODELS & CONFIG
+    S_USERS --> S_ASEC & SCHEMAS & MODELS
+    S_ARL --> S_ABUSE & MODELS
+    S_DE --> S_NOTIF & S_PCA & MODELS
+    S_PCA --> S_MAIL
+    S_MAIL --> CONFIG
+    S_ACOOK --> CONFIG
+    S_ATOK --> MODELS
+    S_ABUSE --> MODELS
+    S_NOTIF --> MODELS
+    S_IDEM --> MODELS
+    S_TURNS --> MODELS
+    S_MAINT --> J_REC & J_WH & J_STOCK & J_IDEM & J_TOK & J_THR
+
+    D_AUTH --> S_ASEC & S_ACOOK & MODELS & SESSION
+    D_CSRF --> CONFIG
+    D_SEC --> CONFIG
+    D_MP --> CONFIG
+    ERRORS --> EXC & S_PERR
+    SESSION --> CONFIG
+
+    J_REC --> S_MPC & S_MPN & S_PAY & S_PCA & SESSION
+    J_WH --> S_MPC & S_WH & S_PCA & SESSION
+    J_STOCK --> S_STOCK & SESSION
+    J_IDEM --> S_IDEM & MODELS & SESSION
+    J_TOK --> S_ATOK & SESSION
+    J_THR --> S_ARL & SESSION
+
+    S_MPC -.->|"import diferido"| S_MPN
+    S_MPC -.->|"import diferido"| S_PAY
+    S_MPC -.->|"import diferido"| S_WH
+    S_WH -.->|"import diferido"| S_MPC

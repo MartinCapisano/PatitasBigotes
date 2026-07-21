@@ -1,0 +1,11 @@
+gantt
+    title Primera request tras 15 min de inactividad
+    dateFormat X
+    axisFormat %Ss
+    section Sin ping
+    Render despierta el contenedor    :0, 25
+    Python arranca e importa          :25, 8
+    Supabase acepta la conexión       :33, 3
+    Query real                        :36, 1
+    section Con ping cada 13 min
+    Query real                        :0, 1
