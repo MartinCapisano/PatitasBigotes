@@ -236,7 +236,7 @@ Importante para calibrar expectativas — todo esto está verificado por ausenci
 - ❌ No hay upload de archivos: las imágenes son URLs externas (`img_url`).
 - ❌ No hay tracing distribuido ni métricas exportadas (solo logs estructurados por texto).
 - ❌ No hay soft delete: `DELETE /products/{id}` es borrado físico.
-- ❌ No hay multi-moneda real: todo está forzado a `ARS` (`payment_s.py:482`).
+- ❌ No hay multi-moneda real: todo está forzado a `ARS` (`payment_s::create_payment_for_order`).
 - ❌ No hay tabla de auditoría (`AuditLog`) ni event store persistente: los "domain events" son despacho síncrono
   en proceso (ver [20_DiccionarioObjetos.md](20_DiccionarioObjetos.md#domainevent)).
 - ❌ El envío de emails "no está implementado al 100%" según el propio README (`README.md:41`).

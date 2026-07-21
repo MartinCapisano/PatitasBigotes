@@ -126,7 +126,7 @@ estar desactualizado:
 
 | Endpoint | Uso del flag | Impacto |
 |---|---|---|
-| `PATCH /orders/{id}/status` | `is_admin=True` omite el filtro `Order.user_id == user_id` (`orders_s.py:594-596`) | 🟠 Un ex-admin podría cambiar el estado de órdenes ajenas |
+| `PATCH /orders/{id}/status` | `is_admin=True` omite el filtro `Order.user_id == user_id` (`orders_s::change_order_status`) | 🟠 Un ex-admin podría cambiar el estado de órdenes ajenas |
 | `GET /orders/{id}/reservations` | Ídem | 🟡 Lectura de reservas ajenas |
 | `GET /notifications` y otros 3 | Incluye las de `role_target='admin'` | 🟡 Lectura de notificaciones administrativas |
 
@@ -147,7 +147,7 @@ prácticamente nula.
 Ejemplos verificados:
 - `get_order_for_user` → `WHERE id = :id AND user_id = :uid`
 - `get_payment_for_user` → `JOIN orders ON ... WHERE Order.user_id = :uid`
-- `create_payment_for_order` → `LookupError` si `order.user_id != user_id` (`payment_s.py:512-513`)
+- `create_payment_for_order` → `LookupError` si `order.user_id != user_id` (`payment_s::create_payment_for_order`)
 
 ### 3.5 Capability tokens
 
@@ -222,12 +222,12 @@ vinculados. Verificado:
 
 - Cero usos de `text()` con interpolación de variables. Los únicos `text()` del repo son literales estáticos en
   los índices parciales (`models.py:295`, `:365`, `:412`, `:548`) — no reciben entrada del usuario.
-- `ilike(f"%{normalized_query}%")` (`products_s.py:594`) y `like(f"%{...}%")` (`users_s.py:307-311`) construyen
+- `ilike(f"%{normalized_query}%")` (`products_storefront_s::list_storefront_products`) y `like(f"%{...}%")` (`users_s.py:307-311`) construyen
   el **patrón**, no el SQL. SQLAlchemy lo parametriza.
 - ⚠️ Nota menor: los caracteres `%` y `_` en la búsqueda no se escapan, así que un usuario puede usarlos como
   comodines. Es un tema de UX, no de seguridad.
 - Los campos de ordenamiento están en **allowlist**: `sort_by ∈ {created_at, id}`, `sort_dir ∈ {asc, desc}`
-  (`orders_s.py:510-513`, `payment_admin_queries_s.py:110-113`). 🟢 Sin esto habría inyección por `ORDER BY`.
+  (`orders_s::list_orders_for_admin`, `payment_admin_queries_s.py:110-113`). 🟢 Sin esto habría inyección por `ORDER BY`.
 
 ---
 
@@ -315,7 +315,7 @@ hmac.compare_digest(expected.lower(), v1.lower())
 | **Revalidación de negocio** | 🟢 Importe, moneda y `external_reference` contra el pago local |
 | Fallo cerrado ante estado desconocido | 🟢 `ValueError` → reintento, no asunción |
 
-> 🟢 **La revalidación de importe y moneda (`payment_s.py:364-371`) es una excelente defensa en profundidad.**
+> 🟢 **La revalidación de importe y moneda (`payment_provider_s::apply_mercadopago_normalized_state`) es una excelente defensa en profundidad.**
 > Incluso con la firma comprometida, no se podría marcar una orden como pagada por un importe distinto.
 
 ⚠️ El endpoint responde **503** ante error genérico, lo que hace que Mercado Pago reintente. Combinado con la

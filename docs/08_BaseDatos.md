@@ -327,7 +327,7 @@ erDiagram
 #### `products`
 - **Por qué existe:** entidad comercial de cara al cliente (lo que se ve en la grilla).
 - **⚠️ Un producto no tiene precio ni stock propios.** Ambos son agregados de sus variantes activas
-  (`products_s.py:38-49`). Esto es correcto pero sorprende: no busques `products.price`.
+  (`products_s::_compute_min_var_price`). Esto es correcto pero sorprende: no busques `products.price`.
 - **`img_url` es una URL externa**, no un archivo subido. No hay almacenamiento de imágenes en el sistema.
 
 #### `product_variants`
@@ -338,7 +338,7 @@ erDiagram
   `stock − Σ(reservas activas no vencidas)` (`stock_reservations_s.py:85-95`). Esta distinción es crítica.
 - **Constraint:** `CHECK price >= 0`. ⚠️ El schema permite `price = 0` pero el DTO de admin exige `gt=0`
   (`schemas/products_s.py:65`) — inconsistencia menor entre capas.
-- **Desactivar un producto = desactivar todas sus variantes** (`products_s.py:376-381`). No hay flag `active`
+- **Desactivar un producto = desactivar todas sus variantes** (`products_s::update_product`). No hay flag `active`
   en `products`.
 
 ### Bloque Identidad
@@ -397,7 +397,7 @@ erDiagram
 
 #### `orders`
 - **Por qué existe:** el carrito **es** una orden en estado `draft`. No hay tabla `carts`.
-- **Máquina de estados** (`orders_s.py:39-44`):
+- **Máquina de estados** (`orders_s::ORDER_ALLOWED_TRANSITIONS`):
 
 ```mermaid
 stateDiagram-v2
@@ -414,9 +414,9 @@ stateDiagram-v2
 ```
 
 - **`paid` no es alcanzable por la API de estado.** `_assert_transition_preconditions` lo rechaza explícitamente:
-  `raise ValueError("paid status must be set through a payment endpoint")` (`orders_s.py:73`). Solo lo setean
+  `raise ValueError("paid status must be set through a payment endpoint")` (`orders_s::_assert_transition_preconditions`). Solo lo setean
   `confirm_manual_payment_for_order` y `apply_mercadopago_normalized_state`.
-- **`pricing_frozen`** impide recalcular totales después de `submitted` (`orders_s.py:315`), salvo con `force=True`
+- **`pricing_frozen`** impide recalcular totales después de `submitted` (`orders_s::_recalculate_order_total`), salvo con `force=True`
   en la propia transición.
 - **Triple total:** `subtotal` (precio de lista × cantidad), `discount_total` (descuento × cantidad),
   `total_amount` (suma de `line_total`). Los tres tienen `CHECK >= 0`.
@@ -461,15 +461,15 @@ stateDiagram-v2
   `(order_id, method)` (`models.py:290-297`). Esto es lo que hace segura la creación concurrente de pagos.
 - **`idempotency_key UNIQUE`** es la defensa de segundo nivel: si dos requests con la misma clave llegan a la vez,
   la segunda recibe `IntegrityError` y `create_payment_for_order` la resuelve devolviendo el pago existente
-  (`payment_s.py:576-601`).
+  (`payment_s::create_payment_for_order`).
 - **`public_status_token`** (32 bytes urlsafe, `UNIQUE`) es un **capability token**: quien lo tiene puede consultar
   y reintentar ese pago sin autenticarse. Se inyecta en las `back_urls` de Mercado Pago
   (`mercadopago_normalization_s.py:256-264`) para que el invitado vuelva y pueda reintentar.
 - **`provider_payload`** es un blob JSON serializado como `String`. ⚠️ No es `JSONB`, así que **no es consultable**
   por SQL. Acumula tres subobjetos: `checkout`, `last_event`, `payment_lookup`, `reconciliation`,
   `manual_confirmation` y `checkout_setup_error`.
-- **`change_amount`** solo se permite en `cash`; para `bank_transfer` debe ser `NULL` (`payment_s.py:922-929`).
-- **Transiciones válidas** (`payment_s.py:48-53`):
+- **`change_amount`** solo se permite en `cash`; para `bank_transfer` debe ser `NULL` (`payment_s::confirm_manual_payment_for_order`).
+- **Transiciones válidas** (`payment_core_s::ALLOWED_PAYMENT_TRANSITIONS`):
 
 ```mermaid
 stateDiagram-v2
@@ -484,7 +484,7 @@ stateDiagram-v2
 ```
 
 > ⚠️ **Excepción "paid revival":** si Mercado Pago informa `approved` sobre un pago ya `cancelled` o `expired`,
-> `apply_mercadopago_normalized_state` **salta** la validación de transición (`payment_s.py:373-375`) y lo pasa a
+> `apply_mercadopago_normalized_state` **salta** la validación de transición (`payment_provider_s::apply_mercadopago_normalized_state`) y lo pasa a
 > `paid`, generando una `PaymentIncident`. Es correcto (el dinero se cobró de verdad) pero es la regla menos
 > obvia del sistema.
 
@@ -629,10 +629,10 @@ Los tests usan SQLite en memoria (`tests/http/_base.py:38-48`). Divergencias que
 | Consulta | Dónde | Por qué es interesante |
 |---|---|---|
 | Stock disponible de una variante | `stock_reservations_s.py:85-95` | `SUM(quantity)` de reservas activas no vencidas, con `FOR UPDATE` sobre la variante |
-| Precio mínimo por producto | `products_s.py:230-238` | Subquery `GROUP BY product_id` con `MIN(price)` sobre variantes activas |
-| Agregados de storefront | `products_s.py:563-573` | Subquery con `MIN(price)`, `SUM(stock)` y `COUNT(id)` en una pasada |
+| Precio mínimo por producto | `products_s::_query_admin_products` | Subquery `GROUP BY product_id` con `MIN(price)` sobre variantes activas |
+| Agregados de storefront | `products_storefront_s::list_storefront_products` | Subquery con `MIN(price)`, `SUM(stock)` y `COUNT(id)` en una pasada |
 | Descuento de stock al pagar | `stock_reservations_s.py:320-332` | `UPDATE … WHERE stock >= qty` y verificación de `rowcount == 1` — **compare-and-swap sin bloqueo** |
-| Selección de pagos a reconciliar | `payment_s.py:870-884` | Ventana `[now−max_age, now−min_age]` para no pisar pagos recién creados |
+| Selección de pagos a reconciliar | `payment_provider_s::list_reconcilable_pending_mercadopago_payments` | Ventana `[now−max_age, now−min_age]` para no pisar pagos recién creados |
 
 ---
 
@@ -644,7 +644,7 @@ Los tests usan SQLite en memoria (`tests/http/_base.py:38-48`). Divergencias que
 | 2 | Sin tabla de auditoría | 🟡 Medio | Solo hay logs de texto; no hay quién-hizo-qué consultable |
 | 3 | Estados como `String` libre, no `Enum` de PostgreSQL | 🟡 Medio | Un typo en un `UPDATE` manual pasa desapercibido; las listas válidas viven en constantes Python |
 | 4 | Una sola sesión de refresh por usuario | 🟢 Bajo | Decisión de diseño, pero impide multi-dispositivo |
-| 5 | `orders.currency` y `payments.currency` existen pero todo se fuerza a `ARS` | 🟢 Bajo | Campos preparados sin uso real (`payment_s.py:482`) |
+| 5 | `orders.currency` y `payments.currency` existen pero todo se fuerza a `ARS` | 🟢 Bajo | Campos preparados sin uso real (`payment_s::create_payment_for_order`) |
 | 6 | `notifications.user_id` nunca se usa | 🟢 Bajo | Funcionalidad modelada pero no implementada |
 | 7 | Sin `ON DELETE` para `turns.user_id` distinto de RESTRICT | 🟢 Bajo | Impide borrar usuarios con turnos históricos |
 

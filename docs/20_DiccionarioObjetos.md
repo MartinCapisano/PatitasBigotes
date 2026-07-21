@@ -160,14 +160,14 @@ El resto de los endpoints devuelve `{"data": <dict construido a mano>}`. Los con
 | Función | Módulo | Produce |
 |---|---|---|
 | `_order_to_dict` | `orders_s` | Orden con cliente, ítems y totales |
-| `_payment_to_dict` | `payment_s` | Pago con `provider_payload` y `provider_payload_data` |
+| `payment_to_dict` | `payment_core_s` | Pago con `provider_payload` y `provider_payload_data` (promovido a público en el refactor) |
 | `_reservation_to_dict` | `stock_reservations_s` | Reserva |
 | `_discount_to_dict` | `discount_s` | Descuento con `product_ids` resueltos |
 | `_product_to_dict` | `products_s` | Producto admin con stock y `min_var_price` |
 | `_variant_to_dict` | `products_s` | Variante admin |
-| `_product_to_storefront_dict` | `products_s` | Producto público con precios con descuento |
-| `_variant_to_storefront_dict` | `products_s` | Variante pública (compatibilidad) |
-| `_variant_to_storefront_option` | `products_s` | Opción del selector |
+| `_product_to_storefront_dict` | `products_storefront_s` | Producto público con precios con descuento |
+| `_variant_to_storefront_dict` | `products_storefront_s` | Variante pública (compatibilidad) |
+| `_variant_to_storefront_option` | `products_storefront_s` | Opción del selector |
 | `_category_to_dict` | `products_s` | Categoría |
 | `_incident_to_dict` | `refund_s` | Incidencia |
 | `_refund_to_dict` | `refund_s` | Reembolso |
@@ -501,7 +501,7 @@ vida del pago:
 
 > ⚠️ Es `String`/`Text`, no `JSONB`: **no se puede consultar por SQL**. Toda inspección requiere `json.loads` en
 > Python. Ver [08_BaseDatos.md](08_BaseDatos.md#8-deudas-del-modelo-de-datos).
-> ⚠️ Se devuelve **completo** al cliente en `_payment_to_dict`.
+> ⚠️ Se devuelve **completo** al cliente en `payment_core_s::payment_to_dict`.
 
 ### 📦 Payload del webhook de Mercado Pago
 

@@ -26,13 +26,13 @@ Antes de hablar de performance hay que fijar la escala real:
 
 | Consulta | Técnica | Dónde |
 |---|---|---|
-| Orden con usuario, ítems, variantes y productos | `joinedload` encadenado | `orders_s._order_query` (`orders_s.py:79-84`) |
-| Pagos de N órdenes | Una query con `IN`, agrupada en Python | `payment_s.list_payments_for_orders` (`payment_s.py:1071-1085`) |
+| Orden con usuario, ítems, variantes y productos | `joinedload` encadenado | `orders_s._order_query` (`orders_s::_order_query`) |
+| Pagos de N órdenes | Una query con `IN`, agrupada en Python | `payment_s.list_payments_for_orders` (`payment_s::list_payments_for_orders`) |
 | Incidencias abiertas de N pagos | Una query con `IN` por lote | `payment_admin_queries_s._open_incident_status_by_payment_ids` |
-| Catálogo admin | `joinedload(category)` + `joinedload(variants)` | `products_s._query_admin_products` (`products_s.py:243-247`) |
-| Storefront | `joinedload(category)` + `selectinload(variants)` | `products_s.py:585` |
+| Catálogo admin | `joinedload(category)` + `joinedload(variants)` | `products_s._query_admin_products` (`products_s::_query_admin_products`) |
+| Storefront | `joinedload(category)` + `selectinload(variants)` | `products_storefront_s::list_storefront_products` |
 | Descuentos con sus productos | `joinedload(Discount.product_links)` | `discount_s.list_discounts` (`discount_s.py:83`) |
-| Snapshot público | `joinedload` de orden → ítems → producto/variante | `orders_s.py:185-192` |
+| Snapshot público | `joinedload` de orden → ítems → producto/variante | `orders_public_s::get_public_order_snapshot_by_payment_token` |
 | Orden + pagos en el panel | `Promise.all` en el cliente | `useAdminOrdersPayments.ts:33` |
 
 > 🟢 **La prevención de N+1 es sistemática, no accidental.** Prácticamente todas las lecturas de colecciones
@@ -41,7 +41,7 @@ Antes de hablar de performance hay que fijar la escala real:
 ### 2.2 N+1 residuales
 
 #### ⚡ P-01 — Reprecio de orden: una query extra por recálculo
-**Dónde:** `orders_s._recalculate_order_total` (`orders_s.py:339-341`) llama `list_products_by_ids`, que hace
+**Dónde:** `orders_s._recalculate_order_total` (`orders_s::_recalculate_order_total`) llama `list_products_by_ids`, que hace
 una query adicional aunque los productos ya vengan cargados por `joinedload` en `_order_query`.
 
 **Por qué ocurre:** el motor de precios (`discount_s`) trabaja con dicts puros para ser testeable sin base, así
@@ -94,7 +94,7 @@ reintentos, el peor caso teórico supera el `--max-time 150` del cron de GitHub 
 ## 3. Consultas pesadas
 
 ### ⚡ P-04 — Storefront con filtro de precio o orden por precio {#storefront}
-**Dónde:** `products_s.list_storefront_products` (`products_s.py:600-654`)
+**Dónde:** `products_storefront_s::list_storefront_products`
 
 El código lo documenta explícitamente:
 
@@ -129,7 +129,7 @@ para quien use esos filtros.
 > ~~🟢 Cambiar el default del frontend a `sort_by='name'`~~ — **hecho** (ver [P-04a](#12-recomendaciones-priorizadas)).
 
 ### ⚡ P-05 — `list_discounts()` se ejecuta por request de storefront
-**Dónde:** `products_s.py:612` y `:679`
+**Dónde:** `products_storefront_s::list_storefront_products` y `:679`
 
 Carga **todos** los descuentos con sus `product_links` en cada listado y en cada detalle de producto.
 

@@ -40,6 +40,15 @@ aporta valor, a una línea concreta. Todo lo que es inferencia y no verificació
 Los diagramas Mermaid usados en los documentos también viven sueltos en [`diagrams/`](diagrams/) para poder
 reutilizarlos o renderizarlos de forma independiente.
 
+### Decisiones de arquitectura (ADR)
+
+| # | Decisión | Estado |
+|---|---|---|
+| [0001](adr/0001-organizacion-de-servicios-por-vista.md) | Organización de servicios por vista de consumidor | Aceptada |
+
+Documentos de trabajo del refactor asociado: [spec](spec-refactor-servicios.md) (qué y para quién) y
+[plan](refactor-servicios-plan.md) (tabla símbolo→destino, checkboxes, hallazgos).
+
 ---
 
 ## Cómo leer esta documentación

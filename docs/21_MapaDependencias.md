@@ -283,18 +283,19 @@ flowchart TD
 |---|---|---|---|
 | V-01 | Servicios lanzan `HTTPException` (capa 4/5 → capa 2) | `users_s.py` (5 sitios), `auth_s.py:306` | 🟠 |
 | V-02 | `users_s` importa `source.schemas` (capa 5 → capa 3) | `users_s.py:11-14` | 🟡 |
-| V-03 | `orders_s` importa `mercadopago_normalization_s` solo para una constante | `orders_s.py:21` | 🟡 |
-| V-04 | `products_s` importa `db.session.SessionLocal` para abrir sesión propia | `products_s.py:10` | 🟠 |
-| V-05 | `webhook_events_s` y `payment_admin_queries_s` importan funciones **privadas** de `payment_s` | `webhook_events_s.py:16`, `payment_admin_queries_s.py:11` | 🟡 |
+| V-03 | 🔀 `mercadopago_normalization_s` importado solo para una constante — **se movió** con el snapshot público: hoy lo importa `orders_public_s`, no `orders_s` | `orders_public_s` | 🟡 |
+| V-04 | 🔀 El scope de sesión que abría sesión propia **se movió** de `products_s` a `db.session.read_session_scope` (refactor de servicios) | `db/session.py` | 🟠 |
+| V-05 | ✅ ~~`webhook_events_s` y `payment_admin_queries_s` importan **privados** de `payment_s`~~ — **resuelto**: ahora consumen API pública de `payment_core_s` | `webhook_events_s`, `payment_admin_queries_s` | ✅ |
 | V-06 | `mercadopago_d` está en `dependencies/` pero no es una dependencia de FastAPI | `dependencies/mercadopago_d.py` | 🟡 |
 
-**Detalle de V-03:** `orders_s` importa `MERCADOPAGO_ALLOWED_CHECKOUT_HOSTS` de
-`mercadopago_normalization_s`. Es una constante, no lógica — la dependencia es sintáctica más que conceptual.
-**Solución:** mover la allowlist a un módulo de constantes compartido.
+**Detalle de V-03:** `MERCADOPAGO_ALLOWED_CHECKOUT_HOSTS` (constante de `mercadopago_normalization_s`) ahora lo
+importa `orders_public_s`, que es donde vive la lógica de snapshot público que la usa. La dependencia sintáctica
+sigue ahí, pero ya no la carga `orders_s`. **Solución pendiente:** mover la allowlist a un módulo de constantes
+compartido.
 
-**Detalle de V-04:** `_read_session_scope(db=None)` permite que `products_s` **cree su propia sesión** si no se
-le pasa una. Ninguna llamada actual lo hace, pero la puerta está abierta a lecturas fuera de la transacción del
-request.
+**Detalle de V-04:** `db.session.read_session_scope(db=None)` permite **crear una sesión propia** si no se le
+pasa una. Ninguna llamada actual lo hace, pero la puerta sigue abierta a lecturas fuera de la transacción del
+request. El refactor lo movió de `products_s` a la capa de sesión, pero no cerró la puerta (fuera de alcance).
 
 ---
 
@@ -419,12 +420,12 @@ Qué se rompe si tocás cada módulo:
 
 | ID | Recomendación | Justificación |
 |---|---|---|
-| **M-01** | Dividir `payment_s` (R-02) | Es el único módulo en la zona de dolor de Martin (I=0,50) con fan-in 6 |
-| **M-02** | Reducir el fan-out de `orders_s` (hoy 10) | Extraer el snapshot público y las ventas admin a módulos propios |
+| **M-01** | ✅ ~~Dividir `payment_s` (R-02)~~ — **hecho** por el refactor de servicios: `payment_s` se partió en `payment_core_s` (kernel) y `payment_provider_s` (MercadoPago) |
+| **M-02** | ✅ ~~Reducir el fan-out de `orders_s`~~ — **hecho en parte**: el snapshot público salió a `orders_public_s`. Las ventas admin quedan en `orders_s` (una vista, no dos — ver ADR 0001) |
 | **M-03** | Eliminar `HTTPException` de los servicios (V-01) | Restaura la separación de capas y permite reutilizarlos desde jobs |
-| **M-04** | Mover `MERCADOPAGO_ALLOWED_CHECKOUT_HOSTS` a un módulo de constantes | Elimina la dependencia V-03 |
-| **M-05** | Promover a públicas las funciones compartidas de `payment_s` | `_payment_to_dict`, `_serialize_provider_payload` y `_deserialize_provider_payload` se importan desde otros módulos pese al guion bajo (V-05) |
-| **M-06** | Eliminar el parámetro `db=None` de `products_s` (V-04) | Fuerza que toda lectura ocurra en la transacción del request |
+| **M-04** | Mover `MERCADOPAGO_ALLOWED_CHECKOUT_HOSTS` a un módulo de constantes | Reduce la dependencia V-03 (ya no la carga `orders_s`, pero sí `orders_public_s`) |
+| **M-05** | ✅ ~~Promover a públicas las funciones compartidas de `payment_s`~~ — **hecho**: `payment_to_dict`, `serialize_provider_payload` y `deserialize_provider_payload` son API pública de `payment_core_s` (V-05 resuelto) |
+| **M-06** | Eliminar el parámetro `db=None` de `read_session_scope` (V-04) | Fuerza que toda lectura ocurra en la transacción del request |
 | **M-07** | Mover `mercadopago_d` a `services/` (V-06) | No es una dependencia de FastAPI |
 | **M-08** | Añadir un chequeo de ciclos al CI | Herramientas: `pydeps --show-cycles`, `import-linter`. Congelaría el estado actual (cero ciclos) |
 | **M-09** | Definir contratos de capa con `import-linter` | Prohibiría explícitamente que `services/` importe de `routes/` o de `fastapi` |

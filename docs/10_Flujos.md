@@ -256,7 +256,7 @@ sequenceDiagram
 
 ⚡ **El punto crítico de performance del sistema.** El precio final con descuento **no es computable en SQL**
 porque la selección del mejor descuento vive en Python. El código lo documenta explícitamente
-(`products_s.py:600-604`) y mitiga permitiendo paginación en SQL para el caso común (orden por nombre sin filtro
+(`products_storefront_s::list_storefront_products`) y mitiga permitiendo paginación en SQL para el caso común (orden por nombre sin filtro
 de precio). Ver [12_Performance.md](12_Performance.md#storefront).
 
 ---

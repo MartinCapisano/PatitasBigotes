@@ -71,7 +71,7 @@ PatitasBigotes/
 |   |   |   |-- __init__.py                  # Barrel: reexporta los 32 DTOs
 |   |   |   |-- auth_s.py · discounts_s.py · orders_s.py · payments_s.py
 |   |   |   |-- products_s.py · stock_reservations_s.py · turns_s.py · users_s.py
-|   |   |-- services/                        # 27 archivos — ver tabla en la sección 3
+|   |   |-- services/                        # 31 archivos — ver tabla en la sección 3
 |   |   |-- errors.py                        # Traductor único excepción -> HTTPException
 |   |   |-- exceptions.py                    # 4 excepciones de dominio
 |   |   `-- seed_demo.py                     # Catálogo demo + admin@demo.com (bloqueado en prod)
@@ -186,13 +186,22 @@ PatitasBigotes/
 
 ---
 
-## 3. Mapa de los 27 servicios de dominio
+## 3. Mapa de los 31 servicios de dominio
+
+> El refactor de servicios por vista (ADR 0001) dividió los tres módulos más grandes en cinco: la vitrina salió
+> de `products_s` a `products_storefront_s`, el snapshot público de `orders_s` a `orders_public_s`, y el kernel
+> y el proveedor de `payment_s` a `payment_core_s` y `payment_provider_s`. El scope de sesión pasó a
+> `db/session.py`.
 
 | Archivo | LOC | Contexto | Exporta (principales) |
 |---|---:|---|---|
-| `payment_s.py` | 1135 | Pagos | `create_payment_for_order`, `create_retry_payment_for_order`, `create_retry_payment_for_payment_token`, `apply_mercadopago_normalized_state`, `confirm_manual_payment_for_order`, `initialize_mercadopago_checkout_for_payment` |
-| `orders_s.py` | 950 | Órdenes | `change_order_status`, `replace_draft_order_items`, `create_admin_sale`, `create_manual_submitted_order`, `get_public_order_snapshot_by_payment_token` |
-| `products_s.py` | 946 | Catálogo | `list_storefront_products`, `get_storefront_product_by_id`, `list_admin_catalog`, CRUD de producto/variante/categoría |
+| `payment_s.py` | ~660 | Pagos | `create_payment_for_order`, `create_retry_payment_for_order`, `create_retry_payment_for_payment_token`, `confirm_manual_payment_for_order`, `list_payments_for_order` |
+| `payment_provider_s.py` | ~310 | Pagos · MercadoPago | `initialize_mercadopago_checkout_for_payment`, `apply_mercadopago_normalized_state`, `find_payment_for_mercadopago_event`, `list_reconcilable_pending_mercadopago_payments` |
+| `payment_core_s.py` | ~230 | Pagos · kernel | `apply_order_paid_transition`, `payment_to_dict`, `serialize_provider_payload`, `assert_valid_payment_transition`, `resolve_payment_by_idempotency_key`, `build_bank_transfer_payload` |
+| `orders_s.py` | ~770 | Órdenes | `change_order_status`, `replace_draft_order_items`, `create_admin_sale`, `create_manual_submitted_order` |
+| `orders_public_s.py` | ~200 | Órdenes · público | `get_public_order_snapshot_by_payment_token` |
+| `products_s.py` | ~615 | Catálogo administrado | `list_admin_catalog`, CRUD de producto/variante/categoría, stock |
+| `products_storefront_s.py` | ~340 | Catálogo · vitrina | `list_storefront_products`, `get_storefront_product_by_id`, `list_storefront_categories` |
 | `discount_s.py` | 446 | Precios | `reprice_order_items`, `select_best_discount`, `calculate_line_pricing`, CRUD de descuentos |
 | `mercadopago_client.py` | 439 | Proveedor | `create_checkout_preference`, `get_payment_by_id`, `create_refund`, `resolver_evento_webhook_mercadopago` |
 | `stock_reservations_s.py` | 393 | Inventario | `reserve_stock_for_submitted_order`, `consume_reservations_for_paid_order`, `expire_active_reservations` |
@@ -227,7 +236,7 @@ Ficha detallada de cada uno en [04_Backend.md](04_Backend.md).
 |---|---|---|
 | Agregar un campo a producto | `db/models.py` → nueva migración Alembic | `schemas/products_s.py`, `services/products_s.py`, `services/admin-catalog-api.ts` |
 | Cambiar cómo se calcula un descuento | `services/discount_s.py` | `tests/test_discounts_category_scope.py`, `tests/test_products_min_var_price.py` |
-| Agregar un método de pago | `services/payment_s.py:38` (`ALLOWED_PAYMENT_METHODS`) | `schemas/payments_s.py`, `schemas/orders_s.py`, frontend `checkout-api.ts` |
+| Agregar un método de pago | `services/payment_s.py` (`ALLOWED_PAYMENT_METHODS`) | `schemas/payments_s.py`, `schemas/orders_s.py`, frontend `checkout-api.ts` |
 | Cambiar el TTL de las reservas | `services/stock_reservations_s.py:11-13` | `tests/test_stock_reservations_expiration.py` |
 | Agregar un job de mantenimiento | `jobs/nuevo_job.py` con `run_once()` | `services/maintenance_s.py:103` (lista `JOBS`), `scripts/jobs.ps1:15` |
 | Agregar una pantalla del panel admin | `features/admin/types.ts` (nueva `AdminSection`) | nuevo hook + componente + `AdminPage.tsx` |

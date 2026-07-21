@@ -2,7 +2,7 @@
 
 > Documento de trabajo. Se consulta y se actualiza durante toda la implementación.
 > La decisión y su justificación viven en [ADR 0001](adr/0001-organizacion-de-servicios-por-vista.md).
-> **Estado: commits 0-4 hechos. Movimiento completo; falta documentacion.**
+> **Estado: completo. Movimiento (commits 0-4) y documentacion (7-8) hechos.**
 
 ---
 
@@ -229,22 +229,22 @@ línea, y **todas las líneas se corren** con este refactor, incluso en los arch
 | `11_Seguridad.md` | 7 | `18_Roadmap.md` | 7 |
 | resto | 8 | | |
 
-- [ ] **Re-anclar por símbolo, no por línea.** `payment_s.py:138` → `payment_core_s.py::apply_order_paid_transition`. Re-pinnear números de línea compra documentación correcta hasta el próximo commit que toque el archivo; una referencia por símbolo sobrevive a cualquier movimiento.
-- [ ] Actualizar `03_ArbolProyecto.md` con los 5 archivos nuevos
-- [ ] Actualizar `21_MapaDependencias.md` con las nuevas aristas
-- [ ] Agregar entrada del ADR 0001 al índice `docs/README.md`
+- [x] **Re-anclado por símbolo, no por línea** en los 4 docs pesados (commit 7) + el resto (08, 10, 11, 12, 18, 20, 22, 01, 16). Verificado por script: 0 refs `.py:línea` a los 3 módulos fuera de schemas; 130 refs `módulo::símbolo`/`módulo.símbolo` a los 7 módulos del refactor, todas existen en el código.
+- [x] Actualizar `03_ArbolProyecto.md` con los 5 archivos nuevos (tabla de servicios: 27 → 31)
+- [x] `21_MapaDependencias.md`: actualizadas las tablas de anomalías (V-03/04/05) y recomendaciones (M-01/02/05/06). **El grafo mermaid se dejó intacto por pedido explícito del usuario** ("no te involucres en los gráficos").
+- [x] Agregar entrada del ADR 0001 al índice `docs/README.md`
 
 #### Glosario — extender `19_Glosario.md`, **no** crear `CONTEXT.md`
 
 El repo ya tiene glosario con 26 entradas y el mismo formato. Crear un `CONTEXT.md` fundaría un segundo
 glosario compitiendo con el primero.
 
-- [ ] Corregir entradas existentes cuyo puntero se mueve: `bank_transfer` (apunta a `payment_s._build_bank_transfer_payload`) y `blocking_reason` (apunta a `orders_s.get_public_order_snapshot_by_payment_token`)
-- [ ] Agregar los términos que esta sesión fijó:
-  - **Vista storefront** vs **catálogo administrado** — dos vistas del mismo producto, con reglas de precio distintas por diseño
-  - **Snapshot público de orden** — la proyección anónima accesible por token de pago, con serialización propia
-  - **Kernel de pago** — el conjunto mínimo compartido por todos los caminos de pago; incluye el punto de entrada del dinero
-  - **Divergencia legítima** vs **duplicación accidental** — la distinción que hizo posible este refactor: dos cálculos de precio mínimo son divergencia (dos vistas del negocio); dos copias del session scope son duplicación (infraestructura). Solo la segunda se elimina.
+- [x] Corregir entradas existentes cuyo puntero se mueve: `bank_transfer` (ahora `payment_core_s.build_bank_transfer_payload`) y `blocking_reason` (ahora `orders_public_s.get_public_order_snapshot_by_payment_token`)
+- [x] Agregar los términos que esta sesión fijó (en `19_Glosario.md`, formato existente, sin crear `CONTEXT.md`):
+  - **Vista storefront** (V) vs **Catálogo administrado** (C) — dos vistas del mismo producto, con reglas de precio distintas por diseño
+  - **Snapshot público de orden** (S) — la proyección anónima accesible por token de pago, con serialización propia
+  - **Kernel de pago** (K) — el conjunto mínimo compartido por todos los caminos de pago; incluye el punto de entrada del dinero
+  - **Divergencia legítima** vs **Duplicación accidental** (D) — la distinción que hizo posible este refactor: dos cálculos de precio mínimo son divergencia (dos vistas del negocio); dos copias del session scope son duplicación (infraestructura). Solo la segunda se elimina.
 
 ---
 
@@ -258,6 +258,7 @@ Bugs, simplificaciones y rarezas encontradas durante el movimiento. **No se toca
 | H-02 | `tests/test_products_min_var_price.py` importa servicios **por módulo** y alcanza símbolos privados; es el único del repo que lo hace | `tests/` | Seam demasiado bajo. Se actualizó el import y nada más, según el ticket 03. Subirlo de seam es trabajo aparte. |
 | H-03 | `orders_public_s` importa dos privados de `orders_s` (`_variant_label` y `_utc_now`), no uno solo | `orders_public_s.py` | El plan solo había previsto `_variant_label`. `_utc_now` es un `datetime.now(UTC)` de una línea: candidato a subir a un helper de tiempo compartido en vez de quedar como privado importado. |
 | H-04 | El split del proveedor abría un ciclo `payment_s ↔ payment_provider_s` | `payment_provider_s.py`, `payment_s.py` | Resuelto moviendo la constante `PAYMENT_PROVIDER_SETUP_FAILED` a su dueña semántica (el proveedor) y re-exportándola desde `payment_s`. El plan no lo había anticipado. La re-exportación es deuda menor: los importadores externos (`orders_r`, `test_provider_failure_checkout`) podrían apuntar al proveedor directo en un commit posterior. |
+| H-05 | El comentario de `mercadopago_normalization_s._normalize_optional_str` sigue diciendo "duplicated from payment_s._normalize_optional_str" | `mercadopago_normalization_s.py` | El canónico se movió a `payment_core_s.normalize_optional_str`; el comentario quedó levemente obsoleto. No se tocó (queda fuera del movimiento puro y de la re-anclación de docs). Los docs que **citan** ese comentario lo reproducen fiel a propósito. |
 
 ---
 

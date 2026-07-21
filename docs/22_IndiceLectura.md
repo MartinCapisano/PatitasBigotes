@@ -175,7 +175,7 @@ tests/test_security.py + test_csrf_middleware.py
 
 ```
 12_Performance.md  →  db/session.py (el pool)  →
-products_s.list_storefront_products  →  08_BaseDatos.md §4 (índices)  →
+products_storefront_s.list_storefront_products  →  08_BaseDatos.md §4 (índices)  →
 stock_reservations_s._expire_active_reservations_internal
 ```
 

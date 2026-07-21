@@ -237,8 +237,8 @@ Nada verifica el flujo completo navegador → frontend → backend → base. Los
 
 | Servicio | LOC | Estado |
 |---|---:|---|
-| `products_s.list_storefront_products` | ~100 | 🟠 Cubierto indirectamente vía HTTP; sin test del camino lento con filtros de precio |
-| `orders_s.get_public_order_snapshot_by_payment_token` | 140 | 🟠 Los 4 flags y las 6 razones de bloqueo no tienen matriz de casos |
+| `products_storefront_s.list_storefront_products` | ~100 | 🟠 Cubierto indirectamente vía HTTP; sin test del camino lento con filtros de precio |
+| `orders_public_s.get_public_order_snapshot_by_payment_token` | 140 | 🟠 Los 4 flags y las 6 razones de bloqueo no tienen matriz de casos |
 | `stock_reservations_s._expire_active_reservations_internal` | ~100 | 🟠 Solo 4 tests para reactivación, cancelación y política de máximo |
 | `refund_s.create_mercadopago_refund` | ~155 | 🟠 Sin test del camino de fallo con commit dentro del `except` |
 | `mercadopago_client` (bucles de reintento) | ~180 | 🟠 Sin test de timeout, 5xx ni respuesta inválida |

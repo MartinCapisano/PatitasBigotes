@@ -45,13 +45,13 @@ Con los defaults: 30 → 60 → 120 minutos, con techo de 720.
 ### `bank_transfer` (Transferencia bancaria)
 Método de pago manual. Genera instrucciones estáticas (alias, banco, referencia `ORDER-{n}-PAY-{m}`) y queda
 `pending` hasta que un administrador lo confirma con el comprobante.
-📍 `payment_s._build_bank_transfer_payload`
+📍 `payment_core_s.build_bank_transfer_payload`
 
 ### `blocking_reason` (Motivo de bloqueo)
 Campo del snapshot público que explica por qué el cliente **no** puede continuar ni reintentar su pago. Seis
 valores: `order_paid`, `order_cancelled`, `payment_pending`, `payment_not_retryable`,
 `stock_reservation_expired`, `checkout_unavailable`.
-📍 `orders_s.get_public_order_snapshot_by_payment_token`
+📍 `orders_public_s.get_public_order_snapshot_by_payment_token`
 
 ---
 
@@ -71,6 +71,13 @@ sistema: **`public_status_token`**.
 Método de pago manual sin vencimiento (`expires_at = NULL`). Admite `change_amount` (vuelto): la regla de importe
 es `paid_amount − change_amount == total_amount`.
 📍 `payment_s.confirm_manual_payment_for_order`
+
+### Catálogo administrado
+Vista de producto que ve el panel de administración: CRUD, stock y queries admin, **sin** aplicar descuentos.
+Es la contraparte de la **Vista storefront**: dos vistas del mismo producto con reglas de precio distintas por
+diseño (ver *Divergencia legítima*). El refactor de servicios por vista las separó en dos módulos, dejando la
+divergencia visible en el filesystem.
+📍 `products_s` (administrado) vs `products_storefront_s` (vitrina)
 
 ### Categoría (`Category`)
 Agrupación de productos. Su `name` es único. No se puede borrar si tiene productos (`ondelete=RESTRICT`).
@@ -123,6 +130,19 @@ Regla de precio con cuatro alcances (`scope`) y dos tipos (`percent` de 1 a 100,
 ### DiscountProduct
 Tabla puente para descuentos con `scope='product_list'`. PK compuesta `(discount_id, product_id)`.
 📍 tabla `discount_products`
+
+### Divergencia legítima vs Duplicación accidental
+La distinción que hizo posible el refactor de servicios por vista, y el criterio con el que se audita la
+duplicación **con una regla en vez de por intuición**:
+- **Divergencia legítima** — dos cálculos parecidos que son **dos vistas del negocio** y deben conservarse por
+  separado y documentarse. Ejemplo: el precio mínimo en la vitrina (con descuento) vs en el catálogo
+  administrado (sin descuento). No es un bug latente; es diseño.
+- **Duplicación accidental** — dos copias de la **misma** lógica que deberían ser una sola. Ejemplo: dos copias
+  del scope de sesión de base de datos (infraestructura, no lógica de negocio).
+
+Solo la segunda se elimina. El refactor por vista existe para volver **visible** cuál es cuál: cuando cada vista
+vive en su archivo, la pregunta "¿estas dos cotizan igual?" se responde abriendo un archivo.
+📍 `products_storefront_s` vs `products_s` (divergencia) · `db.session.read_session_scope` (duplicación eliminada)
 
 ### `draft` (Borrador)
 Estado inicial de una orden. Es el carrito del usuario autenticado: se pueden editar ítems y los precios se
@@ -223,6 +243,18 @@ del token, dando una segunda dimensión de verificación.
 
 ---
 
+## K
+
+### Kernel de pago
+El conjunto mínimo compartido por **todos** los caminos de pago: serialización, transiciones de estado,
+idempotencia y — el caso central — el **punto de entrada del dinero**, `apply_order_paid_transition`, la única
+definición de "la orden se pagó", invocada tanto por el webhook del proveedor como por la confirmación manual.
+Se extrajo a su propio módulo con API pública para que otros servicios dejaran de importar privados con guion
+bajo. Señal de alarma: si supera las ~350 líneas, el corte falló y hay que revisar el ADR 0001.
+📍 `payment_core_s`
+
+---
+
 ## L
 
 ### `late_paid_duplicate` (Cobro tardío o duplicado)
@@ -262,7 +294,7 @@ emisor.
 ### `option_axis` (Eje de opciones)
 Campo del detalle de producto que indica cómo etiquetar el selector de variante en el frontend.
 Valores: `"size"` (si alguna variante tiene talle), `"color"`, o `"variant"` (genérico).
-📍 `products_s._storefront_option_axis`
+📍 `products_storefront_s._storefront_option_axis`
 
 ### Orden (`Order`)
 Entidad central de la compra. Cuatro estados: `draft` → `submitted` → `paid` | `cancelled`.
@@ -283,7 +315,7 @@ Snapshot inmutable de un producto comprado: guarda `unit_price`, `discount_id`, 
 Excepción a las transiciones de pago: si Mercado Pago informa `approved` sobre un pago local `cancelled` o
 `expired`, la validación de transición **se omite** y el pago pasa a `paid`, generando una `PaymentIncident`.
 **Razón:** el dinero se cobró de verdad; rechazar la actualización dejaría el sistema mintiendo.
-📍 `payment_s.py:373-375`
+📍 `payment_provider_s.apply_mercadopago_normalized_state`
 
 ### `Payment` (Pago)
 Intento de cobro. Tres métodos (`bank_transfer`, `mercadopago`, `cash`) y cuatro estados (`pending`, `paid`,
@@ -314,13 +346,13 @@ notificación y vencimiento. Su `id` se guarda en `payments.preference_id`.
 Flag que se activa al pasar una orden a `submitted`. A partir de ahí `_recalculate_order_total` se niega a
 recalcular los totales, para que un cambio de precio o el fin de un descuento no altere el importe que el
 cliente ya aceptó.
-📍 `orders_s.py:314-316`
+📍 `orders_s._recalculate_order_total`
 
 ### `public_status_token` (Token público de estado)
 Cadena de 32 bytes urlsafe (256 bits) generada por pago. Es un **capability token**: quien lo posee puede
 consultar el estado y **reintentar** ese pago sin autenticarse. Se inyecta en las `back_urls` de Mercado Pago
 para que el invitado pueda volver y continuar.
-📍 `models.generate_public_status_token` · `orders_s.get_public_order_snapshot_by_payment_token`
+📍 `models.generate_public_status_token` · `orders_public_s.get_public_order_snapshot_by_payment_token`
 
 ---
 
@@ -368,10 +400,12 @@ Tiene **dos** significados según el contexto:
 Identificador comercial único de una variante. Es lo que realmente se vende y se inventaría.
 📍 `product_variants.sku UNIQUE`
 
-### Snapshot público
-Vista sin autenticación del estado de una orden y su pago, obtenida con el `public_status_token`. Incluye
-`order`, `payment`, cuatro `flags` y un `blocking_reason`.
-📍 `GET /public/orders/by-payment-token`
+### Snapshot público de orden
+La **proyección anónima** del estado de una orden y su pago, accesible por `public_status_token` sin sesión.
+Incluye `order`, `payment`, cuatro `flags` y un `blocking_reason`. Construye su **propia serialización** (no usa
+el serializador de orden compartido), lo que permitió aislarlo en su módulo: toda la superficie anónima de
+órdenes se audita leyendo ~200 líneas, sin recorrer los caminos autenticados.
+📍 `GET /public/orders/by-payment-token` · `orders_public_s.get_public_order_snapshot_by_payment_token`
 
 ### Stock disponible vs stock físico
 - **Stock físico** (`product_variants.stock`): unidades que existen.
@@ -419,6 +453,14 @@ Guarda el hash del refresh token, su `jti` y todos los claims.
 Unidad realmente vendible de un producto: combinación de talle, color, precio y stock, identificada por su SKU.
 📌 Un producto **no tiene precio ni stock propios**: ambos se derivan de sus variantes activas.
 📍 tabla `product_variants`
+
+### Vista storefront
+La vista de producto que ve un comprador anónimo en la vitrina pública: cotiza **con descuentos aplicados**,
+tiene su propia serialización y su lógica de opciones de variante. Es la contraparte del **Catálogo
+administrado**, que no cotiza. Dos vistas del mismo producto, con reglas de precio distintas por diseño
+(*Divergencia legítima*). Vive en un módulo propio, con dependencia de una sola vía hacia el catálogo
+administrado (vitrina → administrado, nunca al revés).
+📍 `products_storefront_s`
 
 ---
 
