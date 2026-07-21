@@ -1,0 +1,8 @@
+stateDiagram-v2
+    [*] --> processing: acquire_record (INSERT en SAVEPOINT)
+    processing --> completed: mark_record_completed
+    processing --> failed: mark_record_failed
+    processing --> failed: sweeper (>30 min atascado)
+    completed --> [*]: prune (TTL 24 h)
+    failed --> processing: recuperación con la misma clave
+    failed --> [*]: prune

@@ -1,0 +1,46 @@
+sequenceDiagram
+    autonumber
+    actor A as Administrador
+    actor C as Cliente en el mostrador
+    participant FE as SalesSection / useAdminSales
+    participant API as POST /admin/sales
+    participant OS as orders_s
+    participant US as users_s
+    participant SR as stock_reservations_s
+    participant PS as payment_s
+    participant PC as post_commit_actions_s
+    participant DB as PostgreSQL
+
+    C->>A: quiere llevar 2 productos
+    A->>FE: buscar cliente (GET /users/search) o cargar datos nuevos
+    A->>FE: elegir productos y variantes, cantidades
+    A->>FE: método = efectivo, monto recibido, vuelto
+    FE->>API: POST {customer{mode}, items, register_payment:true, payment}
+    Note over API: 👑 require_admin (relee is_admin de la DB)<br/>⚠️ el cliente NO envía Idempotency-Key
+    API->>OS: create_admin_sale(...)
+    alt mode = existing
+        OS->>DB: SELECT users WHERE id
+        OS->>OS: 🔒 prohíbe enviar otros campos del cliente
+    else mode = new
+        OS->>US: get_or_create_user_by_contact(...)
+        US->>US: 🔒 valida coincidencia de contacto si el email ya existe
+    end
+    OS->>DB: INSERT orders (draft) + order_items
+    OS->>OS: reprice con descuentos vigentes
+    OS->>SR: reserve_stock_for_submitted_order
+    OS->>DB: UPDATE orders SET pricing_frozen, submitted_at, status=submitted
+    OS->>DB: publish order_submitted → notifications
+
+    OS->>PC: set_skip_order_paid_email(db, True)   🔇
+    OS->>PS: confirm_manual_payment_for_order(allow_create_if_missing=True)
+    PS->>PS: valida paid_amount − change_amount == total  (efectivo)
+    PS->>SR: consume_reservations_for_paid_order
+    SR->>DB: UPDATE product_variants SET stock = stock - qty
+    PS->>DB: INSERT payments (status=paid, provider_status='manual_confirmed')
+    PS->>DB: UPDATE orders SET status=paid, paid_at
+    PS->>DB: publish order_paid → notifications (email suprimido)
+    OS->>PC: set_skip_order_paid_email(db, valor previo)   restaura en finally
+    API->>DB: COMMIT (get_db_transactional)
+    API-->>FE: {data:{customer, order, payment, meta{customer_created,<br/>payment_registered, order_paid_email_suppressed}}}
+    FE->>A: comprobante en pantalla
+    A->>C: entrega productos y vuelto

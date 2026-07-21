@@ -1,0 +1,13 @@
+flowchart TD
+    A["Respuesta de error"] --> B{"status === 401?"}
+    B -->|No| Z["reject(error)"]
+    B -->|Sí| C{"¿url ∈ /auth/login, /auth/logout, /auth/refresh<br/>O ya se reintentó (_retry)?"}
+    C -->|Sí| D["broadcastUnauthorized()<br/>→ CustomEvent pb-auth-unauthorized"] --> Z
+    C -->|No| E["marca _retry = true"]
+    E --> F{"¿hay un refresh en curso?"}
+    F -->|Sí| G["await refreshPromise"]
+    F -->|No| H["refreshPromise = refreshAccessToken()"]
+    G --> I{"¿refresh OK?"}
+    H --> I
+    I -->|Sí| J["reintenta la request original"]
+    I -->|No| K["broadcastUnauthorized()"] --> Z

@@ -1,0 +1,9 @@
+flowchart TD
+    A["Incidencia late_paid_duplicate<br/>status=pending_review"] --> B{"¿El cobro fue indebido?"}
+    B -->|Sí| C["Resolver con reembolso<br/>reason obligatorio + amount opcional"]
+    B -->|No| D["Resolver sin reembolso<br/>reason obligatorio"]
+    C --> E["POST /admin/payment-incidents/{id}/resolve-refund"]
+    E --> F["Backend llama a Mercado Pago"]
+    F -->|OK| G["refund=approved · incident=resolved_refunded"]
+    F -->|Falla| H["refund=failed (commiteado) · 502/503/504<br/>la incidencia sigue pending_review"]
+    D --> I["POST .../resolve-no-refund<br/>incident=resolved_no_refund"]

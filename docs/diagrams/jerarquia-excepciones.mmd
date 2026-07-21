@@ -1,0 +1,30 @@
+classDiagram
+    Exception <|-- ValueError
+    ValueError <|-- OrderStatusTransitionError
+    ValueError <|-- PaymentRetryConflictError
+    ValueError <|-- RegisteredAccountCheckoutConflictError
+    ValueError <|-- WebhookReplayConflictError
+    ValueError <|-- LoginRateLimitExceededError
+
+    Exception <|-- PaymentProviderError
+    PaymentProviderError <|-- PaymentProviderTimeoutError
+    PaymentProviderError <|-- PaymentProviderValidationError
+    PaymentProviderError <|-- PaymentProviderAuthError
+    PaymentProviderError <|-- PaymentProviderUnavailableError
+    PaymentProviderError <|-- PaymentCheckoutInitializationError
+
+    Exception <|-- WebhookNoOpError
+    Exception <|-- WebhookInvalidSignatureError
+
+    class OrderStatusTransitionError { HTTP 409 }
+    class PaymentRetryConflictError { HTTP 409 }
+    class RegisteredAccountCheckoutConflictError { HTTP 409 }
+    class WebhookReplayConflictError { HTTP 409 }
+    class LoginRateLimitExceededError { HTTP 429 (manual) }
+    class PaymentProviderValidationError { HTTP 400 }
+    class PaymentCheckoutInitializationError { HTTP 502 }
+    class PaymentProviderAuthError { HTTP 502 }
+    class PaymentProviderTimeoutError { HTTP 504 }
+    class PaymentProviderUnavailableError { HTTP 503 }
+    class WebhookNoOpError { HTTP 200 processed:false }
+    class WebhookInvalidSignatureError { HTTP 401 }

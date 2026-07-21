@@ -1,0 +1,10 @@
+flowchart TD
+    A["Endpoint nuevo"] --> B{"¿Escribe en DB?"}
+    B -->|No| C["Depends(get_db)<br/>lectura pura"]
+    B -->|Sí| D{"¿Necesita hacer trabajo<br/>DESPUÉS del commit?<br/>(emails, llamadas a MP)"}
+    D -->|No| E["Depends(get_db_transactional)<br/>← estrategia por defecto"]
+    D -->|Sí| F["Depends(get_db) + db.commit() manual<br/>+ dispatch_post_commit_actions()"]
+
+    C -.->|ejemplo| C1["GET /orders<br/>GET /storefront/products"]
+    E -.->|ejemplo| E1["POST /auth/login<br/>PATCH /orders/{id}/status<br/>POST /discounts"]
+    F -.->|ejemplo| F1["POST /orders/{id}/payments<br/>POST /checkout/guest<br/>POST /payments/webhook/mercadopago"]

@@ -1,0 +1,9 @@
+stateDiagram-v2
+    [*] --> pending: create_payment_for_order
+    pending --> paid
+    pending --> cancelled
+    pending --> expired
+    pending --> pending
+    paid --> paid
+    cancelled --> cancelled: (revival a paid permitido ⚠️)
+    expired --> expired: (revival a paid permitido ⚠️)

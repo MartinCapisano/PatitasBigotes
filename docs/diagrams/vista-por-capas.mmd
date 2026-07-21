@@ -1,0 +1,16 @@
+flowchart TD
+    L1["CAPA 1 — Entrada<br/>main.py"]
+    L2["CAPA 2 — Adaptadores HTTP<br/>routes/ (12) · dependencies/ (4)"]
+    L3["CAPA 3 — Contratos<br/>schemas/ (9) · errors.py · exceptions.py"]
+    L4["CAPA 4 — Orquestación<br/>orders_s · payment_s · auth_s · maintenance_s"]
+    L5["CAPA 5 — Dominio<br/>products_s · discount_s · stock_reservations_s · refund_s ·<br/>webhook_events_s · users_s · turns_s · notifications_s ·<br/>domain_events_s · idempotency_s · anti_abuse_s · auth_rate_limit_s"]
+    L6["CAPA 6 — Utilidades puras<br/>money_s · auth_security_s · auth_cookies_s ·<br/>post_commit_actions_s · payment_errors"]
+    L7["CAPA 7 — Infraestructura<br/>db/models · db/session · db/config ·<br/>mercadopago_client · email_s"]
+    L8["CAPA 8 — Externos<br/>PostgreSQL · Mercado Pago · SMTP"]
+    JOBS["JOBS (transversal)<br/>entran por la capa 5 sin pasar por HTTP"]
+
+    L1 --> L2 --> L3 --> L4 --> L5 --> L6 --> L7 --> L8
+    L4 --> L7
+    L5 --> L7
+    JOBS --> L5
+    JOBS --> L7

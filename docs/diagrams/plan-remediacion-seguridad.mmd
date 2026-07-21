@@ -1,0 +1,21 @@
+gantt
+    title Remediación de seguridad
+    dateFormat X
+    axisFormat %s
+    section P0 — inmediato
+    R-S-04 FORWARDED_ALLOW_IPS        :0, 1
+    section P1 — este sprint
+    R-S-05 desactivar /docs en prod   :1, 1
+    R-S-10 pip-audit + npm audit      :2, 1
+    R-S-02 migrar a Argon2id          :3, 2
+    R-S-01 is_admin desde la base     :5, 3
+    section P2 — próximo sprint
+    R-S-07 errores seguros            :8, 4
+    R-S-06 sanitizar idempotencia     :12, 2
+    R-S-03 rate limit autenticado     :14, 8
+    R-S-11 tabla de auditoría         :22, 16
+    section P3 — backlog
+    R-S-12 política de password       :38, 1
+    R-S-08 validar img_url            :39, 1
+    R-S-13 logs sin PII               :40, 1
+    R-S-14 cabeceras extra            :41, 1

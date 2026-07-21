@@ -1,0 +1,31 @@
+sequenceDiagram
+    autonumber
+    actor U as Usuario
+    participant FE as StorefrontPage / useStorefrontPage
+    participant API as GET /storefront/products
+    participant PS as products_s
+    participant DS as discount_s
+    participant DB as PostgreSQL
+
+    U->>FE: entra a /home (o filtra / busca / ordena / pagina)
+    FE->>API: ?q=&category_id=&sort_by=name&sort_order=desc&limit=12&offset=0
+    Note over API: Sin auth. Valida min_price ≤ max_price
+    API->>PS: list_storefront_products(...)
+    PS->>DB: subquery: MIN(price), SUM(stock), COUNT(id)<br/>GROUP BY product_id WHERE is_active
+    PS->>DB: JOIN products + filtros (category_id, name ILIKE)
+    alt sort_by=name y sin filtros de precio
+        PS->>DB: COUNT(*) + OFFSET/LIMIT   ⚡ pagina en SQL
+    else hay min_price/max_price o sort_by=price
+        PS->>DB: trae TODAS las filas       ⚠️ pagina en Python
+    end
+    PS->>DS: list_discounts(db)
+    loop por cada producto
+        PS->>DS: get_applicable_discounts_for_product
+        loop por cada variante activa
+            PS->>DS: select_best_discount + calculate_line_pricing
+        end
+        PS->>PS: min_var_price_original / min_var_price_final / has_discount
+    end
+    PS-->>API: (data, total)
+    API-->>FE: {data:[...], meta:{total,limit,offset,has_more,filters_applied}}
+    FE->>U: grilla con precio tachado si has_discount

@@ -1,0 +1,39 @@
+sequenceDiagram
+    autonumber
+    actor U as Usuario
+    participant FE as RegisterPage / useRegisterPage
+    participant API as POST /auth/register
+    participant AB as anti_abuse_s
+    participant US as users_s
+    participant AT as auth_tokens_s
+    participant EM as email_s
+    participant DB as PostgreSQL
+
+    U->>FE: nombre, apellido, email, password
+    FE->>API: POST {first_name,last_name,email,password}
+    Note over API: CSRF: valida Origin<br/>Pydantic: RegisterRequest (extra=forbid, password min 8)
+    API->>AB: enforce_public_signup_limits(ip, email)
+    AB->>DB: upsert auth_login_throttles ×3 (ip, email_window, email_interval)
+    AB-->>API: 429 si supera algún límite
+    API->>US: create_auth_user(...)
+    US->>US: ensure_password_policy (≥8 y ≥1 especial)
+    US->>DB: SELECT users WHERE email FOR UPDATE
+    alt existe con has_account=true
+        US-->>API: HTTPException 409 "email already exists"
+    else existe con has_account=false (era invitado)
+        US->>DB: UPDATE users SET nombre, password_hash, has_account=true,<br/>email_verified_at=NULL
+        Note right of US: RN-AUTH-03: conserva su historial de órdenes
+    else no existe
+        US->>DB: INSERT users (has_account=true, is_admin=false, email_verified_at=NULL)
+    end
+    API->>AT: create_one_time_token(user, email_verify, TTL 24h, ip)
+    AT->>DB: UPDATE auth_action_tokens SET used_at (invalida previos)
+    AT->>DB: INSERT auth_action_tokens (solo el hash SHA-256)
+    AT-->>API: token crudo
+    API->>DB: UPDATE users SET email_verification_sent_at = now
+    API->>EM: send_email_verification(email, APP_BASE_URL/verify-email?token=…)
+    Note over EM: ⚠️ SMTP síncrono DENTRO de la transacción
+    API->>DB: COMMIT (get_db_transactional)
+    API-->>FE: 201 {data:{registered:true}}
+    FE->>FE: savePendingVerificationEmail(email) en localStorage
+    FE->>U: navigate("/login", state:{reason:"registration_completed"})

@@ -1,0 +1,63 @@
+flowchart TD
+    subgraph CLIENT["Cliente"]
+        BROWSER["Navegador<br/>SPA React 18 + Vite"]
+    end
+
+    subgraph EDGE["Borde HTTP — backend/main.py"]
+        SH["SecurityHeadersMiddleware<br/>X-Frame-Options, CSP, HSTS"]
+        CORS["CORSMiddleware<br/>allow_credentials=True"]
+        CSRF["CSRFMiddleware<br/>Origin/Referer allowlist"]
+    end
+
+    subgraph ADAPTERS["Capa de adaptadores — source/routes/"]
+        RT["12 routers<br/>auth · orders · payments · products ·<br/>storefront · discounts · turns · users ·<br/>notifications · stock_reservations ·<br/>mercadopago · maintenance"]
+        DEPS["Dependencias<br/>get_current_user · require_admin ·<br/>get_db · get_db_transactional"]
+        SCH["Schemas Pydantic<br/>extra=forbid"]
+        ERR["errors.raise_http_error_from_exception<br/>excepción de dominio → status HTTP"]
+    end
+
+    subgraph DOMAIN["Capa de dominio — source/services/"]
+        CAT["Catálogo<br/>products_s"]
+        PRICE["Precios<br/>discount_s · money_s"]
+        ORD["Órdenes<br/>orders_s"]
+        STK["Inventario<br/>stock_reservations_s"]
+        PAY["Pagos<br/>payment_s · refund_s"]
+        AUTH["Identidad<br/>auth_*_s · users_s"]
+        NOTIF["Eventos y avisos<br/>domain_events_s · notifications_s ·<br/>post_commit_actions_s"]
+        ABUSE["Anti-abuso<br/>auth_rate_limit_s · anti_abuse_s"]
+        IDEM["Idempotencia<br/>idempotency_s"]
+        WH["Webhooks<br/>webhook_events_s"]
+    end
+
+    subgraph INFRA["Infraestructura"]
+        MODELS["Modelos SQLAlchemy<br/>source/db/models.py — 17 tablas"]
+        SESSION["Engine + SessionLocal<br/>source/db/session.py"]
+        MPC["mercadopago_client<br/>SDK + retries"]
+        MAIL["email_s<br/>smtplib"]
+    end
+
+    subgraph EXTERNAL["Servicios externos"]
+        PG[("PostgreSQL<br/>Supabase")]
+        MP["Mercado Pago<br/>Checkout Pro API"]
+        SMTP["Servidor SMTP"]
+    end
+
+    BROWSER -->|"HTTPS · cookies HttpOnly"| SH
+    SH --> CORS --> CSRF --> RT
+    RT --> DEPS
+    RT --> SCH
+    RT --> ERR
+    RT --> CAT & PRICE & ORD & STK & PAY & AUTH & NOTIF & ABUSE & IDEM & WH
+    ORD --> STK
+    ORD --> PAY
+    ORD --> PRICE
+    PAY --> STK
+    PAY --> NOTIF
+    PAY --> MPC
+    STK --> NOTIF
+    CAT --> PRICE
+    CAT & PRICE & ORD & STK & PAY & AUTH & NOTIF & ABUSE & IDEM & WH --> MODELS
+    MODELS --> SESSION --> PG
+    MPC --> MP
+    NOTIF --> MAIL --> SMTP
+    MP -.->|"webhook HMAC SHA-256"| RT

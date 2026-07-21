@@ -1,0 +1,17 @@
+flowchart TD
+    MAIN["main.tsx<br/>React.StrictMode + BrowserRouter"] --> APP["App.tsx<br/>AuthProvider + Suspense + Routes"]
+    APP --> LAYOUT["components/Layout.tsx<br/>topbar · carrito · campana de notificaciones · Outlet"]
+    LAYOUT --> PUB["Rutas públicas<br/>/home /categorias /peluqueria /contacto<br/>/checkout /products/:id /login /register<br/>/forgot-password /reset-password /verify-email<br/>/payments/{success,failure,pending}"]
+    LAYOUT --> PROT["ProtectedRoute<br/>→ /profile"]
+    LAYOUT --> ADM["AdminRoute<br/>→ /admin"]
+
+    PUB --> PAGES["pages/*.tsx<br/>14 páginas, todas lazy-loaded"]
+    PAGES --> HOOKS["features/*/hooks/use*Page.ts<br/>toda la lógica de UI"]
+    HOOKS --> SVC["services/*-api.ts<br/>12 clientes tipados"]
+    SVC --> HTTP["services/http.ts<br/>axios + interceptor 401 → refresh"]
+    HTTP --> API["Backend FastAPI"]
+
+    HOOKS --> LIB["lib/<br/>cart-storage (localStorage)<br/>useAsyncResource<br/>useClickOutside · useModalA11y"]
+    APP --> CTX["AuthContext<br/>isAuthenticated · isAdmin · sessionExpired"]
+    HTTP -.->|"CustomEvent pb-auth-unauthorized"| CTX
+    LIB -.->|"CustomEvent pb-cart-updated"| LAYOUT

@@ -1,0 +1,49 @@
+sequenceDiagram
+    autonumber
+    actor U as Usuario
+    participant FE as LoginPage / useLoginPage
+    participant CTX as AuthContext.login
+    participant API as POST /auth/login
+    participant RL as auth_rate_limit_s
+    participant AS as auth_s
+    participant SEC as auth_security_s
+    participant CK as auth_cookies_s
+    participant DB as PostgreSQL
+
+    U->>FE: email + password
+    FE->>CTX: login(email, password)
+    CTX->>API: POST /auth/login {email,password}
+    API->>RL: enforce_login_rate_limit(email, ip)
+    RL->>DB: SELECT auth_login_throttles (scope=email), (scope=ip)
+    alt blocked_until > now
+        RL-->>API: LoginRateLimitExceededError → 429
+    end
+    API->>AS: authenticate_user(email, password)
+    AS->>DB: SELECT users WHERE email
+    alt no existe
+        AS-->>API: LookupError
+        API->>RL: register_login_failure() + db.commit()
+        API-->>CTX: 401 "invalid credentials"
+    else has_account = false
+        AS-->>API: ValueError → 401 "invalid credentials"
+    else email_verified_at IS NULL
+        AS-->>API: ValueError "email not verified" → 403
+    else password incorrecta
+        AS->>SEC: verify_password → False
+        AS-->>API: ValueError → 401
+    end
+    API->>RL: clear_login_failures(email, ip)
+    API->>AS: issue_token_pair(user)
+    AS->>SEC: create_access_token({sub, is_admin, tv})
+    AS->>SEC: create_refresh_token(user_id) → incluye jti UUID4
+    AS->>DB: UPSERT user_refresh_sessions<br/>(token_hash SHA-256, jti, claims, expires_at)
+    Note right of AS: RN-AUTH-05: una sola sesión por usuario<br/>pisa la anterior
+    API->>CK: set_auth_cookies(response, access, refresh)
+    Note over CK: pb_at path=/ · pb_rt path=/auth<br/>HttpOnly + Secure + SameSite según config
+    API->>DB: COMMIT
+    API-->>CTX: 200 {data:{logged_in,access_expires_in_*}} + Set-Cookie ×2
+    CTX->>API: GET /auth/me
+    API-->>CTX: perfil con is_admin
+    CTX->>CTX: setIsAuthenticated(true), setIsAdmin(...)
+    CTX-->>FE: devuelve isAdmin
+    FE->>U: navigate(isAdmin ? "/admin" : "/profile")<br/>o "/checkout" si venía de ahí

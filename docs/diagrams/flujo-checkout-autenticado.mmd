@@ -1,0 +1,39 @@
+sequenceDiagram
+    autonumber
+    actor U as Usuario autenticado
+    participant FE as useCheckoutPage
+    participant A1 as PUT /orders/draft/items
+    participant A2 as PATCH /orders/{id}/status
+    participant A3 as POST /orders/{id}/payments
+    participant DB as PostgreSQL
+
+    U->>FE: "Finalizar compra"
+    FE->>A1: {items: [{variant_id, quantity}]}
+    A1->>DB: get_or_create draft FOR UPDATE
+    A1->>DB: DELETE order_items del draft
+    A1->>DB: INSERT order_items nuevos (precio de lista)
+    A1->>DB: reprice (mejor descuento) + totales
+    A1->>DB: COMMIT
+    A1-->>FE: {data: order}
+
+    FE->>A2: {status: "submitted"}
+    A2->>DB: reprice forzado + validación
+    A2->>DB: reserve_stock_for_submitted_order
+    alt sin stock
+        A2-->>FE: 400 "insufficient stock for variant N"
+        Note over FE: ⚠️ el carrito ya se modificó en el paso 1
+    end
+    A2->>DB: pricing_frozen, submitted_at, status=submitted
+    A2->>DB: publish order_submitted → notifications
+    A2->>DB: COMMIT
+    A2-->>FE: {data: order}
+
+    FE->>A3: {method, currency:"ARS", expires_in_minutes:60}<br/>Idempotency-Key: checkout_payment_{orderId}_{method}
+    A3->>DB: INSERT payments + preferencia en MP
+    alt MP falla
+        A3-->>FE: 502
+        Note over FE: ⚠️ orden queda submitted SIN pago.<br/>Recuperable desde /profile, pero el usuario no lo sabe
+    end
+    A3->>DB: COMMIT
+    A3-->>FE: {data: payment}
+    FE->>U: redirect a MP · o mensaje de éxito para transferencia/efectivo

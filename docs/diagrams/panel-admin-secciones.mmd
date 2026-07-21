@@ -1,0 +1,16 @@
+flowchart TD
+    ADMIN["AdminPage<br/>adminMode: 'ver' | 'venta'"] --> TABS["AdminSectionTabs"]
+
+    ADMIN --> VER["Modo VER<br/>gestionar y revisar"]
+    ADMIN --> VENTA["Modo VENTA<br/>operar cobros e incidencias"]
+
+    VER --> S1["categorias<br/>CategoriesSection"]
+    VER --> S2["catalogo<br/>CatalogSection"]
+    VER --> S3["descuentos<br/>DiscountsSection"]
+    VER --> S4["turnos<br/>TurnsSection"]
+    VER --> S5["ordenes<br/>OrdersPaymentsSection"]
+    VER --> S6["pagos<br/>OrdersPaymentsSection"]
+
+    VENTA --> S7["registrar_venta<br/>SalesSection"]
+    VENTA --> S8["registrar_pago<br/>RegisterPaymentSection"]
+    VENTA --> S9["incidencias_pago<br/>PaymentIncidentsSection"]

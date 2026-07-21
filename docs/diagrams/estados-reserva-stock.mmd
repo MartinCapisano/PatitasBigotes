@@ -1,0 +1,9 @@
+stateDiagram-v2
+    [*] --> active: reserve_stock_for_submitted_order<br/>TTL 42 h
+    active --> consumed: orden pagada<br/>⤷ descuenta variant.stock
+    active --> released: orden cancelada
+    active --> expired: expires_at vencido
+    expired --> active: reactivación (1 vez, TTL 12 h)<br/>si hay stock disponible
+    expired --> [*]: si no hay stock o ya se reactivó<br/>⤷ CANCELA la orden
+    consumed --> [*]
+    released --> [*]

@@ -1,0 +1,11 @@
+stateDiagram-v2
+    [*] --> draft: POST /orders/draft
+    draft --> draft: PUT /orders/draft/items
+    draft --> submitted: PATCH status<br/>⤷ congela precios + reserva stock
+    submitted --> cancelled: PATCH status<br/>⤷ libera reservas
+    submitted --> paid: SOLO vía endpoint de pago<br/>⤷ consume reservas
+    submitted --> cancelled: expiración de reserva<br/>(job / lectura perezosa)
+    paid --> paid: idempotente
+    cancelled --> cancelled: idempotente
+    paid --> [*]
+    cancelled --> [*]

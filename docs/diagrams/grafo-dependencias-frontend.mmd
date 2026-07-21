@@ -1,0 +1,36 @@
+flowchart TD
+    MAIN[main.tsx] --> APP[App.tsx]
+    APP --> AUTHCTX[auth/AuthContext<br/>→ features/auth/context]
+    APP --> LAYOUT[components/Layout]
+    APP --> GUARDS[guards/ProtectedRoute · AdminRoute]
+    APP --> PAGES[pages/ ×14 lazy]
+
+    PAGES --> FEAT_HOOKS["features/*/hooks/use*Page"]
+    LAYOUT --> LIB_CART[lib/cart-storage]
+    LAYOUT --> LIB_CLICK[lib/useClickOutside]
+    LAYOUT --> SVC_NOTIF[services/notifications-api]
+    LAYOUT --> AUTHCTX
+    LAYOUT --> VERIF[features/auth/verification-storage]
+
+    GUARDS --> AUTHCTX
+
+    FEAT_HOOKS --> SVC["services/*-api.ts ×10"]
+    FEAT_HOOKS --> LIB_CART
+    FEAT_HOOKS --> LIB_ASYNC[lib/useAsyncResource]
+    FEAT_HOOKS --> ERR[services/http-errors]
+    FEAT_HOOKS --> IDEM[services/idempotency]
+
+    SVC --> HTTP[services/http]
+    HTTP -.->|"import dinámico<br/>rompe el ciclo"| SVC_AUTH[services/auth-api]
+    SVC_AUTH --> HTTP
+
+    AUTHCTX --> SVC_AUTH
+    AUTHCTX --> ERR
+    HTTP -.->|"CustomEvent<br/>pb-auth-unauthorized"| AUTHCTX
+    LIB_CART -.->|"CustomEvent<br/>pb-cart-updated"| LAYOUT
+
+    ADMINPAGE[pages/AdminPage] --> ADMINHOOKS["features/admin/hooks ×7"]
+    ADMINPAGE --> ADMINCOMP["features/admin/components ×13"]
+    ADMINHOOKS --> LIB_ASYNC
+    ADMINHOOKS --> SVC
+    ADMINHOOKS --> ADMINHOOKS2[useAdminCategories<br/>anidado en useAdminCatalog]

@@ -1,0 +1,49 @@
+sequenceDiagram
+    autonumber
+    actor A as Administrador
+    participant FE as CatalogSection / useAdminCatalog
+    participant AD as require_admin
+    participant API as products_r
+    participant PS as products_s
+    participant DB as PostgreSQL
+
+    A->>FE: entra a /admin, sección "catalogo"
+    FE->>API: GET /admin/catalog?limit=200
+    API->>AD: valida cookie + relee users.is_admin  🔒
+    API->>PS: list_admin_catalog(limit)
+    PS->>DB: subquery MIN(price) + JOIN products + joinedload(category, variants)
+    PS->>DB: SELECT categories
+    PS-->>API: {categories, products, variants_by_product}
+    API-->>FE: {data:{...}}
+    FE->>FE: normalizeVariantsByProduct (claves string → number, ordena por id)
+
+    Note over A,DB: --- Crear producto ---
+    A->>FE: nombre, categoría, descripción, imagen
+    FE->>API: POST /products {name, description, img_url, category, active}
+    API->>PS: create_product(payload)
+    PS->>DB: SELECT categories WHERE name
+    alt categoría inexistente
+        PS-->>API: ValueError "category not found" → 400
+    end
+    PS->>DB: INSERT products
+    Note over PS: ⚠️ el campo 'active' del DTO se IGNORA
+    API-->>FE: {data: product}
+    FE->>FE: reload() del catálogo completo
+
+    Note over A,DB: --- Editar variante (con precio) ---
+    A->>FE: expande el producto, edita la variante
+    A->>FE: activa "editar precio" → escribe el precio → CONFIRMA en modal 🔒
+    FE->>API: PATCH /variants/{id} {sku, size, color, img_url, price, stock, active}
+    API->>PS: update_variant(id, updates)
+    PS->>DB: SELECT product_variants WHERE id
+    PS->>PS: valida sku único, price ≥ 0, stock ≥ 0
+    PS->>DB: UPDATE product_variants
+    API-->>FE: {data: variant}
+    FE->>FE: deriveProductFromVariants → actualiza stock, active y min_var_price<br/>del producto SIN volver a llamar al servidor ⚡
+
+    Note over A,DB: --- Desactivar producto ---
+    A->>FE: toggle "activo" = false
+    FE->>API: PATCH /products/{id} {active:false}
+    API->>PS: update_product
+    PS->>DB: UPDATE product_variants SET is_active=false  (TODAS)
+    Note over PS: ⚠️ RN-CAT-02: al reactivar se reactivan todas,<br/>incluidas las que estaban desactivadas a mano

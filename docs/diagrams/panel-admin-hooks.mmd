@@ -1,0 +1,22 @@
+flowchart LR
+    AP["AdminPage.tsx<br/>436 líneas — solo composición"]
+
+    AP --> H1["useAdminCatalog(section)"]
+    AP --> H2["useAdminTurns(section)"]
+    AP --> H3["useAdminDiscounts({section, categories, productsSorted, variantsByProduct})"]
+    AP --> H4["useAdminOrdersPayments({section})"]
+    AP --> H5["useAdminPaymentIncidents({section})"]
+    AP --> H6["useAdminSales({section, productsSorted, variantsByProduct})"]
+    AP --> H7["useAdminRegisterPayment({section})"]
+
+    H1 --> H1b["useAdminCategories(...)<br/>hook anidado"]
+
+    H1 --> API1["admin-catalog-api"]
+    H2 --> API2["turns-api"]
+    H3 --> API3["admin-discounts-api"]
+    H4 --> API4["admin-orders-api"]
+    H5 --> API4
+    H6 --> API5["admin-sales-api"]
+    H7 --> API4 & API5
+
+    H3 & H5 & H2 --> UAR["lib/useAsyncResource"]

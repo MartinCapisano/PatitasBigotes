@@ -1,0 +1,7 @@
+flowchart LR
+    T["auth_login_throttles<br/>(scope, key, failed_count,<br/>window_started_at, blocked_until, updated_at)"]
+    T --> A["scope=email / ip<br/>→ contador de FALLOS de login"]
+    T --> B["scope=public_signup_*<br/>→ contador de REQUESTS"]
+    T --> C["scope=public_checkout_*<br/>→ contador de REQUESTS"]
+    T --> D["scope=password_reset_request_*<br/>→ contador de REQUESTS"]
+    T --> E["scope=email_verify_resend_*<br/>→ contador de REQUESTS"]
