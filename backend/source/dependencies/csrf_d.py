@@ -11,6 +11,9 @@ from source.db.config import get_cors_allow_origins
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 EXEMPT_PATHS = {
     "/payments/webhook/mercadopago",
+    # Server-to-server maintenance trigger (external cron ping). It carries no
+    # browser Origin/Referer; it is authenticated by a bearer token instead.
+    "/internal/maintenance/run",
 }
 
 

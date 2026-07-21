@@ -21,6 +21,13 @@ def get_app_env() -> str:
     return os.getenv("APP_ENV", "local").strip().lower() or "local"
 
 
+def get_maintenance_run_token() -> str:
+    token = os.getenv("MAINTENANCE_RUN_TOKEN", "").strip()
+    if token:
+        return token
+    raise RuntimeError("MAINTENANCE_RUN_TOKEN is required")
+
+
 def get_mercadopago_access_token() -> str:
     access_token = os.getenv("MERCADOPAGO_ACCESS_TOKEN", "").strip()
     if access_token:

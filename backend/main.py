@@ -7,6 +7,7 @@ from source.dependencies.csrf_d import CSRFMiddleware
 from source.dependencies.security_headers_d import SecurityHeadersMiddleware
 from source.routes.auth_r import router as auth_router
 from source.routes.discounts_r import router as discounts_router
+from source.routes.maintenance_r import router as maintenance_router
 from source.routes.mercadopago_r import router as mercadopago_router
 from source.routes.notifications_r import router as notifications_router
 from source.routes.orders_r import router as orders_router
@@ -46,6 +47,7 @@ app.include_router(payments_router)
 app.include_router(notifications_router)
 app.include_router(stock_reservations_router)
 app.include_router(storefront_router)
+app.include_router(maintenance_router)
 
 
 @app.get("/health")
