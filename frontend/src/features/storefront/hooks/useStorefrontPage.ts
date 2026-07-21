@@ -10,7 +10,7 @@ export function useStorefrontPage() {
   const [appliedQuery, setAppliedQuery] = useState("");
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [products, setProducts] = useState<StorefrontProduct[]>([]);
-  const [sortBy, setSortBy] = useState<"price" | "name">("price");
+  const [sortBy, setSortBy] = useState<"price" | "name">("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(12);
