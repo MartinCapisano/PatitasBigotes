@@ -8,7 +8,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session, joinedload
 
 from source.db.models import Order, Payment, PaymentIncident
-from source.services.payment_s import _payment_to_dict
+from source.services.payment_core_s import payment_to_dict
 from source.services.refund_s import PAYMENT_INCIDENT_STATUS_PENDING_REVIEW
 
 
@@ -43,7 +43,7 @@ def list_payments_for_order_admin(
         .order_by(Payment.created_at.desc(), Payment.id.desc())
         .all()
     )
-    result = [_payment_to_dict(payment) for payment in payments]
+    result = [payment_to_dict(payment) for payment in payments]
     status_by_payment = _open_incident_status_by_payment_ids(
         payment_ids=[int(payment.id) for payment in payments],
         db=db,
@@ -80,7 +80,7 @@ def list_pending_bank_transfer_payments_for_admin(
         db=db,
     )
     for payment in rows:
-        item = _payment_to_dict(payment)
+        item = payment_to_dict(payment)
         order = payment.order
         item["order_status"] = order.status if order is not None else None
         item["user_id"] = int(order.user_id) if order is not None else None
@@ -124,7 +124,7 @@ def list_payments_for_admin(
         db=db,
     )
     for payment in rows:
-        item = _payment_to_dict(payment)
+        item = payment_to_dict(payment)
         order = payment.order
         item["order_status"] = order.status if order is not None else None
         item["user_id"] = int(order.user_id) if order is not None else None

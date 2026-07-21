@@ -8,9 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, UTC
 import hashlib
-import json
 
-from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -21,8 +19,19 @@ from source.db.models import (
     generate_public_status_token,
 )
 from source.exceptions import PaymentRetryConflictError
+from source.services.payment_core_s import (
+    apply_order_paid_transition,
+    assert_valid_payment_transition,
+    build_bank_transfer_payload,
+    deserialize_provider_payload,
+    find_active_pending_payment,
+    normalize_optional_str,
+    payment_to_dict,
+    resolve_payment_by_idempotency_key,
+    serialize_provider_payload,
+    validate_active_pending_compatibility,
+)
 from source.services.refund_s import create_late_paid_incident_if_needed
-from source.services.domain_events_s import publish_domain_event
 from source.services.mercadopago_normalization_s import (
     _build_mercadopago_payload,
     _get_checkout_external_ref,
@@ -30,7 +39,6 @@ from source.services.mercadopago_normalization_s import (
     _has_checkout_preference,
 )
 from source.services.stock_reservations_s import (
-    consume_reservations_for_paid_order,
     expire_active_reservations_for_order,
     list_active_reservations_for_order,
 )
@@ -45,210 +53,6 @@ RETRY_NOT_ALLOWED_ORDER_ALREADY_PAID = "retry not allowed: order already paid"
 RETRY_NOT_ALLOWED_STOCK_RESERVATION_EXPIRED = "retry not allowed: stock reservation expired"
 RETRY_NOT_ALLOWED_PAYMENT_STATE_CHANGED = "retry not allowed: payment state changed"
 RETRY_FAILED_MERCADOPAGO_CHECKOUT_UNAVAILABLE = "retry failed: mercadopago checkout unavailable"
-ALLOWED_PAYMENT_TRANSITIONS = {
-    "pending": {"pending", "paid", "cancelled", "expired"},
-    "paid": {"paid"},
-    "cancelled": {"cancelled"},
-    "expired": {"expired"},
-}
-
-
-def _payment_to_dict(payment: Payment) -> dict:
-    parsed_provider_payload = _deserialize_provider_payload(payment.provider_payload)
-    return {
-        "id": payment.id,
-        "order_id": payment.order_id,
-        "method": payment.method,
-        "status": payment.status,
-        "amount": int(payment.amount),
-        "change_amount": int(payment.change_amount) if payment.change_amount is not None else None,
-        "currency": payment.currency,
-        "idempotency_key": payment.idempotency_key,
-        "external_ref": payment.external_ref,
-        "preference_id": payment.preference_id,
-        "public_status_token": payment.public_status_token,
-        "provider_status": payment.provider_status,
-        "provider_payload": payment.provider_payload,
-        "provider_payload_data": parsed_provider_payload,
-        "expires_at": payment.expires_at,
-        "paid_at": payment.paid_at,
-        "created_at": payment.created_at,
-        "updated_at": payment.updated_at,
-    }
-
-
-def _serialize_provider_payload(payload: dict | None) -> str | None:
-    if payload is None:
-        return None
-    return json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
-
-
-def _deserialize_provider_payload(payload: str | None) -> dict | None:
-    if payload is None:
-        return None
-    try:
-        parsed = json.loads(payload)
-    except (TypeError, ValueError):
-        return None
-    if not isinstance(parsed, dict):
-        return None
-    return parsed
-
-
-def _normalize_optional_str(value: str | None) -> str | None:
-    if value is None:
-        return None
-    normalized = value.strip()
-    if not normalized:
-        return None
-    return normalized
-
-
-def _build_order_paid_event_payload(*, order: Order, payment: Payment) -> dict:
-    items_payload: list[dict] = []
-    for item in sorted(order.items, key=lambda row: row.id):
-        product_name = None
-        if getattr(item, "product", None) is not None:
-            product_name = getattr(item.product, "name", None)
-        variant = getattr(item, "variant", None)
-        variant_label = "-/-"
-        if variant is not None:
-            variant_label = f"{variant.size or '-'}/{variant.color or '-'}"
-        items_payload.append(
-            {
-                "product_name": product_name,
-                "variant_label": variant_label,
-                "quantity": int(item.quantity or 0),
-                "line_total": int(item.line_total or 0),
-            }
-        )
-
-    return {
-        "order_id": int(order.id),
-        "user_id": int(order.user_id),
-        "payment_id": int(payment.id),
-        "payment_method": str(payment.method),
-        "order_status": str(order.status),
-        "total_amount": int(order.total_amount or 0),
-        "currency": str(order.currency or payment.currency or "ARS").strip().upper(),
-        "items": items_payload,
-    }
-
-
-def _apply_order_paid_transition(
-    *,
-    order: Order,
-    payment: Payment,
-    now: datetime,
-    db: Session,
-) -> None:
-    """Single definition of what "the order got paid" means, shared by every payment method.
-
-    Only valid from `submitted`: callers must have ruled out cancelled/already-paid orders
-    (the provider path also decides on late-payment incidents before getting here).
-    The flush is intentional -- manual confirmation can be creating the Payment row in the
-    same call, so its id only exists after flushing and the event payload needs it.
-    """
-    consume_reservations_for_paid_order(order_id=order.id, db=db)
-    order.status = "paid"
-    if order.paid_at is None:
-        order.paid_at = now
-    db.flush()
-    publish_domain_event(
-        event_type="order_paid",
-        payload=_build_order_paid_event_payload(order=order, payment=payment),
-        db=db,
-    )
-
-
-def _assert_valid_payment_transition(current_status: str, next_status: str) -> None:
-    allowed = ALLOWED_PAYMENT_TRANSITIONS.get(current_status, {current_status})
-    if next_status not in allowed:
-        raise ValueError("invalid payment status transition")
-
-
-def _find_active_pending_payment(
-    session: Session,
-    *,
-    order_id: int,
-    method: str,
-    now: datetime,
-) -> Payment | None:
-    return (
-        session.query(Payment)
-        .filter(
-            Payment.order_id == order_id,
-            Payment.method == method,
-            Payment.status == "pending",
-            or_(Payment.expires_at.is_(None), Payment.expires_at > now),
-        )
-        .order_by(Payment.created_at.desc(), Payment.id.desc())
-        .first()
-    )
-
-
-def _validate_active_pending_compatibility(
-    active_payment: Payment,
-    *,
-    requested_amount: int,
-    requested_currency: str,
-) -> None:
-    active_amount = int(active_payment.amount)
-    if active_amount != int(requested_amount):
-        raise ValueError(
-            "there is already an active pending payment with a different amount"
-        )
-    if active_payment.currency != requested_currency:
-        raise ValueError(
-            "there is already an active pending payment with a different currency"
-        )
-
-
-def _resolve_payment_by_idempotency_key(
-    db: Session,
-    key: str,
-    *,
-    expected_order_id: int,
-    expected_method: str,
-    expected_user_id: int | None,
-) -> Payment | None:
-    """Replay lookup for an idempotency key, validating it belongs to the same request.
-
-    `expected_user_id=None` skips the ownership check for the flows that identify the
-    caller by capability token instead of by session (guest retry by public_status_token).
-    """
-    payment = (
-        db.query(Payment)
-        .options(joinedload(Payment.order))
-        .filter(Payment.idempotency_key == key)
-        .first()
-    )
-    if payment is None:
-        return None
-    if payment.order_id != expected_order_id:
-        raise ValueError("idempotency key already used for a different order")
-    if payment.method != expected_method:
-        raise ValueError("idempotency key already used for a different payment method")
-    if expected_user_id is not None and int(payment.order.user_id) != int(expected_user_id):
-        raise LookupError("order not found")
-    return payment
-
-
-def _build_bank_transfer_payload(
-    order_id: int,
-    payment_id: int,
-    amount: int,
-    currency: str,
-) -> dict:
-    return {
-        "instructions": {
-            "alias": "patitas.bigotes",
-            "bank_name": "Banco Demo",
-            "reference": f"ORDER-{order_id}-PAY-{payment_id}",
-            "amount": amount,
-            "currency": currency,
-        }
-    }
 
 
 def _mark_payment_checkout_setup_failed(
@@ -258,13 +62,13 @@ def _mark_payment_checkout_setup_failed(
     now: datetime | None = None,
 ) -> None:
     safe_now = now or datetime.now(UTC)
-    payload = _deserialize_provider_payload(payment.provider_payload) or {}
+    payload = deserialize_provider_payload(payment.provider_payload) or {}
     payload["checkout_setup_error"] = {
         "detail": error_detail,
         "failed_at": safe_now.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     }
     payment.provider_status = PAYMENT_PROVIDER_SETUP_FAILED
-    payment.provider_payload = _serialize_provider_payload(payload)
+    payment.provider_payload = serialize_provider_payload(payload)
 
 
 def initialize_mercadopago_checkout_for_payment(
@@ -285,7 +89,7 @@ def initialize_mercadopago_checkout_for_payment(
     if str(payment.status) != "pending":
         raise ValueError("payment checkout can only be initialized for pending payments")
     if payment.preference_id is not None:
-        return _payment_to_dict(payment)
+        return payment_to_dict(payment)
 
     order = payment.order
     if order is None:
@@ -307,10 +111,10 @@ def initialize_mercadopago_checkout_for_payment(
     payment.external_ref = external_ref
     payment.preference_id = _get_checkout_preference_id(provider_payload)
     payment.provider_status = "preference_created"
-    payment.provider_payload = _serialize_provider_payload(provider_payload)
+    payment.provider_payload = serialize_provider_payload(provider_payload)
     db.flush()
     db.refresh(payment)
-    return _payment_to_dict(payment)
+    return payment_to_dict(payment)
 
 
 def mark_payment_checkout_setup_failed(
@@ -330,7 +134,7 @@ def mark_payment_checkout_setup_failed(
     _mark_payment_checkout_setup_failed(payment, error_detail=error_detail)
     db.flush()
     db.refresh(payment)
-    return _payment_to_dict(payment)
+    return payment_to_dict(payment)
 
 
 def find_payment_for_mercadopago_event(
@@ -339,8 +143,8 @@ def find_payment_for_mercadopago_event(
     external_ref: str | None,
     db: Session,
 ) -> dict | None:
-    normalized_preference_id = _normalize_optional_str(preference_id)
-    normalized_external_ref = _normalize_optional_str(external_ref)
+    normalized_preference_id = normalize_optional_str(preference_id)
+    normalized_external_ref = normalize_optional_str(external_ref)
     if normalized_preference_id is None and normalized_external_ref is None:
         raise ValueError("preference_id or external_ref is required")
 
@@ -355,7 +159,7 @@ def find_payment_for_mercadopago_event(
             .first()
         )
         if payment is not None:
-            return _payment_to_dict(payment)
+            return payment_to_dict(payment)
 
     if normalized_external_ref is not None:
         payment = (
@@ -368,7 +172,7 @@ def find_payment_for_mercadopago_event(
             .first()
         )
         if payment is not None:
-            return _payment_to_dict(payment)
+            return payment_to_dict(payment)
 
     return None
 
@@ -383,20 +187,20 @@ def apply_mercadopago_normalized_state(
     if not isinstance(normalized_state, dict):
         raise ValueError("normalized_state is required")
 
-    provider_status = _normalize_optional_str(normalized_state.get("provider_status"))
+    provider_status = normalize_optional_str(normalized_state.get("provider_status"))
     if provider_status is None:
         raise ValueError("normalized_state.provider_status is required")
-    internal_status = _normalize_optional_str(normalized_state.get("internal_status"))
+    internal_status = normalize_optional_str(normalized_state.get("internal_status"))
     if internal_status is None:
         raise ValueError("normalized_state.internal_status is required")
-    external_reference = _normalize_optional_str(normalized_state.get("external_reference"))
+    external_reference = normalize_optional_str(normalized_state.get("external_reference"))
     if external_reference is None:
         raise ValueError("normalized_state.external_reference is required")
 
     normalized_amount = normalized_state.get("amount")
     if normalized_amount is not None:
         normalized_amount = int(normalized_amount)
-    normalized_currency = _normalize_optional_str(normalized_state.get("currency"))
+    normalized_currency = normalize_optional_str(normalized_state.get("currency"))
     if normalized_currency is not None:
         normalized_currency = normalized_currency.upper()
 
@@ -417,7 +221,7 @@ def apply_mercadopago_normalized_state(
         db=db,
     )
 
-    payment_external_ref = _normalize_optional_str(payment.external_ref)
+    payment_external_ref = normalize_optional_str(payment.external_ref)
     if payment_external_ref != external_reference:
         raise ValueError("external_reference does not match payment")
 
@@ -428,10 +232,10 @@ def apply_mercadopago_normalized_state(
 
     allow_paid_revival = internal_status == "paid" and str(payment.status) in {"cancelled", "expired"}
     if not allow_paid_revival:
-        _assert_valid_payment_transition(payment.status, internal_status)
+        assert_valid_payment_transition(payment.status, internal_status)
     payment.provider_status = provider_status
 
-    existing_payload = _deserialize_provider_payload(payment.provider_payload) or {}
+    existing_payload = deserialize_provider_payload(payment.provider_payload) or {}
     merged_payload = dict(existing_payload)
     if notification_payload is not None:
         merged_payload["last_event"] = notification_payload
@@ -447,7 +251,7 @@ def apply_mercadopago_normalized_state(
         or payment.currency.strip().upper() == normalized_currency,
         "date_last_updated": normalized_state.get("date_last_updated"),
     }
-    payment.provider_payload = _serialize_provider_payload(merged_payload)
+    payment.provider_payload = serialize_provider_payload(merged_payload)
 
     if payment.status != internal_status:
         payment.status = internal_status
@@ -485,7 +289,7 @@ def apply_mercadopago_normalized_state(
             raise ValueError("order can only be paid from submitted status")
 
         if order.status == "submitted":
-            _apply_order_paid_transition(order=order, payment=payment, now=now, db=db)
+            apply_order_paid_transition(order=order, payment=payment, now=now, db=db)
         elif order.status == "paid":
             if order.paid_at is None:
                 order.paid_at = now
@@ -496,7 +300,7 @@ def apply_mercadopago_normalized_state(
 
     db.flush()
     db.refresh(payment)
-    return _payment_to_dict(payment)
+    return payment_to_dict(payment)
 
 
 def create_payment_for_order(
@@ -526,7 +330,7 @@ def create_payment_for_order(
     if currency is not None and str(currency).strip().upper() != "ARS":
         raise ValueError("only ARS currency is supported")
 
-    existing_payment = _resolve_payment_by_idempotency_key(
+    existing_payment = resolve_payment_by_idempotency_key(
         db,
         normalized_key,
         expected_order_id=order_id,
@@ -534,7 +338,7 @@ def create_payment_for_order(
         expected_user_id=user_id,
     )
     if existing_payment is not None:
-        return _payment_to_dict(existing_payment)
+        return payment_to_dict(existing_payment)
 
     order = (
         db.query(Order)
@@ -561,7 +365,7 @@ def create_payment_for_order(
         raise ValueError("order total must be greater than 0")
 
     now = datetime.now(UTC)
-    active_pending_payment = _find_active_pending_payment(
+    active_pending_payment = find_active_pending_payment(
         db,
         order_id=order.id,
         method=method,
@@ -572,7 +376,7 @@ def create_payment_for_order(
         raise ValueError("only ARS currency is supported")
     payment_currency = "ARS"
     if active_pending_payment is not None:
-        _validate_active_pending_compatibility(
+        validate_active_pending_compatibility(
             active_pending_payment,
             requested_amount=amount,
             requested_currency=payment_currency,
@@ -587,7 +391,7 @@ def create_payment_for_order(
                 payment_id=int(active_pending_payment.id),
                 db=db,
             )
-        return _payment_to_dict(active_pending_payment)
+        return payment_to_dict(active_pending_payment)
 
     expires_at = None if method == "cash" else now + timedelta(minutes=expires_in_minutes)
     payment = Payment(
@@ -619,33 +423,33 @@ def create_payment_for_order(
         if payment_by_key is not None:
             if user_id is not None and int(payment_by_key.order.user_id) != int(user_id):
                 raise LookupError("order not found")
-            return _payment_to_dict(payment_by_key)
+            return payment_to_dict(payment_by_key)
 
-        existing_pending = _find_active_pending_payment(
+        existing_pending = find_active_pending_payment(
             db,
             order_id=order.id,
             method=method,
             now=now,
         )
         if existing_pending is not None:
-            _validate_active_pending_compatibility(
+            validate_active_pending_compatibility(
                 existing_pending,
                 requested_amount=amount,
                 requested_currency=payment_currency,
             )
-            return _payment_to_dict(existing_pending)
+            return payment_to_dict(existing_pending)
         raise
 
     if method == "bank_transfer":
-        provider_payload = _build_bank_transfer_payload(
+        provider_payload = build_bank_transfer_payload(
             order_id=order.id,
             payment_id=payment.id,
             amount=amount,
             currency=payment_currency,
         )
-        payment.provider_payload = _serialize_provider_payload(provider_payload)
+        payment.provider_payload = serialize_provider_payload(provider_payload)
     elif method == "mercadopago" and initialize_provider:
-        existing_provider_payload = _deserialize_provider_payload(
+        existing_provider_payload = deserialize_provider_payload(
             payment.provider_payload
         )
         if _has_checkout_preference(existing_provider_payload):
@@ -671,11 +475,11 @@ def create_payment_for_order(
             payment.external_ref = external_ref
             payment.preference_id = _get_checkout_preference_id(provider_payload)
             payment.provider_status = "preference_created"
-            payment.provider_payload = _serialize_provider_payload(provider_payload)
+            payment.provider_payload = serialize_provider_payload(provider_payload)
 
     db.flush()
     db.refresh(payment)
-    return _payment_to_dict(payment)
+    return payment_to_dict(payment)
 
 
 def _guard_order_retryable(db: Session, *, order_id: int, user_id: int | None) -> Order:
@@ -779,7 +583,7 @@ def create_retry_payment_for_order(
     normalized_key = idempotency_key.strip()
     if not normalized_key:
         raise ValueError("idempotency_key is required")
-    existing_payment = _resolve_payment_by_idempotency_key(
+    existing_payment = resolve_payment_by_idempotency_key(
         db,
         normalized_key,
         expected_order_id=order_id,
@@ -787,7 +591,7 @@ def create_retry_payment_for_order(
         expected_user_id=user_id,
     )
     if existing_payment is not None:
-        return _payment_to_dict(existing_payment)
+        return payment_to_dict(existing_payment)
 
     order = _guard_order_retryable(db, order_id=order_id, user_id=user_id)
     _guard_retryable_latest_attempt(db, order_id=int(order.id), method=method)
@@ -815,7 +619,7 @@ def create_retry_payment_for_payment_token(
     normalized_key = idempotency_key.strip()
     if not normalized_key:
         raise ValueError("idempotency_key is required")
-    normalized_public_status_token = _normalize_optional_str(public_status_token)
+    normalized_public_status_token = normalize_optional_str(public_status_token)
     if normalized_public_status_token is None:
         raise ValueError("public_status_token is required")
     if len(normalized_public_status_token) > 255:
@@ -832,7 +636,7 @@ def create_retry_payment_for_payment_token(
     )
     if token_payment is None:
         raise LookupError("payment not found")
-    existing_payment = _resolve_payment_by_idempotency_key(
+    existing_payment = resolve_payment_by_idempotency_key(
         db,
         normalized_key,
         expected_order_id=int(token_payment.order_id),
@@ -841,7 +645,7 @@ def create_retry_payment_for_payment_token(
         expected_user_id=None,
     )
     if existing_payment is not None:
-        return _payment_to_dict(existing_payment)
+        return payment_to_dict(existing_payment)
 
     order = _guard_order_retryable(
         db,
@@ -991,7 +795,7 @@ def confirm_manual_payment_for_order(
             existing_paid_by_ref is not None
             and int(existing_paid_by_ref.amount) == received_total
         ):
-            return _payment_to_dict(existing_paid_by_ref)
+            return payment_to_dict(existing_paid_by_ref)
         raise ValueError("order already paid with a different payment_ref")
 
     if pending_payment is None and not allow_create_if_missing:
@@ -1026,7 +830,7 @@ def confirm_manual_payment_for_order(
         payment.expires_at = None
         payment.paid_at = now
 
-    payment.provider_payload = _serialize_provider_payload(
+    payment.provider_payload = serialize_provider_payload(
         {
             "manual_confirmation": {
                 "payment_ref": normalized_ref,
@@ -1038,9 +842,9 @@ def confirm_manual_payment_for_order(
         }
     )
 
-    _apply_order_paid_transition(order=order, payment=payment, now=now, db=db)
+    apply_order_paid_transition(order=order, payment=payment, now=now, db=db)
     db.refresh(payment)
-    return _payment_to_dict(payment)
+    return payment_to_dict(payment)
 
 
 def list_payments_for_order(
@@ -1062,7 +866,7 @@ def list_payments_for_order(
         .order_by(Payment.created_at.desc(), Payment.id.desc())
         .all()
     )
-    return [_payment_to_dict(payment) for payment in payments]
+    return [payment_to_dict(payment) for payment in payments]
 
 
 def list_payments_for_orders(order_ids: list[int], db: Session) -> dict[int, list[dict]]:
@@ -1078,7 +882,7 @@ def list_payments_for_orders(order_ids: list[int], db: Session) -> dict[int, lis
         .all()
     )
     for payment in payments:
-        payments_by_order_id[payment.order_id].append(_payment_to_dict(payment))
+        payments_by_order_id[payment.order_id].append(payment_to_dict(payment))
     return payments_by_order_id
 
 
@@ -1096,7 +900,7 @@ def get_payment_for_user(
     if payment is None:
         raise LookupError("payment not found")
 
-    return _payment_to_dict(payment)
+    return payment_to_dict(payment)
 
 
 def get_payment_public_status(
@@ -1104,7 +908,7 @@ def get_payment_public_status(
     public_status_token: str | None = None,
     db: Session,
 ) -> dict:
-    normalized_public_status_token = _normalize_optional_str(public_status_token)
+    normalized_public_status_token = normalize_optional_str(public_status_token)
     if normalized_public_status_token is None:
         raise ValueError("public_status_token is required")
     if len(normalized_public_status_token) > 255:

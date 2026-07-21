@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from source.db.models import WebhookEvent
 from source.exceptions import WebhookReplayConflictError
-from source.services.payment_s import _deserialize_provider_payload, _serialize_provider_payload
+from source.services.payment_core_s import deserialize_provider_payload, serialize_provider_payload
 
 DEFAULT_WEBHOOK_MAX_ATTEMPTS = 4
 DEFAULT_WEBHOOK_RETRY_DELAY_MINUTES = 60
@@ -62,7 +62,7 @@ def acquire_webhook_event(
         provider=normalized_provider,
         event_key=normalized_key,
         status="processing",
-        payload=_serialize_provider_payload(payload) if isinstance(payload, dict) else None,
+        payload=serialize_provider_payload(payload) if isinstance(payload, dict) else None,
         received_at=now,
         processed_at=None,
         last_error=None,
@@ -94,7 +94,7 @@ def acquire_webhook_event(
             existing.next_retry_at = None
             existing.dead_letter_at = None
             if isinstance(payload, dict):
-                existing.payload = _serialize_provider_payload(payload)
+                existing.payload = serialize_provider_payload(payload)
             db.flush()
             return True
         return False
@@ -291,7 +291,7 @@ def replay_webhook_event_by_key(
             "webhook event can only be replayed from failed/dead_letter status"
         )
 
-    payload = _deserialize_provider_payload(event.payload)
+    payload = deserialize_provider_payload(event.payload)
     if payload is None:
         raise ValueError("invalid stored webhook payload")
     data_id = _extract_webhook_data_id(payload)

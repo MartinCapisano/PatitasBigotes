@@ -2,7 +2,7 @@
 
 > Documento de trabajo. Se consulta y se actualiza durante toda la implementación.
 > La decisión y su justificación viven en [ADR 0001](adr/0001-organizacion-de-servicios-por-vista.md).
-> **Estado: commits 0-2 hechos. Checkpoint antes de payments.**
+> **Estado: commits 0-3 hechos. Kernel de pago extraido.**
 
 ---
 
@@ -162,11 +162,22 @@ Mover a `payment_core_s.py` **promoviendo a público** (sin guion bajo):
 Estos 11 renombres son la **lista completa de excepciones** al check 1 de este commit. Cualquier otro
 cambio de cuerpo es un error.
 
-- [ ] Actualizar los 18 usos internos de `_payment_to_dict` y los 6 de `_serialize_provider_payload`
-- [ ] Actualizar `services/payment_admin_queries_s.py:11` (importaba `_payment_to_dict`)
-- [ ] Actualizar `services/webhook_events_s.py:16` (importaba `_serialize_/_deserialize_provider_payload`)
-- [ ] Verificar que `apply_order_paid_transition` conserve sus **dos** llamadores: `payment_s.py:488` (webhook) y `payment_s.py:1041` (confirmación manual)
-- [ ] Los 4 checks
+- [x] Actualizar los 18 usos internos de `_payment_to_dict` y los 6 de `_serialize_provider_payload`
+- [x] Actualizar `services/payment_admin_queries_s.py:11` (importaba `_payment_to_dict`)
+- [x] Actualizar `services/webhook_events_s.py:16` (importaba `_serialize_/_deserialize_provider_payload`)
+- [x] Verificar que `apply_order_paid_transition` conserve sus **dos** llamadores: webhook y confirmación manual
+- [x] Los 4 checks
+
+Notas de ejecución:
+- `ALLOWED_PAYMENT_TRANSITIONS` (constante, único usuario `assert_valid_payment_transition`) viajó al kernel
+  junto con su función. No es una función, así que no lo cubre el check de inventario, pero moverlo mantiene
+  el cuerpo de la función byte-idéntico (referencia al mismo nombre a nivel módulo).
+- `build_order_paid_event_payload` quedó kernel-interno: solo lo llama `apply_order_paid_transition`, así que
+  no se importa en `payment_s`.
+- `mercadopago_normalization_s._normalize_optional_str` es una **copia propia deliberada** (comentada en el
+  código para evitar un import circular), no un consumidor del privado. Se dejó intacta.
+- Kernel resultante: **230 líneas**, holgadamente bajo el umbral de alarma de ~350. El corte es una frontera
+  real, no un cajón.
 
 **Riesgo: alto.** Es el único commit del plan con superficie de cambio fuera de su propio dominio.
 Por eso va solo: si sale mal, `git revert` de uno y products/orders sobreviven intactos.
