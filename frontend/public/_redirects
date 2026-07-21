@@ -1,0 +1,4 @@
+# SPA fallback for Cloudflare Pages: serve index.html for any client-side
+# route so deep links / refreshes work. Vite copies public/ into dist/.
+# (Vercel ignores this file and uses vercel.json instead.)
+/*    /index.html   200

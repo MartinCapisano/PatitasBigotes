@@ -1,0 +1,55 @@
+# Render Blueprint for the PatitasBigotes backend (FastAPI web service).
+#
+# The database is NOT declared here: it lives in Supabase (a separate project),
+# wired via DATABASE_URL. All secrets and real URLs are set in the Render
+# dashboard, not in this file — see backend/.env.production.example for the full
+# list of variables to configure.
+#
+# Free-tier note: this service sleeps after ~15 min without traffic and takes
+# 30-60s to answer the first request on wake. The frontend timeout and the
+# external maintenance ping (GitHub Actions cron) are designed around that.
+services:
+  - type: web
+    name: patitasbigotes-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    # alembic runs against Supabase; the project must be un-paused for a deploy.
+    buildCommand: "pip install -r requirements.txt && alembic upgrade head"
+    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      # Secrets / environment-specific values: set these in the dashboard.
+      # sync: false keeps them out of the repo and prompts on blueprint setup.
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+      - key: CORS_ALLOW_ORIGINS
+        sync: false
+      - key: AUTH_COOKIE_SAMESITE
+        sync: false
+      - key: AUTH_COOKIE_SECURE
+        sync: false
+      - key: MERCADOPAGO_ACCESS_TOKEN
+        sync: false
+      - key: MERCADOPAGO_ENV
+        sync: false
+      - key: MERCADOPAGO_SUCCESS_URL
+        sync: false
+      - key: MERCADOPAGO_FAILURE_URL
+        sync: false
+      - key: MERCADOPAGO_PENDING_URL
+        sync: false
+      - key: MERCADOPAGO_NOTIFICATION_URL
+        sync: false
+      - key: MERCADOPAGO_WEBHOOK_SECRET
+        sync: false
+      - key: MAINTENANCE_RUN_TOKEN
+        sync: false

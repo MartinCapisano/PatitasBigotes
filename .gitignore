@@ -19,7 +19,9 @@ backend/.env.*
 # Frontend
 frontend/node_modules/
 frontend/dist/
-frontend/src/types/api.generated.ts
+# NOTE: src/types/api.generated.ts is committed (not ignored) so the frontend
+# builds hermetically on Vercel/Cloudflare, which have no Python to regenerate
+# it from the backend. CI regenerates it and fails on drift (see ci.yml).
 frontend/tmp/logs/*
 frontend/tmp/tsbuildinfo/*
 frontend/*.tsbuildinfo

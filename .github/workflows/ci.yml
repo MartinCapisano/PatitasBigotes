@@ -48,6 +48,10 @@ jobs:
           node-version-file: frontend/.nvmrc
       - run: npm ci
       - run: npm run gen:api-types
+      # The generated types are committed so the frontend builds hermetically on
+      # Vercel/Cloudflare. Fail if the committed file drifts from the backend
+      # contract (i.e. someone changed the API without regenerating).
+      - run: git diff --exit-code src/types/api.generated.ts
       - run: npm run lint
       - run: npm run build
       - run: npm test
