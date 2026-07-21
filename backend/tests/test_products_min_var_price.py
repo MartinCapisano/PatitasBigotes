@@ -10,7 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from source.db.models import Base, Category, Discount, Product, ProductVariant
-from source.services import products_s
+from source.services import products_s, products_storefront_s
 
 
 class ProductsMinVarPriceTests(unittest.TestCase):
@@ -276,7 +276,7 @@ class ProductsMinVarPriceTests(unittest.TestCase):
 
         session = self.TestSession()
         try:
-            data, total = products_s.list_storefront_products(max_price=60000, db=session)
+            data, total = products_storefront_s.list_storefront_products(max_price=60000, db=session)
         finally:
             session.close()
         self.assertEqual(total, 1)
@@ -327,7 +327,7 @@ class ProductsMinVarPriceTests(unittest.TestCase):
 
         session = self.TestSession()
         try:
-            data, total = products_s.list_storefront_products(
+            data, total = products_storefront_s.list_storefront_products(
                 sort_by="price",
                 sort_order="asc",
                 db=session,

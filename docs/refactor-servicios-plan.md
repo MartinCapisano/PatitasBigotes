@@ -2,7 +2,7 @@
 
 > Documento de trabajo. Se consulta y se actualiza durante toda la implementación.
 > La decisión y su justificación viven en [ADR 0001](adr/0001-organizacion-de-servicios-por-vista.md).
-> **Estado: commit 0 hecho.**
+> **Estado: commits 0-1 hechos.**
 
 ---
 
@@ -96,10 +96,19 @@ Mover a `products_storefront_s.py`:
 | `get_storefront_product_by_id` | `products_s.py:658` |
 | `list_storefront_categories` | `products_s.py:544` |
 
-- [ ] Verificado: el bloque **no** usa `_compute_min_var_price` ni `_product_inventory` — corte limpio, sin imports cruzados
-- [ ] Actualizar `routes/storefront_r.py:8` (importa exactamente las 3 públicas, ninguna otra ruta las usa)
-- [ ] ⚠️ **Actualizar `tests/test_products_min_var_price.py`** — es el **único importador por módulo de todo el repo** (`from source.services import products_s`) y llama `products_s.list_storefront_products`. Se rompe con el split.
-- [ ] Los 4 checks
+- [x] Verificado: el bloque **no** usa `_compute_min_var_price` ni `_product_inventory` — corte limpio
+- [x] Actualizar `routes/storefront_r.py:8` (importa exactamente las 3 públicas, ninguna otra ruta las usa)
+- [x] ⚠️ **Actualizar `tests/test_products_min_var_price.py`** — es el **único importador por módulo de todo el repo** (`from source.services import products_s`) y llama `products_s.list_storefront_products`. Se rompe con el split.
+- [x] Los 4 checks
+
+⚠️ **El corte no quedó sin imports cruzados** (ver hallazgo H-01): `list_storefront_categories` es
+`return list_categories(db=db)`, así que el módulo de vitrina importa `list_categories` del catálogo
+administrado. Se resolvió **importando, no duplicando**, por el mismo criterio que `_variant_label` en el
+commit 2: el listado de categorías debe ser consistente entre vistas. El import queda acíclico
+(vitrina → administrado, nunca al revés).
+
+Beneficio lateral confirmado: `products_s.py` perdió **por completo** su import de `discount_s`. El
+catálogo administrado no cotiza — la divergencia de precio ahora es estructural, no una convención.
 
 **Riesgo: bajo.** Renombres esperados: ninguno.
 
@@ -213,7 +222,8 @@ Bugs, simplificaciones y rarezas encontradas durante el movimiento. **No se toca
 
 | # | Hallazgo | Archivo | Notas |
 |---|---|---|---|
-| | _(vacío — completar durante la implementación)_ | | |
+| H-01 | `list_storefront_categories` es un alias de una línea de `list_categories` — no tiene lógica de vitrina propia | `products_storefront_s.py` | Obliga a la única arista cruzada del split. Evaluar si la vitrina necesita el símbolo o si el router puede llamar `list_categories` directo. No se toca acá: sería cambiar comportamiento de la API. |
+| H-02 | `tests/test_products_min_var_price.py` importa servicios **por módulo** y alcanza símbolos privados; es el único del repo que lo hace | `tests/` | Seam demasiado bajo. Se actualizó el import y nada más, según el ticket 03. Subirlo de seam es trabajo aparte. |
 
 ---
 

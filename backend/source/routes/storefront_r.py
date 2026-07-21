@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from source.db.session import get_db
 from source.errors import raise_http_error_from_exception
-from source.services.products_s import (
+from source.services.products_storefront_s import (
     get_storefront_product_by_id,
     list_storefront_categories,
     list_storefront_products,
