@@ -52,7 +52,12 @@ class Product(Base):
 
     category = relationship("Category", back_populates="products")
     discount_links = relationship("DiscountProduct", back_populates="product")
-    variants = relationship("ProductVariant", back_populates="product")
+    variants = relationship(
+        "ProductVariant",
+        back_populates="product",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class ProductVariant(Base):

@@ -131,6 +131,7 @@ class HttpProductsCrudFundamentalsTests(HttpFundamentalsBase):
         )
 
         self.assertEqual(response.status_code, 409)
+        self.assertIn("associated product", response.json()["detail"])
         db = self._db()
         try:
             self.assertIsNotNone(db.query(Category).filter(Category.id == ids["category_b"]).first())
@@ -276,7 +277,7 @@ class HttpProductsCrudFundamentalsTests(HttpFundamentalsBase):
             db.close()
         self.assertIsNotNone(ids)
 
-    def test_delete_product_with_variants_is_rejected_over_http(self) -> None:
+    def test_delete_product_with_variants_cascades_over_http(self) -> None:
         db = self._db()
         try:
             ids = create_catalog(db)
@@ -289,10 +290,16 @@ class HttpProductsCrudFundamentalsTests(HttpFundamentalsBase):
             headers=self._origin_headers(),
         )
 
-        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.status_code, 200)
         db = self._db()
         try:
-            self.assertIsNotNone(db.query(Product).filter(Product.id == ids["product_3"]).first())
+            self.assertIsNone(db.query(Product).filter(Product.id == ids["product_3"]).first())
+            self.assertEqual(
+                db.query(ProductVariant)
+                .filter(ProductVariant.product_id == ids["product_3"])
+                .count(),
+                0,
+            )
         finally:
             db.close()
 

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from source.db.models import Category, Product, ProductVariant
 from source.db.session import SessionLocal
+from source.exceptions import CategoryHasProductsError
 from source.services.discount_s import (
     DiscountDTO,
     calculate_line_pricing,
@@ -779,6 +780,13 @@ def delete_category_hard(category_id: int, db: Session) -> dict | None:
         category = session.query(Category).filter(Category.id == category_id).first()
         if category is None:
             return None
+        product_count = (
+            session.query(Product).filter(Product.category_id == category_id).count()
+        )
+        if product_count > 0:
+            raise CategoryHasProductsError(
+                f"category has {product_count} associated product(s) and cannot be deleted"
+            )
         payload = _category_to_dict(category)
         session.delete(category)
         session.flush()
