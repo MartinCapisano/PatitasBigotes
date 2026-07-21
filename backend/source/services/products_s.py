@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 from typing import Literal
 
 from sqlalchemy import asc, desc, func
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from source.db.models import Category, Product, ProductVariant
-from source.db.session import SessionLocal
+from source.db.session import read_session_scope, write_session_scope
 from source.exceptions import CategoryHasProductsError
 from source.services.discount_s import (
     DiscountDTO,
@@ -16,24 +15,6 @@ from source.services.discount_s import (
     list_discounts,
     select_best_discount,
 )
-
-
-@contextmanager
-def _read_session_scope(db: Session | None):
-    owns_session = db is None
-    session = db or SessionLocal()
-    try:
-        yield session, owns_session
-    finally:
-        if owns_session:
-            session.close()
-
-
-@contextmanager
-def _write_session_scope(db: Session):
-    if db is None:
-        raise RuntimeError("db session is required for mutating operations")
-    yield db, False
 
 
 def _product_inventory(product: Product) -> tuple[int, bool]:
@@ -275,7 +256,7 @@ def filter_and_sort_products(
     sort_order: Literal["asc", "desc"] = "asc",
     limit: int | None = None,
 ) -> list[dict]:
-    with _read_session_scope(db) as (session, _):
+    with read_session_scope(db) as (session, _):
         products = _query_admin_products(
             session,
             min_price=min_price,
@@ -298,7 +279,7 @@ def list_admin_products_with_variants(
     sort_order: Literal["asc", "desc"] = "asc",
     limit: int | None = None,
 ) -> dict:
-    with _read_session_scope(db) as (session, _):
+    with read_session_scope(db) as (session, _):
         products = _query_admin_products(
             session,
             min_price=min_price,
@@ -315,7 +296,7 @@ def list_admin_products_with_variants(
 
 
 def list_admin_catalog(*, db: Session | None = None, limit: int | None = None) -> dict:
-    with _read_session_scope(db) as (session, _):
+    with read_session_scope(db) as (session, _):
         products = _query_admin_products(session, limit=limit)
         categories = session.query(Category).order_by(Category.id.asc()).all()
         return {
@@ -326,7 +307,7 @@ def list_admin_catalog(*, db: Session | None = None, limit: int | None = None) -
 
 
 def get_product_by_id(product_id: int, db: Session | None = None) -> dict | None:
-    with _read_session_scope(db) as (session, _):
+    with read_session_scope(db) as (session, _):
         product = (
             session.query(Product)
             .options(joinedload(Product.category), joinedload(Product.variants))
@@ -342,7 +323,7 @@ def list_products_by_ids(product_ids: list[int], db: Session | None = None) -> d
     unique_ids = list(dict.fromkeys(product_ids))
     if not unique_ids:
         return {}
-    with _read_session_scope(db) as (session, _):
+    with read_session_scope(db) as (session, _):
         products = (
             session.query(Product)
             .options(joinedload(Product.category), joinedload(Product.variants))
@@ -354,7 +335,7 @@ def list_products_by_ids(product_ids: list[int], db: Session | None = None) -> d
 
 def update_product(product_id: int, updates: dict, db: Session) -> dict | None:
     allowed_fields = {"name", "description", "img_url", "category", "active"}
-    with _write_session_scope(db) as (session, _):
+    with write_session_scope(db) as (session, _):
         product = (
             session.query(Product)
             .options(joinedload(Product.category), joinedload(Product.variants))
@@ -402,7 +383,7 @@ def create_product(payload: dict, db: Session) -> dict:
     raw_img_url = payload.get("img_url")
     normalized_img_url = None if raw_img_url is None else str(raw_img_url).strip() or None
 
-    with _write_session_scope(db) as (session, _):
+    with write_session_scope(db) as (session, _):
         category = session.query(Category).filter(Category.name == category_name).first()
         if category is None:
             raise ValueError("category not found")
@@ -421,7 +402,7 @@ def create_product(payload: dict, db: Session) -> dict:
 
 
 def delete_product_hard(product_id: int, db: Session) -> dict | None:
-    with _write_session_scope(db) as (session, _):
+    with write_session_scope(db) as (session, _):
         product = (
             session.query(Product)
             .options(joinedload(Product.category), joinedload(Product.variants))
@@ -446,7 +427,7 @@ def activate_product(product_id: int, db: Session) -> dict | None:
 
 
 def ensure_product_has_variant(product_id: int, db: Session | None = None) -> list[dict]:
-    with _read_session_scope(db) as (session, _):
+    with read_session_scope(db) as (session, _):
         product = (
             session.query(Product)
             .options(joinedload(Product.variants))
@@ -467,7 +448,7 @@ def add_stock(product_id: int, quantity: int, db: Session) -> dict:
     if quantity <= 0:
         raise ValueError("quantity must be greater than 0")
 
-    with _write_session_scope(db) as (session, _):
+    with write_session_scope(db) as (session, _):
         variants = ensure_product_has_variant(product_id=product_id, db=session)
         if not variants:
             raise ValueError("product has no active variants")
@@ -484,7 +465,7 @@ def decrement_stock(product_id: int, quantity: int, db: Session) -> dict:
     if quantity <= 0:
         raise ValueError("quantity must be greater than 0")
 
-    with _write_session_scope(db) as (session, _):
+    with write_session_scope(db) as (session, _):
         product = (
             session.query(Product)
             .filter(Product.id == product_id)
@@ -521,7 +502,7 @@ def get_variant_by_id(
     *,
     include_inactive: bool = False,
 ) -> dict | None:
-    with _read_session_scope(db) as (session, _):
+    with read_session_scope(db) as (session, _):
         query = (
             session.query(ProductVariant)
             .options(joinedload(ProductVariant.product).joinedload(Product.category))
@@ -536,7 +517,7 @@ def get_variant_by_id(
 
 
 def list_categories(db: Session | None = None) -> list[dict]:
-    with _read_session_scope(db) as (session, _):
+    with read_session_scope(db) as (session, _):
         categories = session.query(Category).order_by(Category.id.asc()).all()
         return [_category_to_dict(category) for category in categories]
 
@@ -560,7 +541,7 @@ def list_storefront_products(
     safe_limit = max(1, min(int(limit), 100))
     safe_offset = max(0, int(offset))
 
-    with _read_session_scope(db) as (session, _):
+    with read_session_scope(db) as (session, _):
         aggregates_subquery = (
             session.query(
                 ProductVariant.product_id.label("product_id"),
@@ -656,7 +637,7 @@ def list_storefront_products(
 
 
 def get_storefront_product_by_id(product_id: int, db: Session | None = None) -> dict | None:
-    with _read_session_scope(db) as (session, _):
+    with read_session_scope(db) as (session, _):
         product = (
             session.query(Product)
             .options(
@@ -729,7 +710,7 @@ def get_storefront_product_by_id(product_id: int, db: Session | None = None) -> 
 
 
 def get_category_by_id(category_id: int, db: Session | None = None) -> dict | None:
-    with _read_session_scope(db) as (session, _):
+    with read_session_scope(db) as (session, _):
         category = session.query(Category).filter(Category.id == category_id).first()
         if category is None:
             return None
@@ -741,7 +722,7 @@ def create_category(payload: dict, db: Session) -> dict:
     if not name:
         raise ValueError("name is required")
 
-    with _write_session_scope(db) as (session, _):
+    with write_session_scope(db) as (session, _):
         existing = session.query(Category).filter(Category.name == name).first()
         if existing is not None:
             raise ValueError("category already exists")
@@ -753,7 +734,7 @@ def create_category(payload: dict, db: Session) -> dict:
 
 
 def update_category(category_id: int, updates: dict, db: Session) -> dict | None:
-    with _write_session_scope(db) as (session, _):
+    with write_session_scope(db) as (session, _):
         category = session.query(Category).filter(Category.id == category_id).first()
         if category is None:
             return None
@@ -776,7 +757,7 @@ def update_category(category_id: int, updates: dict, db: Session) -> dict | None
 
 
 def delete_category_hard(category_id: int, db: Session) -> dict | None:
-    with _write_session_scope(db) as (session, _):
+    with write_session_scope(db) as (session, _):
         category = session.query(Category).filter(Category.id == category_id).first()
         if category is None:
             return None
@@ -817,7 +798,7 @@ def create_variant(payload: dict, db: Session) -> dict:
     raw_img_url = payload.get("img_url")
     normalized_img_url = None if raw_img_url is None else str(raw_img_url).strip() or None
 
-    with _write_session_scope(db) as (session, _):
+    with write_session_scope(db) as (session, _):
         product = session.query(Product).filter(Product.id == product_id).first()
         if product is None:
             raise ValueError("product not found")
@@ -843,7 +824,7 @@ def create_variant(payload: dict, db: Session) -> dict:
 
 def update_variant(variant_id: int, updates: dict, db: Session) -> dict | None:
     allowed_fields = {"product_id", "sku", "size", "color", "img_url", "price", "stock", "active"}
-    with _write_session_scope(db) as (session, _):
+    with write_session_scope(db) as (session, _):
         variant = session.query(ProductVariant).filter(ProductVariant.id == variant_id).first()
         if variant is None:
             return None
@@ -902,7 +883,7 @@ def update_variant(variant_id: int, updates: dict, db: Session) -> dict | None:
 
 
 def delete_variant_hard(variant_id: int, db: Session) -> dict | None:
-    with _write_session_scope(db) as (session, _):
+    with write_session_scope(db) as (session, _):
         variant = session.query(ProductVariant).filter(ProductVariant.id == variant_id).first()
         if variant is None:
             return None
@@ -916,7 +897,7 @@ def add_variant_stock(variant_id: int, quantity: int, db: Session) -> dict:
     if quantity <= 0:
         raise ValueError("quantity must be greater than 0")
 
-    with _write_session_scope(db) as (session, _):
+    with write_session_scope(db) as (session, _):
         variant = (
             session.query(ProductVariant)
             .filter(ProductVariant.id == variant_id, ProductVariant.is_active.is_(True))
@@ -935,7 +916,7 @@ def decrement_variant_stock(variant_id: int, quantity: int, db: Session) -> dict
     if quantity <= 0:
         raise ValueError("quantity must be greater than 0")
 
-    with _write_session_scope(db) as (session, _):
+    with write_session_scope(db) as (session, _):
         variant = (
             session.query(ProductVariant)
             .filter(ProductVariant.id == variant_id, ProductVariant.is_active.is_(True))

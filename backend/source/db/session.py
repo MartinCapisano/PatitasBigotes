@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from contextlib import contextmanager
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -36,3 +37,21 @@ def get_db_transactional() -> Generator[Session, None, None]:
         raise
     finally:
         db.close()
+
+
+@contextmanager
+def read_session_scope(db: Session | None):
+    owns_session = db is None
+    session = db or SessionLocal()
+    try:
+        yield session, owns_session
+    finally:
+        if owns_session:
+            session.close()
+
+
+@contextmanager
+def write_session_scope(db: Session):
+    if db is None:
+        raise RuntimeError("db session is required for mutating operations")
+    yield db, False

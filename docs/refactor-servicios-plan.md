@@ -2,7 +2,7 @@
 
 > Documento de trabajo. Se consulta y se actualiza durante toda la implementación.
 > La decisión y su justificación viven en [ADR 0001](adr/0001-organizacion-de-servicios-por-vista.md).
-> **Estado: no iniciado.**
+> **Estado: commit 0 hecho.**
 
 ---
 
@@ -71,10 +71,10 @@ resultado se verifica a ojo en dos minutos, no sobre las 1132 líneas donde vive
 
 ### Commit 0 — `session_scope` a `db/session.py`
 
-- [ ] Mover `_read_session_scope` y `_write_session_scope` de `products_s.py` (líneas 22–37) a `source/db/session.py`
-- [ ] Renombrar sin guion bajo: `read_session_scope`, `write_session_scope` (pasan a ser API entre módulos)
-- [ ] Actualizar los usos en `products_s.py`
-- [ ] Los 4 checks
+- [x] Mover `_read_session_scope` y `_write_session_scope` de `products_s.py` (líneas 22–37) a `source/db/session.py`
+- [x] Renombrar sin guion bajo: `read_session_scope`, `write_session_scope` (pasan a ser API entre módulos)
+- [x] Actualizar los usos en `products_s.py` (15 de lectura, 13 de escritura)
+- [x] Los 4 checks
 
 **Riesgo: trivial.** Único commit que toca un archivo fuera de `services/`. Corrige un misplacement
 preexistente: no es lógica de producto, es ciclo de vida de sesión.
