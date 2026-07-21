@@ -1,6 +1,10 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from "axios";
 
 const baseURL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+// Render's free tier sleeps after ~15 min idle and takes 30-60s to answer the
+// first request on wake, so the timeout must tolerate that cold start in
+// production. Overridable via VITE_API_TIMEOUT_MS; falls back to 60s.
+const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS) || 60000;
 const AUTH_ROUTES_WITH_LOCAL_HANDLING = ["/auth/login", "/auth/logout", "/auth/refresh"];
 
 type RetriableRequestConfig = InternalAxiosRequestConfig & {
@@ -17,7 +21,7 @@ function shouldSkipUnauthorizedBroadcast(url: string | undefined): boolean {
 
 export const http = axios.create({
   baseURL,
-  timeout: 10000,
+  timeout: API_TIMEOUT_MS,
   withCredentials: true
 });
 

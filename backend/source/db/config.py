@@ -110,6 +110,12 @@ def get_auth_cookie_samesite() -> str:
     value = os.getenv("AUTH_COOKIE_SAMESITE", "lax").strip().lower()
     if value not in {"lax", "strict", "none"}:
         raise RuntimeError("AUTH_COOKIE_SAMESITE must be one of: lax, strict, none")
+    # Browsers reject `SameSite=None` cookies that are not also `Secure`, which
+    # would silently drop the auth cookie in the cross-origin production setup.
+    # Fail fast instead of shipping a login that appears to work but never
+    # persists the session.
+    if value == "none" and not get_auth_cookie_secure():
+        raise RuntimeError("AUTH_COOKIE_SAMESITE=none requires AUTH_COOKIE_SECURE=true")
     return value
 
 
