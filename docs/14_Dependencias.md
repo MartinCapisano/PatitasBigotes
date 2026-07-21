@@ -187,7 +187,7 @@ mantiene tipos escritos a mano en `src/types.ts`.
 | `httpx` | Cliente HTTP con timeout y reintentos decentes; el SDK de MP obliga a un bucle manual | 🟡 Media |
 | `structlog` o `python-json-logger` | Logs estructurados en JSON, parseables | 🟡 Media |
 | `mypy` (dev) | Type checking estático | 🟡 Media |
-| `tenacity` | Reintentos declarativos; eliminaría la duplicación de `mercadopago_client` | 🟡 Media |
+| ~~`tenacity`~~ | ✅ Adoptado (`9.1.4`) — reintentos declarativos en `mercadopago_client` | — |
 | `sentry-sdk` | Captura de errores en producción | 🟡 Media |
 | `slowapi` | Rate limiting a nivel de endpoint | 🟢 Baja (ya hay uno propio) |
 
@@ -275,7 +275,7 @@ la carga inicial: la home solo trae `StorefrontPage`, no `AdminPage` (que es la 
 
 ### Imagen del backend
 
-`python:3.12` + 10 paquetes ≈ 150–200 MB.
+`python:3.12` + 11 paquetes ≈ 150–200 MB (`tenacity` es Python puro, sin transitivas: ~28 KB).
 `Dockerfile.sweeper`: `python:3.11-slim` + 3 paquetes ≈ 60–80 MB. 🟢 Buena optimización.
 
 ---
@@ -289,6 +289,7 @@ la carga inicial: la home solo trae `StorefrontPage`, no `AdminPage` (que es la 
 | python-jose | MIT | ✅ |
 | passlib | BSD | ✅ |
 | mercadopago | MIT | ✅ |
+| tenacity | Apache-2.0 | ✅ |
 | react, react-dom, react-router-dom, axios | MIT | ✅ |
 | vite, vitest, typescript, eslint | MIT / Apache-2.0 | ✅ |
 
@@ -314,10 +315,18 @@ una explícita.
 | <a id="D-08"></a>**D-08** | Migrar `python-jose` → `PyJWT` | Menos riesgo, menos transitivas | 4 h | **P2** |
 | <a id="D-09"></a>**D-09** | `pydantic-settings` en lugar de `db/config.py` | Config tipada; elimina `python-dotenv` | 1 día | **P2** |
 | <a id="D-10"></a>**D-10** | `sentry-sdk` | Errores visibles en producción | 4 h | **P2** |
-| <a id="D-11"></a>**D-11** | `tenacity` en `mercadopago_client` | Elimina 180 líneas duplicadas | 4 h | **P2** |
+| <a id="D-11"></a>**D-11** | ✅ ~~`tenacity` en `mercadopago_client`~~ — **hecho** (`tenacity==9.1.4`) | −163/+125 líneas; queda deuda en los tests, ver nota | 4 h + ~2 h | — |
 | <a id="D-12"></a>**D-12** | Alinear `Dockerfile.sweeper` a Python 3.12 | Consistencia | 15 min | **P3** |
 | <a id="D-13"></a>**D-13** | Añadir `LICENSE` | Claridad legal | 15 min | **P3** |
 | <a id="D-14"></a>**D-14** | Evaluar React Query | Caché y deduplicación | 1 semana | **P3** |
+
+> ⚠️ **Deuda residual de D-11 / [R-07](18_Roadmap.md#R-07) — los tests.**
+> `test_payment_errors_mapping.py` desactiva el backoff parcheando `mercadopago_client.time.sleep`. tenacity
+> resuelve su callable `sleep` al construir el decorador, así que ese parche quedaría muerto; el módulo mantiene
+> a propósito un `_retry_sleep` que difiere el lookup de `time.sleep` para que la costura siga funcionando.
+>
+> Si alguien borra ese wrapper la suite **no falla, se vuelve lenta** (~2,6 s de sueño real). Pendiente: mover
+> la espera al test con `_request.retry_with(wait=wait_none())`. ~2 h.
 
 ---
 

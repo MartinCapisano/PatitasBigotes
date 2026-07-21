@@ -162,9 +162,9 @@ cada consumidor usa un subconjunto.
 
 | # | Duplicación | Líneas | Dónde |
 |---|---|---:|---|
-| D-01 | Bucle de reintentos del cliente MP, 4 veces | ~180 | `mercadopago_client.py:112-325` |
+| D-01 | ✅ ~~Bucle de reintentos del cliente MP, 4 veces~~ — **resuelto** con `tenacity` *(= R-07, D-11)* | 0 | `mercadopago_client.py:_request` |
 | D-02 | ✅ ~~`create_retry_payment_for_order` vs `create_retry_payment_for_payment_token`~~ — **resuelto**, ver nota abajo | ~20 | `payment_s.py:768` y `:807` |
-| D-03 | Bloque de idempotencia en 2 endpoints | ~60 | `orders_r.py:157-229` y `:321-347` |
+| D-03 | Bloque de idempotencia en 2 endpoints — **refactor, no bugfix** (ver [§5 bis](#5-bis-️-los-caminos-de-fallo-de-idempotencia-no-son-verificables-por-la-suite)) | ~60 | `orders_r.py:157-229` y `:321-347` |
 | D-04 | 5 serializadores de producto/variante solapados | ~80 | `products_s.py:52-160` |
 | D-05 | Allowlist de hosts de MP en Python y TypeScript | ~15 | `mercadopago_normalization_s.py:34` y `checkout-api.ts:6` |
 | D-06 | `_normalize_optional_str` duplicada **a propósito** | 8 | `payment_s.py:98` y `mercadopago_normalization_s.py:44` (con comentario que lo justifica) |
@@ -234,7 +234,7 @@ en 70 líneas dentro de un handler. La complejidad es necesaria; la ubicación n
 | CS-01 | **Efectos secundarios ocultos en lecturas** | `create_payment_for_order` expira reservas (y puede **cancelar la orden**); `GET /public/orders/by-payment-token` y `GET /orders/{id}/reservations` mutan estado | Viola CQS. Un `GET` que cambia datos sorprende a cualquiera |
 | CS-02 | **Reasignación de la variable de bucle sobre un parámetro** | `stock_reservations_s.py:149` — `for order_id, reservations in ...` donde `order_id` también es parámetro | Funciona hoy; cualquier refactor que use el parámetro después rompe silenciosamente |
 | CS-03 | **Fuga de capa: `HTTPException` en servicios** | `users_s.py:46,78,111,120,164,199,212`; `auth_s.py:306` | Impide reutilizar esos servicios desde jobs o CLI |
-| CS-04 | **`db.commit()` dentro de un `except`** | `refund_s.py:364`, `orders_r.py:114` | Rompe el contrato de `get_db_transactional`. Justificado y comentado, pero frágil |
+| CS-04 | **`db.commit()` dentro de un `except`** | `refund_s.py:364`, `orders_r.py:114` | Rompe el contrato de `get_db_transactional`. Justificado y comentado, pero frágil — ver [§5 bis](#5-bis-️-los-caminos-de-fallo-de-idempotencia-no-son-verificables-por-la-suite) |
 | CS-05 | **God object en el frontend** | `CatalogSection.tsx` 821 líneas, ~95 props | Imposible de testear; cualquier cambio re-renderiza todo |
 | CS-06 | **Acoplamiento por strings entre capas** | `http-errors.ts` compara `detail` con literales de `payment_s.py` | Cambiar un mensaje rompe la UI sin que nada lo detecte |
 
@@ -261,6 +261,44 @@ en 70 líneas dentro de un handler. La complejidad es necesaria; la ubicación n
 | CS-18 | `except Exception: pass` | `refund_s.py:370-371`, `orders_r.py:120-121` (justificados, pero silencian todo) |
 | CS-19 | Estilos inline mezclados con clases | `Layout.tsx:214`, `:215` |
 | CS-20 | `eslint-disable` sin explicación completa | `useAsyncResource.ts:39` |
+
+---
+
+## 5 bis. ⚠️ Los caminos de fallo de idempotencia no son verificables por la suite
+
+**Los tests corren sobre SQLite** (`DATABASE_URL=sqlite://`, [_base.py:16](../backend/tests/http/_base.py)) y **producción es
+PostgreSQL**. En el punto exacto que la idempotencia necesita —el `SAVEPOINT` que abre `acquire_record`
+([idempotency_s.py:103](../backend/source/services/idempotency_s.py))— los dos motores no se comportan igual.
+
+Medido con un cluster PostgreSQL 18 temporal, mismo `INSERT` dentro de `begin_nested()` seguido de un rollback
+de la transacción externa:
+
+| Motor | Filas tras el rollback externo |
+|---|---|
+| SQLite (tests) | `[('INSERT-en-savepoint',)]` — el insert **se escapa** |
+| PostgreSQL 18 (producción) | `[]` — el insert revierte, correcto |
+
+Es el bug conocido de `pysqlite` con SAVEPOINT. Consecuencias verificadas end-to-end sobre `POST /admin/sales`
+con un fallo forzado:
+
+| Comportamiento | SQLite | PostgreSQL 18 |
+|---|---|---|
+| Registro tras el fallo | trabado en `processing` | no queda ninguno |
+| Reintento con la misma key | `409` permanente hasta el sweeper | `200 OK`, la venta se procesa |
+
+**Lo importante: en producción el diseño es correcto.** La protección contra requests concurrentes no depende
+de que el registro sobreviva, sino del **índice único**: una segunda request se bloquea esperando el insert de
+la primera (medido: 1,3 s) y recién resuelve cuando esa decide. Si la primera commitea, la segunda hace replay;
+si revierte, la segunda toma el trabajo.
+
+> 📌 **Por qué importa igual.** Quien toque estos caminos los va a validar contra una semántica que no es la de
+> producción, y va a leer código defensivo escrito contra un comportamiento que su entorno le muestra distinto.
+> Ya pasó una vez: el bloque de recuperación de `create_admin_sale_endpoint` (20 líneas con doble `try`, dos
+> `logger.exception` y un `db.delete` de último recurso) fue escrito como si el registro persistiera. Se eliminó
+> tras comprobar que la transacción lo descarta entero.
+>
+> Mitigación real: correr al menos los tests de idempotencia contra PostgreSQL en CI. Hasta entonces, cualquier
+> aserción sobre estos caminos vale sólo para SQLite.
 
 ---
 
@@ -417,7 +455,7 @@ decisiones**, no describen código. Es infrecuente y muy valioso.
 | DT-04 | `api.generated.ts` sin usar (falta `response_model`) | Contrato | Alto | 3 días | P1 |
 | DT-05 | 3 estrategias transaccionales conviviendo | Consistencia | Medio | 2 días | P2 |
 | DT-06 | `HTTPException` en servicios | Capas | Medio | 4 h | P2 |
-| DT-07 | Bucle de reintentos duplicado 4× en `mercadopago_client` | DRY | Medio | 4 h | P2 |
+| DT-07 | ✅ ~~Bucle de reintentos duplicado 4× en `mercadopago_client`~~ *(= D-01, R-07)* — **saldada**; queda la costura `_retry_sleep` en los tests | DRY | Bajo | 2 h | P3 |
 | DT-08 | ✅ ~~Duplicación en `create_retry_payment_*`~~ *(= D-02, R-08)* — **saldada** | DRY | — | 4 h | — |
 | DT-09 | `CatalogSection` de 821 líneas con ~95 props | Diseño | Alto | 3 días | P2 |
 | DT-10 | Código muerto (≈10 elementos, ver YAGNI) | Limpieza | Bajo | 4 h | P2 |

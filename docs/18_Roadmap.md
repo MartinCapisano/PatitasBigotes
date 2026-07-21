@@ -69,7 +69,7 @@ Detalle completo en [11_Seguridad.md](11_Seguridad.md#17-informe-de-riesgos).
 | <a id="R-04"></a>**R-04** | **Enviar los emails de auth con `post_commit_actions`** | `register` y `update_user_profile` mandan SMTP dentro de la transacción | 🟠 | 0,5 d | **P1** |
 | <a id="R-05"></a>**R-05** | **Códigos de error estables en la respuesta** en lugar de comparar `detail` literal | `http-errors.ts` compara strings exactos con `payment_s.py`; un cambio de coma rompe la UI sin test que lo detecte | 🔴 | 2 d | **P1** |
 | <a id="R-06"></a>**R-06** | **Declarar `response_model` en los endpoints** | `api.generated.ts` (3.992 líneas) se genera, se valida en CI y **no se usa**, porque el OpenAPI describe las respuestas como objetos genéricos | 🔴 | 3 d | **P1** |
-| <a id="R-07"></a>**R-07** | **Factorizar el bucle de reintentos de `mercadopago_client`** | ~180 líneas duplicadas 4 veces; con `tenacity` serían decoradores | 🟠 | 0,5 d | **P2** |
+| <a id="R-07"></a>**R-07** | ✅ ~~**Factorizar el bucle de reintentos de `mercadopago_client`**~~ — **hecho** con `tenacity` (−163/+125) | Queda pendiente la parte de tests: ver nota abajo | 🟠 | 0,5 d | — |
 | <a id="R-08"></a>**R-08** | ✅ ~~**Unificar `create_retry_payment_for_order` y `..._for_payment_token`**~~ — **hecho**: guard chain compartido (`_guard_order_retryable`, `_guard_retryable_latest_attempt`) | Quedan ~20 líneas de esqueleto paralelo, irreducibles (identidad por sesión vs. token) | 🟠 | 0,5 d | — |
 | <a id="R-09"></a>**R-09** | **Eliminar `HTTPException` de los servicios** | `users_s` (5 sitios) y `auth_s` (1) rompen la separación de capas e impiden reutilizarlos desde jobs | 🟠 | 0,5 d | **P2** |
 | <a id="R-10"></a>**R-10** | **Dividir `CatalogSection.tsx` (821 líneas) y reducir el prop drilling** | ~95 props; imposible de testear; cualquier cambio re-renderiza todo | 🟠 | 3 d | **P2** |
@@ -81,6 +81,16 @@ Detalle completo en [11_Seguridad.md](11_Seguridad.md#17-informe-de-riesgos).
 | <a id="R-16"></a>**R-16** | **Unificar el naming español/inglés** | `calcular_amount`, `firmar_jwt`, `obtener_config_jwt`… | 🟡 | 0,5 d | **P3** |
 | <a id="R-17"></a>**R-17** | **Renombrar `schemas/*_s.py` → `schemas/*_dto.py`** | Elimina la ambigüedad con `services/*_s.py` | 🟡 | 0,3 d | **P3** |
 | <a id="R-18"></a>**R-18** | **Eliminar el código muerto** (≈10 elementos identificados) | Ver [13_CalidadCodigo.md](13_CalidadCodigo.md#yagni) | 🟡 | 0,5 d | **P3** |
+
+> ⚠️ **Deuda residual de R-07 — los tests.** `test_payment_errors_mapping.py` neutraliza el backoff parcheando
+> `mercadopago_client.time.sleep`. Con el bucle adentro de tenacity ese parche dejaría de tener efecto, así que
+> el módulo conserva a propósito un `_retry_sleep` que resuelve `time.sleep` en tiempo de llamada para mantener
+> viva esa costura. Funciona, pero es código de producción sosteniendo una decisión de test.
+>
+> El modo de fallo es el peor de los dos posibles: si alguien borra `_retry_sleep`, la suite **no se pone roja,
+> se pone lenta** (~2,6 s extra de sueño real). Pendiente: manejar la espera desde el test —
+> `_request.retry_with(wait=wait_none())`— y sacar la costura del módulo. Estimar ~2 h además de las 4 h
+> originales de R-07.
 
 ---
 
