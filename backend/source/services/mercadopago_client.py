@@ -296,7 +296,7 @@ def process_mercadopago_event_payload(
     # Local imports avoid a module cycle: mercadopago_normalization_s imports this
     # client module at module level (for create_checkout_preference).
     from source.services.mercadopago_normalization_s import normalize_mp_payment_state
-    from source.services.payment_s import (
+    from source.services.payment_provider_s import (
         apply_mercadopago_normalized_state,
         find_payment_for_mercadopago_event,
     )

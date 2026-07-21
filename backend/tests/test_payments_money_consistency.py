@@ -19,10 +19,8 @@ from source.db.models import (
     StockReservation,
 )
 from source.services.mercadopago_normalization_s import _build_mercadopago_payload
-from source.services.payment_s import (
-    apply_mercadopago_normalized_state,
-    create_payment_for_order,
-)
+from source.services.payment_provider_s import apply_mercadopago_normalized_state
+from source.services.payment_s import create_payment_for_order
 from tests.factories.orders import create_order_graph
 from tests.factories.users import create_user
 

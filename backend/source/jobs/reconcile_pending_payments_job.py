@@ -10,7 +10,7 @@ from source.db.session import SessionLocal
 from source.services.mercadopago_client import find_latest_payment_by_external_reference
 from source.services.post_commit_actions_s import clear_post_commit_actions, dispatch_post_commit_actions
 from source.services.mercadopago_normalization_s import normalize_mp_payment_state
-from source.services.payment_s import (
+from source.services.payment_provider_s import (
     apply_mercadopago_normalized_state,
     list_reconcilable_pending_mercadopago_payments,
 )

@@ -2,7 +2,7 @@
 
 > Documento de trabajo. Se consulta y se actualiza durante toda la implementación.
 > La decisión y su justificación viven en [ADR 0001](adr/0001-organizacion-de-servicios-por-vista.md).
-> **Estado: commits 0-3 hechos. Kernel de pago extraido.**
+> **Estado: commits 0-4 hechos. Movimiento completo; falta documentacion.**
 
 ---
 
@@ -195,9 +195,23 @@ Mover a `payment_provider_s.py`:
 | `apply_mercadopago_normalized_state` | `:376` |
 | `list_reconcilable_pending_mercadopago_payments` | `:865` |
 
-- [ ] Actualizar `routes/payments_r.py`, `jobs/reconcile_pending_payments_job.py`, `services/mercadopago_client.py`
-- [ ] `_latest_attempt_query` **se queda** en `payment_s.py` (grupo de reintentos) — `tests/test_payment_retry_locking.py:14` lo importa y no debe romperse
-- [ ] Los 4 checks
+- [x] Actualizar `routes/orders_r.py`, `jobs/reconcile_pending_payments_job.py`, `services/mercadopago_client.py`, `tests/test_payments_money_consistency.py`
+- [x] `_latest_attempt_query` **se queda** en `payment_s.py` (grupo de reintentos) — `tests/test_payment_retry_locking.py:14` lo importa y no se tocó
+- [x] Los 4 checks
+
+⚠️ **Había un ciclo latente** (ver hallazgo H-04): `create_payment_for_order` (se queda) llama a
+`initialize_mercadopago_checkout_for_payment` (se muda), así que `payment_s` ahora importa del módulo de
+proveedor. A la vez, `_mark_payment_checkout_setup_failed` (se muda) usa la constante
+`PAYMENT_PROVIDER_SETUP_FAILED`, que además consumen dos funciones que se quedan y la importan rutas y un
+test **desde `payment_s`**. Para romper el ciclo la constante se movió a `payment_provider_s` (es su dueña
+semántica: marca un fallo de setup de checkout de MercadoPago) y `payment_s` la **re-exporta**, de modo que
+`from payment_s import PAYMENT_PROVIDER_SETUP_FAILED` sigue resolviendo sin tocar rutas ni el test. Grafo
+final acíclico y en una sola dirección: `payment_s → payment_provider_s → payment_core_s`.
+
+- Los patches del test de reconciliación (`patch.object(reconcile_pending_payments_job, "apply_...")`)
+  siguen funcionando: apuntan al nombre en el namespace del job, no a su módulo de origen.
+- `_latest_attempt_query` (grupo de reintentos) y la copia propia de `_normalize_optional_str` quedan
+  intactos, según el ticket.
 
 **Riesgo: medio.**
 
@@ -243,6 +257,7 @@ Bugs, simplificaciones y rarezas encontradas durante el movimiento. **No se toca
 | H-01 | `list_storefront_categories` es un alias de una línea de `list_categories` — no tiene lógica de vitrina propia | `products_storefront_s.py` | Obliga a la única arista cruzada del split. Evaluar si la vitrina necesita el símbolo o si el router puede llamar `list_categories` directo. No se toca acá: sería cambiar comportamiento de la API. |
 | H-02 | `tests/test_products_min_var_price.py` importa servicios **por módulo** y alcanza símbolos privados; es el único del repo que lo hace | `tests/` | Seam demasiado bajo. Se actualizó el import y nada más, según el ticket 03. Subirlo de seam es trabajo aparte. |
 | H-03 | `orders_public_s` importa dos privados de `orders_s` (`_variant_label` y `_utc_now`), no uno solo | `orders_public_s.py` | El plan solo había previsto `_variant_label`. `_utc_now` es un `datetime.now(UTC)` de una línea: candidato a subir a un helper de tiempo compartido en vez de quedar como privado importado. |
+| H-04 | El split del proveedor abría un ciclo `payment_s ↔ payment_provider_s` | `payment_provider_s.py`, `payment_s.py` | Resuelto moviendo la constante `PAYMENT_PROVIDER_SETUP_FAILED` a su dueña semántica (el proveedor) y re-exportándola desde `payment_s`. El plan no lo había anticipado. La re-exportación es deuda menor: los importadores externos (`orders_r`, `test_provider_failure_checkout`) podrían apuntar al proveedor directo en un commit posterior. |
 
 ---
 
