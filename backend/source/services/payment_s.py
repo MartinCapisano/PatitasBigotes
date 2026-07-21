@@ -719,28 +719,36 @@ def _guard_order_retryable(db: Session, *, order_id: int, user_id: int | None) -
     return order
 
 
-def _guard_retryable_latest_attempt(
-    db: Session,
-    *,
-    order_id: int,
-    method: str,
-    lock: bool,
-) -> None:
+def _latest_attempt_query(db: Session, *, order_id: int, method: str):
+    """Newest payment attempt for (order, method), locked for update.
+
+    The row lock is what makes the retryable-state check below safe: without it two
+    concurrent retries for the same order both read the same cancelled attempt, both
+    conclude the retry is allowed, and the order ends up with two pending payments.
+    Locking here serialises them, so the loser re-reads the attempt the winner already
+    cancelled and gets RETRY_NOT_ALLOWED_PAYMENT_STATE_CHANGED.
+
+    SQLite ignores FOR UPDATE, so the tests assert the clause by compiling this statement
+    against the PostgreSQL dialect rather than by racing two sessions.
+    """
+    return (
+        db.query(Payment)
+        .filter(
+            Payment.order_id == order_id,
+            Payment.method == method,
+        )
+        .with_for_update()
+        .order_by(Payment.created_at.desc(), Payment.id.desc())
+    )
+
+
+def _guard_retryable_latest_attempt(db: Session, *, order_id: int, method: str) -> None:
     """Reject the retry unless the last attempt for this method is in a retryable state.
 
     A pending attempt whose provider checkout never got set up counts as retryable and is
     closed here, so the new attempt is not blocked by an unusable one.
-
-    `lock` mirrors today's asymmetry between the two entrypoints (only the guest flow takes
-    the row lock) and is meant to be removed once both paths lock -- see the follow-up commit.
     """
-    query = db.query(Payment).filter(
-        Payment.order_id == order_id,
-        Payment.method == method,
-    )
-    if lock:
-        query = query.with_for_update()
-    latest_attempt = query.order_by(Payment.created_at.desc(), Payment.id.desc()).first()
+    latest_attempt = _latest_attempt_query(db, order_id=order_id, method=method).first()
     if latest_attempt is None:
         raise ValueError("no previous payment attempt found for this method")
 
@@ -782,7 +790,7 @@ def create_retry_payment_for_order(
         return _payment_to_dict(existing_payment)
 
     order = _guard_order_retryable(db, order_id=order_id, user_id=user_id)
-    _guard_retryable_latest_attempt(db, order_id=int(order.id), method=method, lock=False)
+    _guard_retryable_latest_attempt(db, order_id=int(order.id), method=method)
 
     return create_payment_for_order(
         order_id=order_id,
@@ -840,12 +848,7 @@ def create_retry_payment_for_payment_token(
         order_id=int(token_payment.order_id),
         user_id=None,
     )
-    _guard_retryable_latest_attempt(
-        db,
-        order_id=int(order.id),
-        method="mercadopago",
-        lock=True,
-    )
+    _guard_retryable_latest_attempt(db, order_id=int(order.id), method="mercadopago")
 
     return create_payment_for_order(
         order_id=int(order.id),
