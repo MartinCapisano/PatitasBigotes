@@ -678,6 +678,85 @@ def create_payment_for_order(
     return _payment_to_dict(payment)
 
 
+def _guard_order_retryable(db: Session, *, order_id: int, user_id: int | None) -> Order:
+    """Expire stale reservations and lock the order, rejecting every non-retryable state.
+
+    `user_id=None` skips the ownership filter for the guest flow, where the caller already
+    proved possession of the payment's public_status_token.
+    """
+    expire_active_reservations_for_order(
+        order_id=order_id,
+        now=datetime.now(UTC),
+        db=db,
+    )
+
+    order_query = db.query(Order).filter(Order.id == order_id)
+    if user_id is not None:
+        order_query = order_query.filter(Order.user_id == user_id)
+    order = order_query.with_for_update().first()
+    if order is None:
+        raise LookupError("order not found")
+
+    if str(order.status) == "cancelled":
+        has_expired_reservation = (
+            db.query(1)
+            .filter(
+                StockReservation.order_id == int(order.id),
+                StockReservation.reason == "reservation_expired",
+            )
+            .first()
+            is not None
+        )
+        if has_expired_reservation:
+            raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_CANCELLED_STOCK_EXPIRED)
+        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_CANCELLED)
+    if str(order.status) == "paid":
+        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_ALREADY_PAID)
+    if str(order.status) != "submitted":
+        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_NOT_SUBMITTED)
+    if not list_active_reservations_for_order(order_id=int(order.id), db=db):
+        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_STOCK_RESERVATION_EXPIRED)
+    return order
+
+
+def _guard_retryable_latest_attempt(
+    db: Session,
+    *,
+    order_id: int,
+    method: str,
+    lock: bool,
+) -> None:
+    """Reject the retry unless the last attempt for this method is in a retryable state.
+
+    A pending attempt whose provider checkout never got set up counts as retryable and is
+    closed here, so the new attempt is not blocked by an unusable one.
+
+    `lock` mirrors today's asymmetry between the two entrypoints (only the guest flow takes
+    the row lock) and is meant to be removed once both paths lock -- see the follow-up commit.
+    """
+    query = db.query(Payment).filter(
+        Payment.order_id == order_id,
+        Payment.method == method,
+    )
+    if lock:
+        query = query.with_for_update()
+    latest_attempt = query.order_by(Payment.created_at.desc(), Payment.id.desc()).first()
+    if latest_attempt is None:
+        raise ValueError("no previous payment attempt found for this method")
+
+    latest_status = str(latest_attempt.status)
+    latest_provider_status = str(latest_attempt.provider_status or "").strip().lower() or None
+    is_setup_failed_pending = (
+        latest_status == "pending"
+        and latest_provider_status == PAYMENT_PROVIDER_SETUP_FAILED
+    )
+    if latest_status not in RETRYABLE_PAYMENT_STATUSES and not is_setup_failed_pending:
+        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_PAYMENT_STATE_CHANGED)
+    if is_setup_failed_pending:
+        latest_attempt.status = "cancelled"
+        db.flush()
+
+
 def create_retry_payment_for_order(
     order_id: int,
     method: str,
@@ -702,64 +781,8 @@ def create_retry_payment_for_order(
     if existing_payment is not None:
         return _payment_to_dict(existing_payment)
 
-    expire_active_reservations_for_order(
-        order_id=order_id,
-        now=datetime.now(UTC),
-        db=db,
-    )
-
-    order = (
-        db.query(Order)
-        .filter(Order.id == order_id, Order.user_id == user_id)
-        .with_for_update()
-        .first()
-    )
-    if order is None:
-        raise LookupError("order not found")
-    if str(order.status) == "cancelled":
-        has_expired_reservation = (
-            db.query(1)
-            .filter(
-                StockReservation.order_id == int(order.id),
-                StockReservation.reason == "reservation_expired",
-            )
-            .first()
-            is not None
-        )
-        if has_expired_reservation:
-            raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_CANCELLED_STOCK_EXPIRED)
-        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_CANCELLED)
-    if str(order.status) == "paid":
-        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_ALREADY_PAID)
-    if str(order.status) != "submitted":
-        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_NOT_SUBMITTED)
-    if not list_active_reservations_for_order(order_id=int(order.id), db=db):
-        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_STOCK_RESERVATION_EXPIRED)
-
-    latest_attempt = (
-        db.query(Payment)
-        .join(Order, Payment.order_id == Order.id)
-        .filter(
-            Payment.order_id == order_id,
-            Payment.method == method,
-            Order.user_id == user_id,
-        )
-        .order_by(Payment.created_at.desc(), Payment.id.desc())
-        .first()
-    )
-    if latest_attempt is None:
-        raise ValueError("no previous payment attempt found for this method")
-    latest_status = str(latest_attempt.status)
-    latest_provider_status = str(latest_attempt.provider_status or "").strip().lower() or None
-    is_setup_failed_pending = (
-        latest_status == "pending"
-        and latest_provider_status == PAYMENT_PROVIDER_SETUP_FAILED
-    )
-    if latest_status not in RETRYABLE_PAYMENT_STATUSES and not is_setup_failed_pending:
-        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_PAYMENT_STATE_CHANGED)
-    if is_setup_failed_pending:
-        latest_attempt.status = "cancelled"
-        db.flush()
+    order = _guard_order_retryable(db, order_id=order_id, user_id=user_id)
+    _guard_retryable_latest_attempt(db, order_id=int(order.id), method=method, lock=False)
 
     return create_payment_for_order(
         order_id=order_id,
@@ -812,65 +835,17 @@ def create_retry_payment_for_payment_token(
     if existing_payment is not None:
         return _payment_to_dict(existing_payment)
 
-    order_id = int(token_payment.order_id)
-    expire_active_reservations_for_order(
-        order_id=order_id,
-        now=datetime.now(UTC),
-        db=db,
+    order = _guard_order_retryable(
+        db,
+        order_id=int(token_payment.order_id),
+        user_id=None,
     )
-
-    order = (
-        db.query(Order)
-        .filter(Order.id == order_id)
-        .with_for_update()
-        .first()
+    _guard_retryable_latest_attempt(
+        db,
+        order_id=int(order.id),
+        method="mercadopago",
+        lock=True,
     )
-    if order is None:
-        raise LookupError("order not found")
-    if str(order.status) == "cancelled":
-        has_expired_reservation = (
-            db.query(1)
-            .filter(
-                StockReservation.order_id == int(order.id),
-                StockReservation.reason == "reservation_expired",
-            )
-            .first()
-            is not None
-        )
-        if has_expired_reservation:
-            raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_CANCELLED_STOCK_EXPIRED)
-        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_CANCELLED)
-    if str(order.status) == "paid":
-        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_ALREADY_PAID)
-    if str(order.status) != "submitted":
-        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_ORDER_NOT_SUBMITTED)
-    if not list_active_reservations_for_order(order_id=int(order.id), db=db):
-        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_STOCK_RESERVATION_EXPIRED)
-
-    latest_attempt = (
-        db.query(Payment)
-        .filter(
-            Payment.order_id == int(order.id),
-            Payment.method == "mercadopago",
-        )
-        .with_for_update()
-        .order_by(Payment.created_at.desc(), Payment.id.desc())
-        .first()
-    )
-    if latest_attempt is None:
-        raise ValueError("no previous payment attempt found for this method")
-
-    latest_status = str(latest_attempt.status)
-    latest_provider_status = str(latest_attempt.provider_status or "").strip().lower() or None
-    is_setup_failed_pending = (
-        latest_status == "pending"
-        and latest_provider_status == PAYMENT_PROVIDER_SETUP_FAILED
-    )
-    if latest_status not in RETRYABLE_PAYMENT_STATUSES and not is_setup_failed_pending:
-        raise PaymentRetryConflictError(RETRY_NOT_ALLOWED_PAYMENT_STATE_CHANGED)
-    if is_setup_failed_pending:
-        latest_attempt.status = "cancelled"
-        db.flush()
 
     return create_payment_for_order(
         order_id=int(order.id),
