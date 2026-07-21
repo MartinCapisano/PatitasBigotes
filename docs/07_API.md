@@ -126,7 +126,7 @@ Response ← CSRFMiddleware ← CORSMiddleware ← SecurityHeadersMiddleware ←
 | | |
 |---|---|
 | **Response** | `{data: [{id, name}], meta: {total}}` |
-| **Servicio** | `products_s.list_storefront_categories` → `list_categories` |
+| **Servicio** | `products_storefront_s::list_storefront_categories` → `products_s::list_categories` |
 | **Tablas** | lee `categories` |
 
 #### `GET /storefront/products` 🌐
@@ -135,26 +135,26 @@ Response ← CSRFMiddleware ← CORSMiddleware ← SecurityHeadersMiddleware ←
 | **Query** | `category_id?:int`, `q?:str(min 1)`, `min_price?:int≥0`, `max_price?:int≥0`, `sort_by:price\|name=name`, `sort_order:asc\|desc=desc`, `limit:1..100=24`, `offset:int≥0=0` |
 | **Validación previa** | `min_price > max_price` → **400** `min_price must be less than or equal to max_price` |
 | **Response** | `{data: StorefrontProduct[], meta: {total, limit, offset, has_more, filters_applied}}` |
-| **Servicio** | `products_s.list_storefront_products` |
+| **Servicio** | `products_storefront_s::list_storefront_products` |
 | **Tablas** | `products`, `product_variants`, `categories`, `discounts`, `discount_products` |
 
-**Flujo interno destacado** (`products_s.py:562-654`): construye una subquery de agregados
+**Flujo interno destacado** (`products_storefront_s::list_storefront_products`): construye una subquery de agregados
 (`MIN(price)`, `SUM(stock)`, `COUNT(id)`) sobre variantes activas, filtra, y luego decide:
 
 - ⚡ Si `sort_by='name'` y no hay filtros de precio → **pagina en SQL** (`OFFSET/LIMIT`).
 - ⚡ Si hay `min_price`/`max_price` o `sort_by='price'` → **trae todas las filas** y filtra/ordena/pagina en Python,
   porque el precio final con descuento solo es computable en Python. Comentado explícitamente en el código
-  (`products_s.py:600-604`). Ver [12_Performance.md](12_Performance.md#storefront).
+  (`products_storefront_s::list_storefront_products`). Ver [12_Performance.md](12_Performance.md#storefront).
 
 #### `GET /storefront/products/{product_id}` 🌐
 | | |
 |---|---|
 | **Response** | `StorefrontProductDetail`: producto + `option_axis` (`size`\|`color`\|`variant`) + `options[]` + `variants[]` (compatibilidad) |
 | **Errores** | **404** si no existe **o si no tiene variantes activas** |
-| **Servicio** | `products_s.get_storefront_product_by_id` |
+| **Servicio** | `products_storefront_s::get_storefront_product_by_id` |
 
 `option_axis` se infiere: si alguna variante activa tiene `size` → `"size"`; si no, si tiene `color` → `"color"`;
-si no → `"variant"` (`products_s.py:95-100`). Esto le dice al frontend cómo etiquetar el selector.
+si no → `"variant"` (`products_storefront_s::_storefront_option_axis`). Esto le dice al frontend cómo etiquetar el selector.
 
 ---
 
@@ -306,7 +306,7 @@ flowchart TD
 | `POST /orders/draft` | `{data: Order, meta:{created}}`; **201** si se creó, **200** si ya existía | `get_or_create_draft_order` |
 | `PUT /orders/draft/items` | `{data: Order}` | **Reemplaza** todos los ítems; agrega cantidades del mismo `variant_id` |
 
-`replace_draft_order_items` (`orders_s.py:525-581`): toma la orden draft con `FOR UPDATE`, valida que todas las
+`replace_draft_order_items` (`orders_s::replace_draft_order_items`): toma la orden draft con `FOR UPDATE`, valida que todas las
 variantes existan y estén activas (**404**/400 con `variant N not found`), borra los ítems anteriores, inserta
 los nuevos con precio de lista **sin descuento**, y luego llama `_recalculate_order_total` que aplica el mejor
 descuento vigente.
@@ -317,7 +317,7 @@ descuento vigente.
 | **Body** | `UpdateOrderStatusRequest{status: draft\|submitted\|cancelled}` — nótese que **`paid` no es un valor aceptado** |
 | **Errores** | **404** orden no encontrada · **409** transición inválida · **400** `cannot leave draft with an empty order`, `insufficient stock for variant N` |
 
-**Flujo `draft → submitted`** (`orders_s.py:644-652`):
+**Flujo `draft → submitted`** (`orders_s::change_order_status`):
 1. `_recalculate_order_total(force=True)` — reprecia con los descuentos vigentes **ahora**.
 2. `validate_order_pricing_before_submit` — rechaza orden vacía o total negativo.
 3. `reserve_stock_for_submitted_order` — reserva stock de cada ítem; si falta, **400** y rollback.
@@ -327,7 +327,7 @@ descuento vigente.
 **Flujo `submitted → cancelled`:** libera reservas con `reason='order_cancelled'`, setea `cancelled_at`, publica
 `order_cancelled`.
 
-> ⚠️ El parámetro `is_admin` permite a un admin cambiar el estado de **cualquier** orden (`orders_s.py:594-596`).
+> ⚠️ El parámetro `is_admin` permite a un admin cambiar el estado de **cualquier** orden (`orders_s::change_order_status`).
 > Pero el router lo toma de `current_user.get("is_admin")`, que viene del **claim del JWT**, no de la DB, porque
 > este endpoint usa `get_current_user` y no `require_admin`. Ver [11_Seguridad.md](11_Seguridad.md#is_admin-del-claim).
 
@@ -357,7 +357,7 @@ Devuelve el snapshot que consume la pantalla de retorno de pago:
 }}
 ```
 
-**Lógica de los flags** (`orders_s.py:234-281`) — esta es la pieza que decide qué botón ve el usuario:
+**Lógica de los flags** (`orders_public_s::get_public_order_snapshot_by_payment_token`) — esta es la pieza que decide qué botón ve el usuario:
 
 | Flag / campo | Condición |
 |---|---|
@@ -365,7 +365,7 @@ Devuelve el snapshot que consume la pantalla de retorno de pago:
 | `can_retry_payment` | el pago **del token** está `cancelled`/`expired` **y** la orden sigue `submitted` **y** no hay otro pago pendiente continuable |
 | `blocking_reason` | se calcula solo si ninguno de los dos anteriores es cierto; distingue `stock_reservation_expired` de `order_cancelled` consultando si existe alguna reserva con `reason='reservation_expired'` |
 
-🔒 `_extract_public_checkout_url` (`orders_s.py:148-169`) revalida que la URL sea **HTTPS** y que el host esté en
+🔒 `orders_public_s::_extract_public_checkout_url` revalida que la URL sea **HTTPS** y que el host esté en
 `MERCADOPAGO_ALLOWED_CHECKOUT_HOSTS` antes de exponerla. Defensa contra un payload envenenado en la base.
 
 ---
@@ -379,7 +379,7 @@ Devuelve el snapshot que consume la pantalla de retorno de pago:
 | **Body** | `CreateOrderPaymentRequest{method: bank_transfer\|mercadopago\|cash, currency?: "ARS", expires_in_minutes: 1..1440 = 60}` |
 | **Errores** | **404** orden ajena o inexistente · **400** orden no `submitted`, vacía, sin reservas activas, total ≤ 0, moneda ≠ ARS, clave reusada con otro método/orden · **409** conflicto de constraint · **502/503/504** proveedor |
 
-**Precondiciones que valida `create_payment_for_order`** (`payment_s.py:474-525`), en orden:
+**Precondiciones que valida `create_payment_for_order`** (`payment_s::create_payment_for_order`), en orden:
 1. `method ∈ {bank_transfer, mercadopago, cash}`
 2. `expires_in_minutes > 0`
 3. `idempotency_key` no vacía
@@ -392,12 +392,12 @@ Devuelve el snapshot que consume la pantalla de retorno de pago:
 10. `total_amount > 0`
 
 Luego, si ya hay un pago `pending` compatible del mismo método, lo devuelve (validando importe y moneda
-idénticos, `payment_s.py:538-554`).
+idénticos, `payment_core_s::find_active_pending_payment`).
 
 **Diferencias por método:**
 - `cash` → `expires_at = NULL` (no vence).
 - `bank_transfer` → `provider_payload` con instrucciones estáticas (alias `patitas.bigotes`, banco demo, referencia
-  `ORDER-{n}-PAY-{m}`) — `payment_s.py:181-195`.
+  `ORDER-{n}-PAY-{m}`) — `payment_core_s::build_bank_transfer_payload`.
 - `mercadopago` → crea preferencia en el proveedor y guarda `preference_id`, `external_ref`, `checkout_url`.
 
 **Manejo del fallo de proveedor** (`orders_r.py:92-124`): si `initialize_mercadopago_checkout_for_payment` falla,
@@ -405,7 +405,7 @@ marca el pago con `provider_status='setup_failed'` y hace **commit de eso** ante
 `PaymentCheckoutInitializationError` → 502. Así el pago no se pierde y el usuario puede reintentar.
 
 #### `POST /orders/{order_id}/payments/retry` 🔑 → **201** {#retry-order-payment}
-Mismo body y header. Precondiciones adicionales (`payment_s.py:686-731`), con mensajes que el frontend traduce:
+Mismo body y header. Precondiciones adicionales (`payment_s::_guard_order_retryable`), con mensajes que el frontend traduce:
 
 | Condición | `detail` |
 |---|---|
@@ -442,7 +442,7 @@ pantalla de retorno migró a `/public/orders/by-payment-token`. Candidato a elim
 | **Response** | `{data:{order, payment}}` |
 | **Errores** | **404** orden no encontrada · **400** validaciones de importe · **409** |
 
-**Reglas de importe** (`payment_s.py:951-958`):
+**Reglas de importe** (`payment_s::confirm_manual_payment_for_order`):
 - `cash`: `paid_amount − change_amount == total_amount` (permite cobrar de más y dar vuelto).
   `change_amount` es **obligatorio**.
 - `bank_transfer`: `paid_amount == total_amount` exacto. `change_amount` debe ser `NULL`.
@@ -464,13 +464,13 @@ que el email de "orden pagada" salga **después** del commit (`orders_r.py:575-5
 
 Crea orden **y** cobro en un solo paso, para venta de mostrador.
 
-**Validaciones de `customer`** (`orders_s.py:830-865`):
+**Validaciones de `customer`** (`orders_s::create_admin_sale`):
 - `mode='existing'` → requiere `user_id`; **prohíbe** enviar cualquier otro campo del cliente
   (`customer.{field} is not allowed when mode is existing`).
 - `mode='new'` → requiere `first_name`, `last_name`, `email` y `phone`; `dni` opcional.
 
 **Supresión de email:** usa `set_skip_order_paid_email(db, True)` alrededor de la confirmación
-(`orders_s.py:890-906`) porque el cliente está **físicamente presente**; mandarle un email de "tu orden fue
+(`orders_s::create_admin_sale`) porque el cliente está **físicamente presente**; mandarle un email de "tu orden fue
 pagada" sería ruido. El flag se restaura en un `finally`. Excelente atención al detalle.
 
 Aquí sí se usa `allow_create_if_missing=True`, porque la orden acaba de nacer y no tiene pago pendiente.
@@ -615,7 +615,7 @@ reason, payment}`.
 | `DELETE` | `/variants/{id}` | — | Borrado físico |
 
 ⚠️ **`update_product` con `active`** propaga el flag a **todas** las variantes del producto
-(`products_s.py:374-381`). Desactivar un producto desactiva todo su surtido; reactivarlo reactiva todo, incluidas
+(`products_s::update_product`). Desactivar un producto desactiva todo su surtido; reactivarlo reactiva todo, incluidas
 variantes que estaban desactivadas individualmente. Pérdida de información silenciosa.
 
 ⚠️ `DELETE /products/{id}` falla con **409** si el producto tiene `order_items` (por `ondelete=RESTRICT`).

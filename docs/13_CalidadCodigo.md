@@ -56,9 +56,9 @@
 | `mercadopago_normalization_s.py` | 301 | 7 | 6 | 7 | 7 | 8 | **7,0** | ⚠️ `_build_mercadopago_payload` privada pero exportada |
 | `auth_s.py` | 330 | 7 | 6 | 7 | 8 | 5 | **6,6** | 🔴 Lanza `HTTPException`; email dentro de la transacción |
 | `mercadopago_client.py` | 439 | 7 | 6 | 5 | 7 | 7 | **6,4** | 🔴 Bucle de reintentos duplicado 4 veces |
-| `orders_s.py` | 950 | 6 | 4 | 4 | 8 | 6 | **5,6** | 🔴 Demasiado grande; 7 dependencias salientes |
-| `products_s.py` | 946 | 6 | 6 | 5 | 8 | 6 | **6,2** | 🔴 5 serializadores solapados; `db=None` opcional |
-| `payment_s.py` | 1135 | 6 | 5 | 3 | 9 | 8 | **6,0** | 🔴 El archivo más complejo; duplicación en reintentos |
+| `orders_s.py` | ~770 | 6 | 4 | 4 | 8 | 6 | **5,6** | ⚠️ Antes 950; el snapshot público salió a `orders_public_s` (~200 líneas) |
+| `products_s.py` | ~615 | 6 | 6 | 5 | 8 | 6 | **6,2** | ⚠️ Antes 946; el storefront salió a `products_storefront_s` (~340 líneas) |
+| `payment_s.py` | ~660 | 6 | 5 | 3 | 9 | 8 | **6,0** | ⚠️ Antes 1135; kernel a `payment_core_s` (~230) y proveedor a `payment_provider_s` (~310) |
 | `db/models.py` | 741 | 9 | 10 | 9 | 8 | 5 | **8,4** | Declarativo; ⚠️ sintaxis SQLAlchemy 1.x |
 | `db/config.py` | 185 | 9 | 10 | 9 | 7 | 8 | **8,6** | 🟢 Fail-fast bien aplicado |
 | `db/session.py` | 38 | 9 | 10 | 9 | 8 | 6 | **8,0** | 🔴 Sin configurar el pool |
@@ -97,7 +97,7 @@
 | Estado | Ejemplos |
 |---|---|
 | 🟢 **Se cumple** | `money_s` (aritmética), `auth_cookies_s` (cookies), `idempotency_s` (idempotencia), `post_commit_actions_s` (diferir efectos), `payment_errors` (excepciones) |
-| 🟠 **Se viola** | `orders_s` (estados + carrito + ventas admin + snapshot público), `payment_s` (creación + reintentos + confirmación manual + estado del proveedor + consultas), `products_s` (CRUD + storefront + stock), `orders_r.create_guest_checkout_order` (idempotencia + anti-abuso + orquestación + manejo de fallo del proveedor), `Layout.tsx` (shell + notificaciones + carrito + banner) |
+| 🟡 **Se atacó** | El refactor de servicios por vista separó las mezclas más señaladas: el **snapshot público** salió de `orders_s` a `orders_public_s`, el **storefront** salió de `products_s` a `products_storefront_s`, y el **estado del proveedor** + el kernel salieron de `payment_s` a `payment_provider_s` / `payment_core_s`. Quedan violaciones fuera del alcance: `orders_r.create_guest_checkout_order` (idempotencia + anti-abuso + orquestación + manejo de fallo del proveedor), `Layout.tsx` (shell + notificaciones + carrito + banner) |
 
 **Evidencia de que el equipo lo tiene presente:** el docstring de `payment_s.py` documenta que ese archivo
 **ya se dividió** una vez, de ~1900 líneas a 1135, extrayendo `mercadopago_normalization_s`,
@@ -140,7 +140,7 @@ cada consumidor usa un subconjunto.
 | 🟢 | Jobs invocables como función (`run_once`) o proceso (`main`) |
 | 🟠 | Los servicios importan modelos SQLAlchemy directamente: **no** hay abstracción de persistencia |
 | 🟠 | `refund_s` importa `mercadopago_client` concreto, no una interfaz `PaymentProvider` |
-| 🟠 | `products_s._read_session_scope(db=None)` **crea** su propia sesión si no se la pasan |
+| 🟠 | `db.session.read_session_scope(db=None)` **crea** su propia sesión si no se la pasan (movido de `products_s` a la capa de sesión por el refactor) |
 
 > 📌 La ausencia de repositorios es una decisión coherente para el tamaño del proyecto (evita 27 clases de
 > abstracción que solo delegarían), pero tiene un costo concreto: **no se puede testear un servicio sin base de
@@ -163,16 +163,16 @@ cada consumidor usa un subconjunto.
 | # | Duplicación | Líneas | Dónde |
 |---|---|---:|---|
 | D-01 | ✅ ~~Bucle de reintentos del cliente MP, 4 veces~~ — **resuelto** con `tenacity` *(= R-07, D-11)* | 0 | `mercadopago_client.py:_request` |
-| D-02 | ✅ ~~`create_retry_payment_for_order` vs `create_retry_payment_for_payment_token`~~ — **resuelto**, ver nota abajo | ~20 | `payment_s.py:768` y `:807` |
+| D-02 | ✅ ~~`create_retry_payment_for_order` vs `create_retry_payment_for_payment_token`~~ — **resuelto**, ver nota abajo | ~20 | `payment_s::create_retry_payment_for_order` y `payment_s::create_retry_payment_for_payment_token` |
 | D-03 | Bloque de idempotencia en 2 endpoints — **refactor, no bugfix** (ver [§5 bis](#5-bis-️-los-caminos-de-fallo-de-idempotencia-no-son-verificables-por-la-suite)) | ~60 | `orders_r.py:157-229` y `:321-347` |
-| D-04 | 5 serializadores de producto/variante solapados | ~80 | `products_s.py:52-160` |
+| D-04 | 5 serializadores de producto/variante solapados | ~80 | `products_s` (`_product_to_dict`, `_variant_to_dict`) + `products_storefront_s` (`_product_to_storefront_dict`, `_variant_to_storefront_dict`, `_variant_to_storefront_option`) — el refactor los separó por vista, dejando la divergencia de precio visible |
 | D-05 | Allowlist de hosts de MP en Python y TypeScript | ~15 | `mercadopago_normalization_s.py:34` y `checkout-api.ts:6` |
-| D-06 | `_normalize_optional_str` duplicada **a propósito** | 8 | `payment_s.py:98` y `mercadopago_normalization_s.py:44` (con comentario que lo justifica) |
+| D-06 | `normalize_optional_str` duplicada **a propósito** | 8 | `payment_core_s::normalize_optional_str` y `mercadopago_normalization_s._normalize_optional_str` (con comentario que lo justifica) |
 | D-07 | `formatArs` en 3 features distintas | ~10 | `admin/utils/format.ts`, `checkout/utils/format.ts`, `storefront/utils/format.ts` |
 | D-08 | `isRetryableMercadoPagoPayment` en cliente duplica reglas del backend | ~10 | `useProfilePage.ts:195-203` |
 
-> ✅ **D-02 está resuelto.** Los dos entrypoints comparten `_guard_order_retryable` (`payment_s.py:681`),
-> `_guard_retryable_latest_attempt` (`:745`) y `_latest_attempt_query` (`:722`). Las ~20 líneas que quedan en
+> ✅ **D-02 está resuelto.** Los dos entrypoints comparten `payment_s::_guard_order_retryable`,
+> `payment_s::_guard_retryable_latest_attempt` y `payment_s::_latest_attempt_query`. Las ~20 líneas que quedan en
 > paralelo son el esqueleto (normalizar la key, replay por idempotencia, guards, delegación a
 > `create_payment_for_order`) con argumentos distintos en cada paso: la identidad se resuelve por sesión en un
 > caso y por `public_status_token` en el otro. Colapsarlas más pediría un parámetro de "modo" que empeoraría
@@ -244,7 +244,7 @@ en 70 líneas dentro de un handler. La complejidad es necesaria; la ubicación n
 |---|---|---|
 | CS-07 | Long method | `create_guest_checkout_order` (157), `get_public_order_snapshot_by_payment_token` (140), `apply_mercadopago_normalized_state` (135), `create_payment_for_order` (186) |
 | CS-08 | Long parameter list | `create_payment_for_order` (8 params), `_enforce_public_email_ip_limits` (9), `confirm_manual_payment_for_order` (8) |
-| CS-09 | Feature envy | `payment_admin_queries_s` y `webhook_events_s` importan funciones **privadas** (`_payment_to_dict`, `_serialize_provider_payload`) de `payment_s` |
+| CS-09 | ✅ ~~Feature envy~~ — **resuelto** por el refactor de servicios: `payment_admin_queries_s` y `webhook_events_s` ahora consumen API pública de `payment_core_s` (`payment_to_dict`, `serialize_provider_payload`, `deserialize_provider_payload`) en vez de privados de `payment_s` |
 | CS-10 | Primitive obsession | Todos los estados son `str` libres; los importes son `int` sin tipo `Money` |
 | CS-11 | Shotgun surgery | Agregar un método de pago exige tocar `payment_s`, 2 schemas, el frontend y los tests |
 | CS-12 | Inconsistencia transaccional | 3 estrategias de sesión conviviendo en `orders_r.py` |
@@ -318,7 +318,7 @@ decisiones**, no describen código. Es infrecuente y muy valioso.
 ```
 
 ```python
-# products_s.py:600-604
+# products_storefront_s :: list_storefront_products
 # min_price/max_price and sort_by="price" need the discount-aware final price,
 # which is only computable in Python (see _build_storefront_product_pricing) —
 # those paths must fetch every matching row before filtering/sorting/paging.
@@ -422,20 +422,20 @@ decisiones**, no describen código. Es infrecuente y muy valioso.
 | # | Función | Archivo | CC est. | Nivel |
 |---:|---|---|---:|---|
 | 1 | `create_guest_checkout_order` | `orders_r.py:151` | ~28 | 🔴 |
-| 2 | `create_payment_for_order` | `payment_s.py:457` | ~26 | 🔴 |
-| 3 | `apply_mercadopago_normalized_state` | `payment_s.py:320` | ~24 | 🔴 |
+| 2 | `create_payment_for_order` | `payment_s` | ~26 | 🔴 |
+| 3 | `apply_mercadopago_normalized_state` | `payment_provider_s` | ~24 | 🔴 |
 | 4 | `_expire_active_reservations_internal` | `stock_reservations_s.py:120` | ~22 | 🔴 |
-| 5 | `get_public_order_snapshot_by_payment_token` | `orders_s.py:172` | ~21 | 🔴 |
+| 5 | `get_public_order_snapshot_by_payment_token` | `orders_public_s` | ~21 | 🔴 |
 | 6 | `toUserMessage` | `http-errors.ts:148` | ~20 | 🔴 |
-| 7 | `confirm_manual_payment_for_order` | `payment_s.py:892` | ~19 | 🟠 |
-| 8 | `create_admin_sale` | `orders_s.py:819` | ~18 | 🟠 |
-| 9 | `list_storefront_products` | `products_s.py:547` | ~17 | 🟠 |
+| 7 | `confirm_manual_payment_for_order` | `payment_s` | ~19 | 🟠 |
+| 8 | `create_admin_sale` | `orders_s` | ~18 | 🟠 |
+| 9 | `list_storefront_products` | `products_storefront_s` | ~17 | 🟠 |
 | 10 | `create_mercadopago_refund` | `refund_s.py:222` | ~17 | 🟠 |
 | 11 | `run_once` (reprocess webhooks) | `reprocess_failed_webhooks_job.py:115` | ~17 | 🟠 |
-| 12 | `create_retry_payment_for_payment_token` | `payment_s.py:745` | ~16 | 🟠 |
+| 12 | `create_retry_payment_for_payment_token` | `payment_s` | ~16 | 🟠 |
 | 13 | `onRetryMercadoPago` | `useProfilePage.ts:205` | ~15 | 🟠 |
 | 14 | `_validate_discount_payload` | `discount_s.py:206` | ~15 | 🟠 |
-| 15 | `change_order_status` | `orders_s.py:584` | ~14 | 🟠 |
+| 15 | `change_order_status` | `orders_s` | ~14 | 🟠 |
 
 > 📌 **Metodología:** estimación manual contando ramas (`if`, `elif`, `and`/`or`, `for`, `except`, ternarios).
 > No se ejecutó ninguna herramienta (`radon`, `mccabe`). Los valores son orientativos.
@@ -449,7 +449,7 @@ decisiones**, no describen código. Es infrecuente y muy valioso.
 
 | ID | Deuda | Tipo | Interés¹ | Esfuerzo | Prioridad |
 |---|---|---|---|---|---|
-| DT-01 | `payment_s.py` (1135 líneas) sigue siendo demasiado grande | Diseño | Alto | 3 días | P1 |
+| DT-01 | 🟡 ~~`payment_s.py` (1135 líneas)~~ — **atacada** por el refactor de servicios: `payment_s` bajó a ~660 líneas al extraer `payment_core_s` (kernel) y `payment_provider_s` (MercadoPago). Queda evaluar si el remanente aún pide más cortes | Diseño | Bajo | — | P3 |
 | DT-02 | Lógica de idempotencia repetida inline en 2 endpoints | Diseño | Alto | 1 día | P1 |
 | DT-03 | `http-errors.ts` acoplado por strings al backend | Contrato | Alto | 2 días | P1 |
 | DT-04 | `api.generated.ts` sin usar (falta `response_model`) | Contrato | Alto | 3 días | P1 |
@@ -474,8 +474,8 @@ Un indicador de madurez: buena parte de la deuda está reconocida en el propio c
 
 | Dónde | Qué reconoce |
 |---|---|
-| `payment_s.py:1-6` | "split out of what used to be a single ~1900-line file" |
-| `webhook_events_s.py:2-5` | "Split out of payment_s.py, which had grown into a god file" |
+| `payment_s.py` (docstring) | "split out of what used to be a single ~1900-line file" |
+| `webhook_events_s.py` (docstring) | "Split out of payment_s.py, which had grown into a god file" |
 | `payment_admin_queries_s.py:2-5` | Ídem |
 | `mercadopago_normalization_s.py:2-6` | Ídem |
 | `README.md:15` | Los manifiestos K8s son referencia, no se usan |

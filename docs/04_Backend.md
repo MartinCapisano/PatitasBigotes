@@ -237,47 +237,83 @@ errores, validaciones) está en [07_API.md](07_API.md). Aquí solo la ficha del 
 
 ## 1.5 Servicios — `source/services/`
 
-### `payment_s.py` — 1135 líneas {#payment_spy}
+### `payment_s.py` — ~660 líneas {#payment_spy}
 
 | Campo | Detalle |
 |---|---|
-| **Responsabilidad** | Ciclo de vida completo del pago: creación, reintento, inicialización de checkout, aplicación de estado del proveedor, confirmación manual, consultas. |
-| **Por qué existe** | Es el corazón transaccional del sistema. Su docstring documenta que se extrajo de un archivo de ~1900 líneas, repartiendo responsabilidades en `mercadopago_normalization_s`, `webhook_events_s` y `payment_admin_queries_s`. |
-| **Quién lo usa** | `orders_r`, `payments_r`, `orders_s`, `webhook_events_s`, `payment_admin_queries_s`, `mercadopago_client`, `reconcile_pending_payments_job`. |
-| **Importa** | `Order`, `Payment`, `StockReservation`, `generate_public_status_token`, `PaymentRetryConflictError`, `refund_s`, `domain_events_s`, `mercadopago_normalization_s`, `stock_reservations_s`. |
-| **Exporta** | 14 funciones públicas + constantes de mensajes de reintento. |
+| **Responsabilidad** | Creación de pagos, reintentos, confirmación manual y consultas. El **kernel** compartido (serialización, transiciones, idempotencia, punto de entrada del dinero) vive ahora en `payment_core_s`; toda la **integración con MercadoPago** en `payment_provider_s`. |
+| **Por qué existe** | Es el corazón transaccional del sistema. Su docstring documenta que se extrajo de un archivo de ~1900 líneas, repartiendo responsabilidades en `mercadopago_normalization_s`, `webhook_events_s` y `payment_admin_queries_s`; el refactor de servicios por vista lo dividió además en `payment_core_s` y `payment_provider_s`. |
+| **Quién lo usa** | `orders_r`, `payments_r`, `orders_s`, `mercadopago_client`. |
+| **Importa** | `Order`, `Payment`, `StockReservation`, `generate_public_status_token`, `PaymentRetryConflictError`, `payment_core_s`, `payment_provider_s`, `mercadopago_normalization_s`, `stock_reservations_s`. |
+| **Exporta** | Las funciones públicas de creación/reintento/confirmación/consulta + constantes de mensajes de reintento. Re-exporta `PAYMENT_PROVIDER_SETUP_FAILED` e `initialize_mercadopago_checkout_for_payment` desde `payment_provider_s` por compatibilidad. |
 | **Complejidad** | 🔴 Alta. Ver §2.1. |
-| **Mejoras** | 🔴 Sigue siendo demasiado grande; se podría dividir en `payment_creation_s` / `payment_transitions_s` / `payment_manual_s`. ✅ La duplicación entre `create_retry_payment_for_order` y `create_retry_payment_for_payment_token` está resuelta: ambos comparten el guard chain. ⚠️ Los helpers `_serialize_provider_payload`/`_deserialize_provider_payload` son importados por otros módulos pese al guion bajo. |
+| **Mejoras** | 🟡 El corte por vista bajó de 1135 a ~660 líneas. ✅ La duplicación entre `create_retry_payment_for_order` y `create_retry_payment_for_payment_token` está resuelta: ambos comparten el guard chain. ✅ Los helpers de serialización dejaron de importarse con guion bajo: son API pública de `payment_core_s`. |
 
-### `orders_s.py` — 950 líneas {#orders_spy}
+### `payment_core_s.py` — ~230 líneas {#payment_core_spy}
 
 | Campo | Detalle |
 |---|---|
-| **Responsabilidad** | Máquina de estados de la orden, gestión del draft (carrito), creación de órdenes submitted (guest y admin), snapshot público. |
-| **Quién lo usa** | `orders_r`. |
-| **Importa** | `discount_s`, `payment_s`, `products_s`, `stock_reservations_s`, `domain_events_s`, `post_commit_actions_s`, `users_s`, `mercadopago_normalization_s` (solo para la allowlist de hosts). |
-| **Constantes clave** | `ALLOWED_ORDER_STATUS`, `ORDER_TERMINAL_STATUSES`, `ORDER_ALLOWED_TRANSITIONS` (`orders_s.py:37-44`). |
+| **Responsabilidad** | Kernel de pago: el conjunto mínimo compartido por todos los caminos de pago — serialización (`payment_to_dict`, `serialize_provider_payload`, `deserialize_provider_payload`), transiciones (`assert_valid_payment_transition`, `apply_order_paid_transition` — el **punto de entrada del dinero**), idempotencia (`resolve_payment_by_idempotency_key`, `find_active_pending_payment`) y `build_bank_transfer_payload`. |
+| **Quién lo usa** | `payment_s`, `payment_provider_s`, `payment_admin_queries_s`, `webhook_events_s`. |
+| **Importa** | `Order`, `Payment`, `domain_events_s`, `stock_reservations_s`. No importa `payment_s` (acíclico). |
+| **Complejidad** | 🟢 230 líneas, bajo el umbral de alarma de ~350. |
+
+### `payment_provider_s.py` — ~310 líneas {#payment_provider_spy}
+
+| Campo | Detalle |
+|---|---|
+| **Responsabilidad** | Todo lo que habla con MercadoPago: inicialización de checkout, marcado de fallo de setup, `find_payment_for_mercadopago_event`, `apply_mercadopago_normalized_state`, `list_reconcilable_pending_mercadopago_payments`. Dueño de la constante `PAYMENT_PROVIDER_SETUP_FAILED`. |
+| **Quién lo usa** | `payment_s`, `orders_r`, `reconcile_pending_payments_job`, `mercadopago_client`. |
+| **Importa** | `payment_core_s`, `mercadopago_normalization_s`, `refund_s`, `stock_reservations_s`. No importa `payment_s` (acíclico). |
+| **Complejidad** | 🟠 Contiene `apply_mercadopago_normalized_state`. Ver §2.1. |
+
+### `orders_s.py` — ~770 líneas {#orders_spy}
+
+| Campo | Detalle |
+|---|---|
+| **Responsabilidad** | Máquina de estados de la orden, gestión del draft (carrito), creación de órdenes submitted (guest y admin). El **snapshot público anónimo** salió a `orders_public_s`. |
+| **Quién lo usa** | `orders_r`, `orders_public_s` (importa `_variant_label` y `_utc_now`). |
+| **Importa** | `discount_s`, `payment_s`, `products_s`, `stock_reservations_s`, `domain_events_s`, `post_commit_actions_s`, `users_s`. Ya no importa `mercadopago_normalization_s`: la allowlist de hosts se fue con el snapshot público. |
+| **Constantes clave** | `orders_s::ALLOWED_ORDER_STATUS`, `orders_s::ORDER_TERMINAL_STATUSES`, `orders_s::ORDER_ALLOWED_TRANSITIONS`. |
 | **Complejidad** | 🟠. Ver §2.2. |
-| **Mejoras** | ⚠️ `get_public_order_snapshot_by_payment_token` (140 líneas) mezcla lectura, expiración de reservas y cálculo de flags de UI. ⚠️ Es el servicio con más dependencias salientes (7). |
+| **Mejoras** | ⚠️ Es el servicio con más dependencias salientes. |
 
-### `products_s.py` — 946 líneas
+### `orders_public_s.py` — ~200 líneas {#orders_public_spy}
 
 | Campo | Detalle |
 |---|---|
-| **Responsabilidad** | CRUD de producto/variante/categoría + las vistas de storefront con precios calculados. |
-| **Quién lo usa** | `products_r`, `storefront_r`, `orders_s`, `seed_demo`. |
-| **Patrón propio** | Dos context managers, `_read_session_scope(db)` y `_write_session_scope(db)` (`products_s.py:20-35`). El de lectura **abre una sesión propia si `db is None`**; el de escritura exige sesión. |
-| **Complejidad** | 🟠 `list_storefront_products` y `get_storefront_product_by_id` son 🟠. |
+| **Responsabilidad** | Snapshot público de orden: la proyección anónima accesible por token de pago (`get_public_order_snapshot_by_payment_token` + `_extract_public_checkout_url`, `_deserialize_public_checkout_payload`). Toda la superficie anónima de órdenes, aislada de los caminos autenticados. |
+| **Quién lo usa** | `orders_r`. |
+| **Importa** | `orders_s` (`_variant_label`, `_utc_now`), `mercadopago_normalization_s` (allowlist de hosts), `stock_reservations_s`. Import acíclico: público → core, nunca al revés. |
+| **Complejidad** | 🟠 `get_public_order_snapshot_by_payment_token` mezcla lectura, expiración de reservas y cálculo de flags de UI. |
 
-> ⚠️ **`_read_session_scope` es un olor de diseño.** Permite `db=None` para que los servicios se puedan llamar
+### `products_s.py` — ~615 líneas
+
+| Campo | Detalle |
+|---|---|
+| **Responsabilidad** | CRUD de producto/variante/categoría + stock + queries admin (catálogo administrado). Las **vistas de storefront** con precios calculados salieron a `products_storefront_s`. |
+| **Quién lo usa** | `products_r`, `orders_s`, `products_storefront_s` (importa `list_categories`), `seed_demo`. |
+| **Patrón propio** | Consume los context managers de sesión `read_session_scope`/`write_session_scope`, que el refactor movió a `db/session.py` (antes vivían acá con guion bajo). El de lectura **abre una sesión propia si `db is None`**; el de escritura exige sesión. |
+| **Complejidad** | 🟠. |
+
+> ⚠️ **`db.session.read_session_scope` es un olor de diseño.** Permite `db=None` para que los servicios se puedan llamar
 > "sueltos", pero eso significa que una lectura puede ocurrir **fuera de la transacción del request**, viendo un
 > estado distinto. Ninguna llamada actual lo usa así (todas pasan `db`), pero la puerta está abierta.
 
 | Mejoras | Detalle |
 |---|---|
-| ⚠️ | `_product_to_dict`, `_variant_to_dict`, `_product_to_storefront_dict`, `_variant_to_storefront_dict`, `_variant_to_storefront_option` — cinco serializadores solapados. |
+| ⚠️ | Serializadores solapados repartidos por vista: `_product_to_dict`, `_variant_to_dict` (administrado) y `products_storefront_s::_product_to_storefront_dict`, `_variant_to_storefront_dict`, `_variant_to_storefront_option` (vitrina). El corte por vista dejó la divergencia de precio visible. |
 | ⚠️ | `update_product(active=...)` propaga a **todas** las variantes, perdiendo el estado individual de cada una. |
-| ⚠️ | `add_stock(product_id, qty)` suma todo a la **primera** variante activa (`products_s.py:474`) — comportamiento arbitrario. |
+| ⚠️ | `add_stock(product_id, qty)` suma todo a la **primera** variante activa (`products_s::add_stock`) — comportamiento arbitrario. |
+
+### `products_storefront_s.py` — ~340 líneas {#products_storefront_spy}
+
+| Campo | Detalle |
+|---|---|
+| **Responsabilidad** | Vista storefront del catálogo: vitrina pública con precios **con descuento aplicado**, serialización y lógica de opciones de variante (`list_storefront_products`, `get_storefront_product_by_id`, `list_storefront_categories`). Divergencia legítima respecto del catálogo administrado, que **no** cotiza. |
+| **Quién lo usa** | `storefront_r`. |
+| **Importa** | `products_s` (`list_categories`), `discount_s`, `db/session`. Import acíclico: vitrina → administrado, nunca al revés. |
+| **Complejidad** | 🟠 `list_storefront_products` y `get_storefront_product_by_id`. |
 | ⚠️ | `decrement_stock(product_id, qty)` reparte el descuento entre variantes en orden arbitrario. Solo se usa desde tests. |
 | ⚠️ | `create_product` **acepta pero ignora** el campo `active` del DTO. |
 
@@ -317,7 +353,7 @@ errores, validaciones) está en [07_API.md](07_API.md). Aquí solo la ficha del 
 | **Responsabilidad** | Bookkeeping de eventos de webhook **agnóstico de proveedor**: adquirir con idempotencia, marcar procesado/fallido, backoff, dead letter, métricas y replay. |
 | **Quién lo usa** | `mercadopago_client`, `mercadopago_r`, `reprocess_failed_webhooks_job`. |
 | **Complejidad** | 🟠 `replay_webhook_event_by_key`. Ver §2.7. |
-| **Mejoras** | ⚠️ Se declara "agnóstico" pero `replay_webhook_event_by_key` rechaza cualquier provider ≠ `mercadopago` (`webhook_events_s.py:273`) e importa el cliente de MP. La abstracción está a medio camino. ⚠️ Importa `_serialize_provider_payload` de `payment_s`, funciones privadas. |
+| **Mejoras** | ⚠️ Se declara "agnóstico" pero `replay_webhook_event_by_key` rechaza cualquier provider ≠ `mercadopago` (`webhook_events_s.py:273`) e importa el cliente de MP. La abstracción está a medio camino. ✅ Ya no importa privados: consume `serialize_provider_payload`/`deserialize_provider_payload` como API pública de `payment_core_s`. |
 
 ### `refund_s.py` — 378 líneas
 
@@ -570,8 +606,8 @@ Con los defaults (base 30, máx 720, máx 4 intentos): 30 → 60 → 120 min, y 
 | Campo | Detalle |
 |---|---|
 | **Responsabilidad** | Crear (o devolver) el intento de cobro de una orden. |
-| **Retorno** | `dict` del pago (`_payment_to_dict`). |
-| **Llama a** | `expire_active_reservations_for_order`, `list_active_reservations_for_order`, `_find_active_pending_payment`, `_validate_active_pending_compatibility`, `initialize_mercadopago_checkout_for_payment`, `_build_bank_transfer_payload`, `_build_mercadopago_payload`. |
+| **Retorno** | `dict` del pago (`payment_core_s::payment_to_dict`). |
+| **Llama a** | `expire_active_reservations_for_order`, `list_active_reservations_for_order`, `payment_core_s::find_active_pending_payment`, `payment_core_s::validate_active_pending_compatibility`, `payment_provider_s::initialize_mercadopago_checkout_for_payment`, `payment_core_s::build_bank_transfer_payload`, `mercadopago_normalization_s::_build_mercadopago_payload`. |
 | **La invoca** | `orders_r.create_order_payment`, `orders_r.create_guest_checkout_order`, `create_retry_payment_for_order`, `create_retry_payment_for_payment_token`. |
 
 **Paso a paso:**
@@ -601,12 +637,12 @@ Con los defaults (base 30, máx 720, máx 4 intentos): 30 → 60 → 120 min, y 
 
 ### `apply_mercadopago_normalized_state(*, payment_id, normalized_state, notification_payload=None, db) -> dict` 🔴
 
-La función **más crítica del sistema**: es la que decide que una orden pasa a pagada.
+La función **más crítica del sistema**: es la que decide que una orden pasa a pagada. Vive en `payment_provider_s`.
 
 | Campo | Detalle |
 |---|---|
 | **La invoca** | `mercadopago_client.process_mercadopago_event_payload` (webhook y replay), `reconcile_pending_payments_job`. |
-| **Llama a** | `expire_active_reservations_for_order`, `_assert_valid_payment_transition`, `create_late_paid_incident_if_needed`, `consume_reservations_for_paid_order`, `publish_domain_event`. |
+| **Llama a** | `expire_active_reservations_for_order`, `payment_core_s::assert_valid_payment_transition`, `create_late_paid_incident_if_needed`, `payment_core_s::apply_order_paid_transition`, `consume_reservations_for_paid_order`, `publish_domain_event`. |
 
 **Paso a paso:**
 1. Valida que `normalized_state` traiga `provider_status`, `internal_status` y `external_reference`.
@@ -631,7 +667,7 @@ La función **más crítica del sistema**: es la que decide que una orden pasa a
 | otro | `ValueError("order can only be paid from submitted status")` |
 
 9. Si `internal_status == 'cancelled'`, **no toca la orden** — el comentario lo explica: cancelar un intento no
-   debe cancelar la orden, el cliente puede reintentar (`payment_s.py:447-450`).
+   debe cancelar la orden, el cliente puede reintentar (`payment_provider_s::apply_mercadopago_normalized_state`).
 
 | Posibles bugs | ⚠️ `order_was_submitted` se captura **antes** de mutar; el evento solo se publica si la orden efectivamente transicionó. Correcto, pero fácil de romper. ⚠️ Si `consume_reservations_for_paid_order` falla por falta de stock, se lanza `ValueError` → el webhook se marca `failed` y reintentará, pero **el pago ya está `paid` en memoria**; el rollback lo deshace. Consistente, aunque el dinero ya se cobró: quedará pendiente hasta que el job de reconciliación lo resuelva o un humano intervenga. |
 | **Riesgos** | 🔴 Es el único punto donde el dinero cambia de estado; cualquier bug aquí tiene impacto financiero directo. Cubierto por 37 tests en `tests/http/test_payments_fundamentals.py` y 7 en `test_payments_money_consistency.py`. |
@@ -662,38 +698,44 @@ sesión (`user_id`), la segunda por `public_status_token`.
 
 | Helper compartido | Dónde | Qué hace |
 |---|---|---|
-| `_guard_order_retryable` | `payment_s.py:681` | Expira reservas, lockea la orden con `FOR UPDATE` y rechaza todo estado no reintentable. `user_id=None` saltea el filtro de propiedad en el flujo guest, donde el token ya probó posesión |
-| `_latest_attempt_query` | `payment_s.py:722` | Último intento de (orden, método), lockeado |
-| `_guard_retryable_latest_attempt` | `payment_s.py:745` | Valida el estado del último intento |
+| `_guard_order_retryable` | `payment_s` | Expira reservas, lockea la orden con `FOR UPDATE` y rechaza todo estado no reintentable. `user_id=None` saltea el filtro de propiedad en el flujo guest, donde el token ya probó posesión |
+| `_latest_attempt_query` | `payment_s` | Último intento de (orden, método), lockeado |
+| `_guard_retryable_latest_attempt` | `payment_s` | Valida el estado del último intento |
 
 **Precondiciones comunes** — ver la tabla de mensajes en [07_API.md](07_API.md#retry-order-payment).
 Ambas terminan delegando en `create_payment_for_order`.
 
 Detalle sutil: si el último intento está `pending` **con** `provider_status='setup_failed'`, se marca
-`cancelled` antes de crear el nuevo (`payment_s.py:763-765`), para no chocar con el índice único de pago
+`cancelled` antes de crear el nuevo (`payment_s::create_retry_payment_for_order`), para no chocar con el índice único de pago
 pendiente por método. Buena solución.
 
 El lock de `_latest_attempt_query` es lo que hace segura la comprobación: sin él, dos retries concurrentes leen
 el mismo intento `cancelled`, ambos concluyen que el retry está permitido y la orden termina con dos pagos
 `pending`. El camino logueado no lo tomaba hasta que unificar los dos entrypoints dejó la asimetría a la vista.
 
-### Funciones auxiliares de `payment_s`
+### Funciones auxiliares — `payment_core_s`, `payment_provider_s` y `payment_s`
 
-| Función | Complejidad | Qué hace |
-|---|---|---|
-| `_payment_to_dict` | 🟢 | Serializa el modelo; deserializa `provider_payload` a `provider_payload_data` |
-| `_serialize_provider_payload` / `_deserialize_provider_payload` | 🟢 | JSON compacto ASCII; el deserializador **nunca lanza**, devuelve `None` |
-| `_assert_valid_payment_transition` | 🟢 | Consulta `ALLOWED_PAYMENT_TRANSITIONS` |
-| `_find_active_pending_payment` | 🟢 | Pendiente no vencido del método dado |
-| `_validate_active_pending_compatibility` | 🟢 | Mismo importe y moneda |
-| `_build_bank_transfer_payload` | 🟢 | Instrucciones bancarias estáticas ⚠️ hardcodeadas ("Banco Demo") |
-| `_build_order_paid_event_payload` | 🟢 | Arma el payload del evento con los ítems para el email |
-| `_mark_payment_checkout_setup_failed` | 🟢 | Anota el error de checkout en `provider_payload` |
-| `initialize_mercadopago_checkout_for_payment` | 🟡 | `FOR UPDATE`; si ya hay `preference_id`, devuelve sin llamar al proveedor (idempotente) |
-| `find_payment_for_mercadopago_event` | 🟢 | Busca por `preference_id`, luego por `external_ref` |
-| `list_reconcilable_pending_mercadopago_payments` | 🟢 | Ventana `[now−max_age, now−min_age]` con orden `status ∈ {submitted, paid}` |
-| `_build_manual_payment_idempotency_key` | 🟢 | `manual-order-{id}-{method}-{sha256(method:ref)[:16]}` |
-| `get_payment_public_status` | 🟢 | Snapshot mínimo por token público |
+El refactor de servicios por vista repartió estos helpers: el **kernel** (`payment_core_s`, API pública sin
+guion bajo), el **proveedor** (`payment_provider_s`) y el remanente en `payment_s`.
+
+| Función | Módulo | Complejidad | Qué hace |
+|---|---|---|---|
+| `payment_to_dict` | `payment_core_s` | 🟢 | Serializa el modelo; deserializa `provider_payload` a `provider_payload_data` |
+| `serialize_provider_payload` / `deserialize_provider_payload` | `payment_core_s` | 🟢 | JSON compacto ASCII; el deserializador **nunca lanza**, devuelve `None` |
+| `assert_valid_payment_transition` | `payment_core_s` | 🟢 | Consulta `ALLOWED_PAYMENT_TRANSITIONS` |
+| `apply_order_paid_transition` | `payment_core_s` | 🟢 | Punto de entrada del dinero: consume reservas, marca la orden `paid` y publica `order_paid` |
+| `find_active_pending_payment` | `payment_core_s` | 🟢 | Pendiente no vencido del método dado |
+| `validate_active_pending_compatibility` | `payment_core_s` | 🟢 | Mismo importe y moneda |
+| `resolve_payment_by_idempotency_key` | `payment_core_s` | 🟢 | Replay por idempotencia validando orden/método/usuario |
+| `build_bank_transfer_payload` | `payment_core_s` | 🟢 | Instrucciones bancarias estáticas ⚠️ hardcodeadas ("Banco Demo") |
+| `build_order_paid_event_payload` | `payment_core_s` | 🟢 | Arma el payload del evento con los ítems para el email |
+| `normalize_optional_str` | `payment_core_s` | 🟢 | Normaliza un `str` opcional a `None` si queda vacío |
+| `_mark_payment_checkout_setup_failed` | `payment_provider_s` | 🟢 | Anota el error de checkout en `provider_payload` |
+| `initialize_mercadopago_checkout_for_payment` | `payment_provider_s` | 🟡 | `FOR UPDATE`; si ya hay `preference_id`, devuelve sin llamar al proveedor (idempotente) |
+| `find_payment_for_mercadopago_event` | `payment_provider_s` | 🟢 | Busca por `preference_id`, luego por `external_ref` |
+| `list_reconcilable_pending_mercadopago_payments` | `payment_provider_s` | 🟢 | Ventana `[now−max_age, now−min_age]` con orden `status ∈ {submitted, paid}` |
+| `_build_manual_payment_idempotency_key` | `payment_s` | 🟢 | `manual-order-{id}-{method}-{sha256(method:ref)[:16]}` |
+| `get_payment_public_status` | `payment_s` | 🟢 | Snapshot mínimo por token público |
 
 ## 2.2 `orders_s.py`
 
@@ -750,7 +792,7 @@ porque un draft no debería tener reservas, pero es una dependencia implícita.
 
 Ver el detalle de los flags en [07_API.md](07_API.md#public-order-snapshot).
 
-**Selección del "pago relevante"** (`orders_s.py:222-232`) — lógica no obvia:
+**Selección del "pago relevante"** (`orders_public_s::get_public_order_snapshot_by_payment_token`) — lógica no obvia:
 1. Prefiere cualquier pago `mercadopago` de la orden que esté `pending`.
 2. Si no hay, usa el pago identificado por el token.
 3. Si tampoco, el más reciente.
@@ -763,7 +805,7 @@ Esto permite que un cliente que llegó con un token viejo vea igualmente el inte
 
 Ver validaciones en [07_API.md](07_API.md#admin-sales).
 Detalle notable: envuelve la confirmación del pago en `set_skip_order_paid_email(True)` con restauración en
-`finally` (`orders_s.py:890-906`) — no manda email al cliente que está en el mostrador.
+`finally` (`orders_s::create_admin_sale`) — no manda email al cliente que está en el mostrador.
 
 ### Resto de funciones de `orders_s`
 

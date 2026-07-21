@@ -13,21 +13,21 @@ Cada regla lleva su referencia al archivo y línea donde está implementada.
 
 ### RN-CAT-01 — Un producto no tiene precio ni stock propios
 **Regla:** el precio de un producto es el **mínimo** de sus variantes activas; su stock es la **suma** de ellas.
-**Dónde:** `products_s.py:38-49`
+**Dónde:** `products_s::_product_inventory` y `products_s::_compute_min_var_price`
 **Por qué:** el cliente compra un SKU concreto (talle M, color azul), no "el producto". Mostrar "desde $X"
 es la convención de e-commerce, y evita inventar un precio de producto que ninguna variante tiene.
 **Consecuencia:** un producto sin variantes activas **no aparece** en el storefront
-(`products_s.py:586` filtra `active_variant_count > 0`) y su detalle devuelve 404.
+(`products_storefront_s::list_storefront_products` filtra `active_variant_count > 0`) y su detalle devuelve 404.
 
 ### RN-CAT-02 — Desactivar un producto desactiva todas sus variantes
-**Dónde:** `products_s.py:374-381`
+**Dónde:** `products_s::update_product`
 **Por qué:** `products` no tiene columna `active`; el estado se deriva de las variantes. Para que "desactivar
 producto" signifique algo, hay que propagarlo.
 ⚠️ **Efecto no deseado:** reactivar el producto reactiva **todas** las variantes, incluidas las que estaban
 desactivadas individualmente. Se pierde información sin aviso.
 
 ### RN-CAT-03 — El SKU es único en todo el sistema
-**Dónde:** `product_variants.sku UNIQUE` (`models.py:72`) + validación en `products_s.py:817-819` y `860-865`
+**Dónde:** `product_variants.sku UNIQUE` (`models.py:72`) + validación en `products_s::create_variant` y `products_s::update_variant`
 **Por qué:** el SKU es el identificador comercial; duplicarlo rompería la trazabilidad de inventario.
 
 ### RN-CAT-04 — No se puede borrar una categoría con productos
@@ -106,7 +106,7 @@ descuento no cambia lo que se cobró.
 ## 3. Carrito y órdenes
 
 ### RN-ORD-01 — El carrito de un usuario autenticado ES una orden en estado `draft`
-**Dónde:** `orders_s.get_or_create_draft_order` (`orders_s.py:408`)
+**Dónde:** `orders_s::get_or_create_draft_order`
 **Por qué:** evita una tabla `carts` paralela y permite reutilizar toda la maquinaria de precios e ítems.
 **Consecuencia:** solo puede haber **un** draft por usuario; si hubiera varios, se toma el más reciente
 (`ORDER BY created_at DESC, id DESC`).
@@ -123,33 +123,33 @@ draft ──→ submitted ──→ paid        (paid solo vía endpoint de pago
   │            │
   └──→ draft   └──→ cancelled
 ```
-**Dónde:** `ORDER_ALLOWED_TRANSITIONS` (`orders_s.py:39-44`)
+**Dónde:** `orders_s::ORDER_ALLOWED_TRANSITIONS`
 **Reglas asociadas:**
 - `paid` y `cancelled` son **terminales**: no se sale de ellos.
 - Una transición al mismo estado es válida (idempotente).
 - **`paid` no se puede setear desde `PATCH /orders/{id}/status`**: `_assert_transition_preconditions` lo rechaza
-  con `"paid status must be set through a payment endpoint"` (`orders_s.py:72-73`).
+  con `"paid status must be set through a payment endpoint"` (`orders_s::_assert_transition_preconditions`).
   **Por qué:** el estado `paid` implica dinero cobrado. Solo puede llegar de un pago confirmado (manual) o del
   proveedor (webhook/reconciliación). Si se pudiera setear por API, un cliente marcaría su orden como pagada.
 
 ### RN-ORD-04 — No se puede salir de `draft` con la orden vacía
-**Dónde:** `orders_s.py:75-76`
+**Dónde:** `orders_s::_assert_transition_preconditions`
 **Por qué:** una orden sin ítems no tiene sentido ni total.
 
 ### RN-ORD-05 — Al pasar a `submitted` se congelan los precios
 **Regla:** `submitted` fija `pricing_frozen = True` y `pricing_frozen_at`; a partir de ahí `_recalculate_order_total`
 lanza `"cannot recalculate a frozen order"` salvo con `force=True`.
-**Dónde:** `orders_s.py:314-316` y `orders_s.py:645-650`
+**Dónde:** `orders_s::_recalculate_order_total` y `orders_s::change_order_status`
 **Por qué:** el cliente vio un precio al confirmar. Si el admin cambia el precio o expira un descuento mientras
 el pago está en curso, el importe **no debe** moverse. Sin esto, un cliente podría pagar un importe distinto del
 que aceptó.
 
 ### RN-ORD-06 — Los ítems solo se editan en `draft`
-**Dónde:** `orders_s.replace_draft_order_items` (`orders_s.py:527-528`)
+**Dónde:** `orders_s::replace_draft_order_items`
 **Por qué:** después de `submitted` hay stock reservado y precio congelado; cambiar ítems invalidaría ambos.
 
 ### RN-ORD-07 — Las cantidades del mismo `variant_id` se agregan
-**Dónde:** `orders_s._normalize_requested_items` (`orders_s.py:364-372`)
+**Dónde:** `orders_s::_normalize_requested_items`
 **Por qué:** si el frontend envía dos líneas del mismo SKU, la orden debe tener una sola con la suma. Evita
 duplicados y hace la reserva de stock coherente (una reserva activa por `order_item`).
 
@@ -159,7 +159,7 @@ duplicados y hace la reserva de stock coherente (una reserva activa por `order_i
 **Nota:** estos límites **no aplican** al checkout autenticado (`ManualOrderItemRequest` solo exige `gt=0`).
 
 ### RN-ORD-09 — Cancelar una orden libera su stock
-**Dónde:** `orders_s.py:654-659` → `release_reservations_for_cancelled_order(reason="order_cancelled")`
+**Dónde:** `orders_s::change_order_status` → `release_reservations_for_cancelled_order(reason="order_cancelled")`
 **Por qué:** el inventario debe volver a estar disponible de inmediato, sin esperar a la expiración.
 
 ---
@@ -177,7 +177,7 @@ disponible(variante) = variante.stock − Σ(reservas activas con expires_at > n
 tampoco disponible. Descontarlo del stock físico haría imposible distinguir "vendido" de "reservado".
 
 ### RN-STK-02 — La reserva ocurre al pasar a `submitted`, no al agregar al carrito
-**Dónde:** `orders_s.py:647` → `reserve_stock_for_submitted_order`
+**Dónde:** `orders_s::change_order_status` → `reserve_stock_for_submitted_order`
 **Por qué:** reservar al agregar al carrito permitiría a cualquiera agotar el inventario sin comprometerse.
 Reservar al confirmar es el equilibrio estándar del e-commerce.
 
@@ -244,26 +244,26 @@ descontaría el stock una segunda vez.
 ## 5. Pagos
 
 ### RN-PAY-01 — Solo se puede pagar una orden en estado `submitted`
-**Dónde:** `payment_s.py:514-517`
+**Dónde:** `payment_s::create_payment_for_order`
 **Por qué:** un `draft` no está confirmado; un `cancelled` no debe cobrarse; un `paid` ya se cobró.
 
 ### RN-PAY-02 — Sin reservas activas no se puede crear un pago
-**Dónde:** `payment_s.py:520-521` → `if not list_active_reservations_for_order(...): raise ValueError(...)`
+**Dónde:** `payment_s::create_payment_for_order` → `if not list_active_reservations_for_order(...): raise ValueError(...)`
 **Por qué:** cobrar sin stock reservado es prometer algo que puede no existir. Es la regla que conecta
 inventario y cobro.
 
 ### RN-PAY-03 — Solo se acepta ARS
-**Dónde:** `payment_s.py:481-482` y `:534-537`
+**Dónde:** `payment_s::create_payment_for_order`
 **Por qué:** el negocio opera en Argentina. Los campos `currency` existen para una futura expansión pero hoy
 cualquier otro valor se rechaza.
 
 ### RN-PAY-04 — Como máximo un pago `pending` por (orden, método)
 **Dónde:** índice parcial `uq_payments_one_pending_per_order_method` (`models.py:290-297`)
 **Por qué:** evita que el cliente genere N links de Mercado Pago simultáneos para la misma orden y pague dos
-veces. El sistema devuelve el pendiente existente en vez de crear otro (`payment_s.py:538-554`).
+veces. El sistema devuelve el pendiente existente en vez de crear otro (`payment_s::create_payment_for_order`, vía `payment_core_s::find_active_pending_payment`).
 
 ### RN-PAY-05 — Los pagos en efectivo no vencen
-**Dónde:** `payment_s.py:556` → `expires_at = None if method == "cash" else now + timedelta(...)`
+**Dónde:** `payment_s::create_payment_for_order` → `expires_at = None if method == "cash" else now + timedelta(...)`
 **Por qué:** un pago en efectivo se concreta en el mostrador; no tiene sentido que expire por tiempo.
 
 ### RN-PAY-06 — Regla de importe según método
@@ -273,7 +273,7 @@ veces. El sistema devuelve el pendiente existente en vez de crear otro (`payment
 | `cash` | `paid_amount − change_amount == total_amount`; `change_amount` obligatorio (≥0); `payment_ref` autogenerado si falta |
 | `mercadopago` | El importe lo fija el sistema; se **valida** contra lo que informa el proveedor |
 
-**Dónde:** `payment_s.py:909-958`
+**Dónde:** `payment_s::confirm_manual_payment_for_order`
 **Por qué:** en efectivo el cliente entrega de más y recibe vuelto — eso es normal y debe registrarse. En
 transferencia el importe es exacto por naturaleza.
 
@@ -281,14 +281,14 @@ transferencia el importe es exacto por naturaleza.
 ```
 pending → {paid, cancelled, expired}     paid → paid     cancelled → cancelled     expired → expired
 ```
-**Dónde:** `ALLOWED_PAYMENT_TRANSITIONS` (`payment_s.py:48-53`)
+**Dónde:** `payment_core_s::ALLOWED_PAYMENT_TRANSITIONS`
 
 ### RN-PAY-08 — Excepción "paid revival": un pago cancelado o expirado PUEDE pasar a `paid`
-**Dónde:** `payment_s.py:373-375`
+**Dónde:** `payment_provider_s::apply_mercadopago_normalized_state`
 ```python
 allow_paid_revival = internal_status == "paid" and str(payment.status) in {"cancelled", "expired"}
 if not allow_paid_revival:
-    _assert_valid_payment_transition(payment.status, internal_status)
+    assert_valid_payment_transition(payment.status, internal_status)
 ```
 **Por qué:** la realidad manda sobre el estado local. Si Mercado Pago dice que el pago se aprobó, **el dinero
 existe**, aunque nosotros hubiéramos dado el intento por perdido. Rechazar la actualización dejaría el sistema
@@ -298,12 +298,12 @@ mintiendo sobre un cobro real.
 > sacará conclusiones erróneas.
 
 ### RN-PAY-09 — Un pago cancelado NO cancela la orden
-**Dónde:** `payment_s.py:447-450`, con comentario explícito
+**Dónde:** `payment_provider_s::apply_mercadopago_normalized_state`, con comentario explícito
 **Por qué:** que falle una tarjeta no significa que el cliente desista. La orden sigue `submitted` y puede
 reintentar con otro método o la misma tarjeta.
 
 ### RN-PAY-10 — El webhook valida importe, moneda y referencia externa
-**Dónde:** `payment_s.py:364-371`
+**Dónde:** `payment_provider_s::apply_mercadopago_normalized_state`
 ```python
 if payment_external_ref != external_reference: raise ValueError("external_reference does not match payment")
 if normalized_amount is not None and int(payment.amount) != normalized_amount: raise ValueError("payment amount mismatch")
@@ -323,17 +323,17 @@ Defensa en profundidad.
 | 5 | El último intento está `cancelled`/`expired`, **o** es un `pending` con `setup_failed` | `retry not allowed: payment state changed` |
 | 6 | El checkout del proveedor responde | **502** `retry failed: mercadopago checkout unavailable` |
 
-**Dónde:** `payment_s.py:686-731` y `:800-843`
+**Dónde:** `payment_s::_guard_order_retryable`, `payment_s::create_retry_payment_for_order` y `payment_s::create_retry_payment_for_payment_token`
 **Por qué:** cada condición corresponde a un escenario real de soporte. Los mensajes son específicos para que el
 frontend explique al cliente **qué** pasó, no un genérico "error".
 
 ### RN-PAY-12 — Un pago con `setup_failed` se cancela antes de reintentar
-**Dónde:** `payment_s.py:729-731`
+**Dónde:** `payment_s::create_retry_payment_for_order`
 **Por qué:** ese pago quedó `pending` pero sin `preference_id` (falló la creación de la preferencia). Si no se
 cancelara, el índice único de pago pendiente por método bloquearía el nuevo intento.
 
 ### RN-PAY-13 — Un pago aprobado sobre orden cancelada o duplicada genera una incidencia
-**Dónde:** `payment_s.py:414-428` → `refund_s.create_late_paid_incident_if_needed`
+**Dónde:** `payment_provider_s::apply_mercadopago_normalized_state` → `refund_s.create_late_paid_incident_if_needed`
 **Casos:**
 | Situación | Motivo registrado |
 |---|---|
@@ -598,7 +598,7 @@ commit.
 **Consecuencia:** es *best-effort*. Si el proceso muere entre commit y dispatch, el email se pierde sin registro.
 
 ### RN-NOT-04 — Las ventas presenciales NO envían email de orden pagada
-**Dónde:** `orders_s.py:890-906` → `set_skip_order_paid_email(db, True)` con restauración en `finally`
+**Dónde:** `orders_s::create_admin_sale` → `set_skip_order_paid_email(db, True)` con restauración en `finally`
 **Por qué:** el cliente está físicamente en el mostrador con su comprobante. Mandarle un email sería ruido.
 
 ---
