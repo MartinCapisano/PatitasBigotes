@@ -4,9 +4,15 @@ PatitasBigotes es una aplicacion full stack orientada a mostrar un flujo complet
 
 ## Alcance
 
-El alcance actual del proyecto es local / demo: la aplicacion esta pensada para correr en el entorno de desarrollo local descrito mas abajo. No hay un despliegue a produccion activo, y desplegarlo no forma parte del alcance actual.
+El proyecto corre en local para desarrollo (ver "Puesta En Marcha Local") y esta preparado para desplegarse en produccion sobre servicios gratuitos:
 
-Por eso, el backend (API) y el frontend no estan containerizados. El repositorio si incluye artefactos de contenedor y Kubernetes para el job de barrido de idempotencia (`backend/Dockerfile.sweeper` y `backend/k8s_idempotency_sweeper_*.yaml`), pero son plantillas de referencia: no estan conectadas a ningun entorno real y quedan como punto de partida para un eventual despliegue futuro. Si en algun momento se decide llevar el proyecto a produccion, `backend/IDEMPOTENCY_SWEEPER_RUNBOOK.md` documenta las decisiones de infraestructura que habria que resolver primero.
+- Frontend: build estatico de Vite en Vercel o Cloudflare Pages.
+- Backend: FastAPI como web service en Render.
+- Base de datos: Postgres gestionada en Supabase.
+
+El paso a paso del despliegue, las variables a configurar y las particularidades del free tier (Render duerme tras 15 min, Supabase se pausa tras 7 dias, backups por `pg_dump` externo, jobs de mantenimiento por ping programado) estan documentados en [DEPLOYMENT.md](DEPLOYMENT.md). Las plantillas de variables estan en `backend/.env.production.example` y `frontend/.env.production.example`.
+
+Nota: los artefactos de Kubernetes del sweeper (`backend/k8s_idempotency_sweeper_*.yaml`) quedan como referencia para un despliegue basado en Kubernetes; no se usan en la arquitectura Vercel + Render + Supabase, donde el barrido de idempotencia corre como uno mas de los jobs disparados por el ping de mantenimiento.
 
 ## Stack
 

@@ -1,0 +1,52 @@
+name: Supabase DB backup
+
+# Supabase's free tier has no automatic backups, so this takes a scheduled
+# logical dump and stores it as a workflow artifact.
+#
+# Requires one repository secret:
+#   SUPABASE_DATABASE_URL -> the same Postgres connection string used by the
+#                            backend (Supabase -> Project Settings -> Database).
+#
+# Caveats (best-effort free backup, not a managed DR solution):
+#   - Artifacts are retained for retention-days below, then deleted.
+#   - For long-term/offsite retention, push the dump to object storage (S3/R2)
+#     instead of / in addition to the artifact.
+
+on:
+  schedule:
+    - cron: "0 4 * * *" # daily at 04:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install matching PostgreSQL client
+        # Install pg_dump 17 from the PGDG repo so the client version is >= the
+        # Supabase server version (pg_dump refuses to dump a newer server).
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+
+      - name: Dump database
+        env:
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+        run: |
+          if [ -z "$SUPABASE_DATABASE_URL" ]; then
+            echo "Missing SUPABASE_DATABASE_URL secret." >&2
+            exit 1
+          fi
+          ts=$(date -u +%Y%m%dT%H%M%SZ)
+          echo "DUMP_FILE=patitas_backup_${ts}.dump" >> "$GITHUB_ENV"
+          /usr/lib/postgresql/17/bin/pg_dump "$SUPABASE_DATABASE_URL" \
+            --no-owner --no-privileges --format=custom \
+            --file "patitas_backup_${ts}.dump"
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-backup
+          path: ${{ env.DUMP_FILE }}
+          retention-days: 30

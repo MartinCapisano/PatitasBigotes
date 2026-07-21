@@ -1,13 +1,12 @@
 Idempotency Sweeper — Runbook (staging -> production)
 
-ℹ️ SCOPE: LOCAL / DEMO — REFERENCE TEMPLATE ℹ️
-The project's current scope is local/demo (see the "Alcance" section in the repo README):
-there is no active production deployment, and the backend/frontend are intentionally not
-containerized. This runbook and the sweeper's Docker/K8s manifests are reference templates,
-kept as a starting point in case the project is later taken to production. The placeholders
-below (<REGISTRY_URL>/<TAG>, namespace, etc.) are intentionally unfilled — they can only be
-resolved once real production infrastructure exists. If/when this project is deployed to
-production, resolve every item here first and replace the placeholders:
+ℹ️ ALTERNATIVE PATH — NOT THE PRIMARY DEPLOYMENT ℹ️
+The primary production deployment targets Vercel + Render + Supabase (see DEPLOYMENT.md at
+the repo root). In that architecture the idempotency sweep runs as one of the jobs triggered
+by the maintenance ping (POST /internal/maintenance/run), so this standalone Kubernetes
+CronJob is NOT used. These manifests are kept only as a reference for a hypothetical
+Kubernetes-based deployment. If you ever go that route, the placeholders below
+(<REGISTRY_URL>/<TAG>, namespace, etc.) must be resolved first:
 - [ ] Registry URL and image tag to use for production.
 - [ ] Production namespace name (manifests currently default to `staging`).
 - [ ] Desired schedule frequency for prod (cron expression).
