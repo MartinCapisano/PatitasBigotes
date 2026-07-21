@@ -2,7 +2,7 @@
 
 > Documento de trabajo. Se consulta y se actualiza durante toda la implementación.
 > La decisión y su justificación viven en [ADR 0001](adr/0001-organizacion-de-servicios-por-vista.md).
-> **Estado: commits 0-1 hechos.**
+> **Estado: commits 0-2 hechos. Checkpoint antes de payments.**
 
 ---
 
@@ -122,10 +122,17 @@ Mover a `orders_public_s.py`:
 | `_extract_public_checkout_url` | `orders_s.py:148` |
 | `get_public_order_snapshot_by_payment_token` | `orders_s.py:172` |
 
-- [ ] Verificado: construye su propio dict completo, **no** usa `_order_to_dict`
-- [ ] `_variant_label` se **importa** de `orders_s.py`, no se duplica — es lógica de dominio ("cómo se le nombra una variante a un humano") y debe ser consistente entre las dos vistas, a diferencia del precio, que diverge legítimamente. El import queda acíclico: público → core, nunca al revés.
-- [ ] Actualizar `routes/orders_r.py:28`
-- [ ] Los 4 checks
+- [x] Verificado: construye su propio dict completo, **no** usa `_order_to_dict`
+- [x] `_variant_label` se **importa** de `orders_s.py`, no se duplica — es lógica de dominio ("cómo se le nombra una variante a un humano") y debe ser consistente entre las dos vistas, a diferencia del precio, que diverge legítimamente. El import queda acíclico: público → core, nunca al revés.
+- [x] Actualizar `routes/orders_r.py:28`
+- [x] Los 4 checks
+- [x] Verificado acíclico: `orders_s.py` no menciona `orders_public_s`
+
+`_utc_now` también cruzaba y el plan no lo había listado (ver hallazgo H-03). Se importa junto con
+`_variant_label`, por el mismo criterio: duplicarlo habría sido crear una definición nueva, que es
+justo lo que el check de inventario existe para detectar.
+
+Resultado: 769 + 201 líneas, contra las ~770 + ~180 estimadas.
 
 **Riesgo: bajo.**
 
@@ -224,6 +231,7 @@ Bugs, simplificaciones y rarezas encontradas durante el movimiento. **No se toca
 |---|---|---|---|
 | H-01 | `list_storefront_categories` es un alias de una línea de `list_categories` — no tiene lógica de vitrina propia | `products_storefront_s.py` | Obliga a la única arista cruzada del split. Evaluar si la vitrina necesita el símbolo o si el router puede llamar `list_categories` directo. No se toca acá: sería cambiar comportamiento de la API. |
 | H-02 | `tests/test_products_min_var_price.py` importa servicios **por módulo** y alcanza símbolos privados; es el único del repo que lo hace | `tests/` | Seam demasiado bajo. Se actualizó el import y nada más, según el ticket 03. Subirlo de seam es trabajo aparte. |
+| H-03 | `orders_public_s` importa dos privados de `orders_s` (`_variant_label` y `_utc_now`), no uno solo | `orders_public_s.py` | El plan solo había previsto `_variant_label`. `_utc_now` es un `datetime.now(UTC)` de una línea: candidato a subir a un helper de tiempo compartido en vez de quedar como privado importado. |
 
 ---
 

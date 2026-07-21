@@ -25,12 +25,12 @@ from source.services.orders_s import (
     get_order_reservations_for_user,
     get_or_create_draft_order,
     get_order_for_user,
-    get_public_order_snapshot_by_payment_token,
     list_orders_for_admin,
     list_orders_for_user,
     list_orders_with_payments_for_user,
     replace_draft_order_items,
 )
+from source.services.orders_public_s import get_public_order_snapshot_by_payment_token
 from source.services.anti_abuse_s import enforce_public_guest_checkout_limits
 from source.services.idempotency_s import (
     IDEMPOTENCY_TTL_HOURS,
