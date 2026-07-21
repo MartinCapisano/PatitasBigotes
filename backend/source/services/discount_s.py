@@ -1,6 +1,6 @@
 ﻿from __future__ import annotations
 
-from datetime import datetime, timezone, UTC
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Iterable, TypedDict
 
@@ -369,25 +369,6 @@ def get_applicable_discounts_for_product(product: dict, discounts: Iterable[Disc
     return applicable
 
 
-def set_discount_product_list(discount: DiscountDTO, product_ids: list[int]) -> DiscountDTO:
-    discount["product_ids"] = list(dict.fromkeys(product_ids))
-    return discount
-
-
-def add_products_to_discount(discount: DiscountDTO, product_ids: list[int]) -> DiscountDTO:
-    current = set(discount.get("product_ids", []))
-    current.update(product_ids)
-    discount["product_ids"] = sorted(current)
-    return discount
-
-
-def remove_products_from_discount(discount: DiscountDTO, product_ids: list[int]) -> DiscountDTO:
-    to_remove = set(product_ids)
-    current = [pid for pid in discount.get("product_ids", []) if pid not in to_remove]
-    discount["product_ids"] = current
-    return discount
-
-
 def reprice_order_items(order: dict, discounts: Iterable[DiscountDTO], products_by_id: dict[int, dict]) -> dict:
     for item in order.get("items", []):
         product = products_by_id.get(item["product_id"])
@@ -428,12 +409,6 @@ def recalculate_order_totals(order: dict) -> dict:
     order["subtotal"] = subtotal
     order["discount_total"] = discount_total
     order["total_amount"] = total_amount
-    return order
-
-
-def freeze_order_pricing(order: dict) -> dict:
-    order["pricing_frozen"] = True
-    order["pricing_frozen_at"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     return order
 
 
