@@ -52,6 +52,16 @@ class HandleResponseStatusTests(unittest.TestCase):
             self.fail("_handle_response_status raised for a successful status code")
 
 
+# TODO(R-07): these tests still neutralise the retry backoff by patching
+# `mercadopago_client.time.sleep`. The retry loop now lives in tenacity, and it
+# only still works because `_retry_sleep` keeps the `time.sleep` lookup late on
+# purpose. That is a seam held in place by a comment in production code, which
+# is the wrong direction of dependency.
+#
+# Worth revisiting: drive the wait from the test instead, e.g. override the
+# policy with `wait=wait_none()` via `_request.retry_with(...)`, so the tests
+# stop caring how the module sleeps. Until then, deleting `_retry_sleep` makes
+# this suite slow rather than red — check `--durations` if it ever creeps up.
 class MercadopagoClientTimeoutMappingTests(unittest.TestCase):
     def test_get_payment_by_id_maps_sdk_timeout_to_provider_timeout_error(self) -> None:
         fake_sdk = type("FakeSdk", (), {})()
@@ -114,6 +124,7 @@ class MercadopagoClientFullFunctionTests(unittest.TestCase):
         return patch("source.services.mercadopago_client._get_sdk", return_value=fake_sdk)
 
     def _no_sleep(self):
+        # See the TODO(R-07) above: patches the seam, not tenacity itself.
         return patch("source.services.mercadopago_client.time.sleep")
 
     def test_create_checkout_preference_happy_path(self) -> None:

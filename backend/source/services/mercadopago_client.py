@@ -20,6 +20,12 @@ from source.services.payment_errors import (
     PaymentProviderUnavailableError,
     PaymentProviderValidationError,
 )
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_incrementing,
+)
 
 try:
     import mercadopago
@@ -109,6 +115,74 @@ def _handle_response_status(status: int, *, operation: str) -> None:
         raise PaymentProviderError(f"mercadopago {operation} failed")
 
 
+def _retry_sleep(seconds: float) -> None:
+    """Sleep indirection that keeps the `time.sleep` lookup late.
+
+    tenacity binds its `sleep` callable when the decorator is built, so patching
+    `mercadopago_client.time.sleep` afterwards would silently have no effect and
+    the suite would slow down instead of failing. Going through this wrapper
+    resolves `time.sleep` at call time, which is the seam the tests patch.
+    """
+    time.sleep(seconds)
+
+
+# Retries only the two transient failures; PaymentProviderValidationError and
+# PaymentProviderAuthError propagate on the first attempt, as they did when
+# _handle_response_status was called outside the retry loop.
+#
+# reraise=True is what preserves the previous "last attempt decides the
+# exception type" behaviour: each attempt already raises the right domain error,
+# so the final one surfaces unchanged instead of tenacity's RetryError.
+#
+# wait_incrementing(0.2, 0.2) reproduces the old `RETRY_BASE_DELAY_SECONDS *
+# attempt` exactly — 0.2s then 0.4s. It is linear, not exponential; switching to
+# backoff would be a behaviour change, not a refactor.
+_retry_provider_call = retry(
+    retry=retry_if_exception_type(
+        (PaymentProviderTimeoutError, PaymentProviderUnavailableError)
+    ),
+    stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
+    wait=wait_incrementing(
+        start=RETRY_BASE_DELAY_SECONDS,
+        increment=RETRY_BASE_DELAY_SECONDS,
+    ),
+    sleep=_retry_sleep,
+    reraise=True,
+)
+
+
+@_retry_provider_call
+def _request(
+    sdk_call,
+    *,
+    operation: str,
+    timeout_message: str = "mercadopago request timed out",
+    failure_message: str = "mercadopago request failed",
+    invalid_payload_message: str = "mercadopago invalid response payload",
+) -> dict:
+    """Run one SDK call, translate the outcome, and let the decorator retry it.
+
+    The message arguments exist because these strings reach the client as the
+    HTTP `detail` (see errors.py); create_refund has always used its own
+    wording, so unifying them here would change the API response.
+    """
+    try:
+        response = sdk_call()
+    except TimeoutError as exc:
+        raise PaymentProviderTimeoutError(timeout_message) from exc
+    except Exception as exc:
+        raise PaymentProviderUnavailableError(failure_message) from exc
+
+    status = int(response.get("status", 0))
+    data = response.get("response")
+    if status >= 500:
+        raise PaymentProviderUnavailableError("mercadopago unavailable")
+    _handle_response_status(status, operation=operation)
+    if not isinstance(data, dict):
+        raise PaymentProviderUnavailableError(invalid_payload_message)
+    return data
+
+
 def create_checkout_preference(
     preference_payload: dict,
     *,
@@ -116,54 +190,23 @@ def create_checkout_preference(
 ) -> dict:
     sdk = _get_sdk()
     request_options = _build_request_options(idempotency_key=idempotency_key)
-    for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
-        try:
-            response = sdk.preference().create(
-                preference_payload,
-                request_options=request_options,
-            )
-        except TimeoutError as exc:
-            if attempt == MAX_RETRY_ATTEMPTS:
-                raise PaymentProviderTimeoutError(
-                    "mercadopago request timed out"
-                ) from exc
-            time.sleep(RETRY_BASE_DELAY_SECONDS * attempt)
-            continue
-        except Exception as exc:
-            if attempt == MAX_RETRY_ATTEMPTS:
-                raise PaymentProviderUnavailableError(
-                    "mercadopago request failed"
-                ) from exc
-            time.sleep(RETRY_BASE_DELAY_SECONDS * attempt)
-            continue
+    data = _request(
+        lambda: sdk.preference().create(
+            preference_payload,
+            request_options=request_options,
+        ),
+        operation="preference creation",
+    )
 
-        status = int(response.get("status", 0))
-        data = response.get("response")
-        if status >= 500:
-            if attempt == MAX_RETRY_ATTEMPTS:
-                raise PaymentProviderUnavailableError("mercadopago unavailable")
-            time.sleep(RETRY_BASE_DELAY_SECONDS * attempt)
-            continue
-        _handle_response_status(status, operation="preference creation")
-        if not isinstance(data, dict):
-            if attempt == MAX_RETRY_ATTEMPTS:
-                raise PaymentProviderUnavailableError(
-                    "mercadopago invalid response payload"
-                )
-            time.sleep(RETRY_BASE_DELAY_SECONDS * attempt)
-            continue
+    preference_id = data.get("id")
+    init_point = data.get("init_point")
+    sandbox_init_point = data.get("sandbox_init_point")
+    if not preference_id:
+        raise PaymentProviderValidationError("mercadopago preference id missing")
+    if not init_point and not sandbox_init_point:
+        raise PaymentProviderValidationError("mercadopago checkout url missing")
 
-        preference_id = data.get("id")
-        init_point = data.get("init_point")
-        sandbox_init_point = data.get("sandbox_init_point")
-        if not preference_id:
-            raise PaymentProviderValidationError("mercadopago preference id missing")
-        if not init_point and not sandbox_init_point:
-            raise PaymentProviderValidationError("mercadopago checkout url missing")
-
-        return data
-
-    raise PaymentProviderUnavailableError("mercadopago preference creation failed")
+    return data
 
 
 def get_payment_by_id(payment_id: str | int) -> dict:
@@ -173,46 +216,13 @@ def get_payment_by_id(payment_id: str | int) -> dict:
         raise PaymentProviderValidationError("mercadopago payment id is required")
 
     request_options = _build_request_options()
-    for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
-        try:
-            response = sdk.payment().get(
-                payment_id_str,
-                request_options=request_options,
-            )
-        except TimeoutError as exc:
-            if attempt == MAX_RETRY_ATTEMPTS:
-                raise PaymentProviderTimeoutError(
-                    "mercadopago request timed out"
-                ) from exc
-            time.sleep(RETRY_BASE_DELAY_SECONDS * attempt)
-            continue
-        except Exception as exc:
-            if attempt == MAX_RETRY_ATTEMPTS:
-                raise PaymentProviderUnavailableError(
-                    "mercadopago request failed"
-                ) from exc
-            time.sleep(RETRY_BASE_DELAY_SECONDS * attempt)
-            continue
-
-        status = int(response.get("status", 0))
-        data = response.get("response")
-        if status >= 500:
-            if attempt == MAX_RETRY_ATTEMPTS:
-                raise PaymentProviderUnavailableError("mercadopago unavailable")
-            time.sleep(RETRY_BASE_DELAY_SECONDS * attempt)
-            continue
-
-        _handle_response_status(status, operation="payment lookup")
-        if not isinstance(data, dict):
-            if attempt == MAX_RETRY_ATTEMPTS:
-                raise PaymentProviderUnavailableError(
-                    "mercadopago invalid response payload"
-                )
-            time.sleep(RETRY_BASE_DELAY_SECONDS * attempt)
-            continue
-        return data
-
-    raise PaymentProviderUnavailableError("mercadopago payment lookup failed")
+    return _request(
+        lambda: sdk.payment().get(
+            payment_id_str,
+            request_options=request_options,
+        ),
+        operation="payment lookup",
+    )
 
 
 def find_latest_payment_by_external_reference(external_reference: str) -> dict | None:
@@ -228,47 +238,21 @@ def find_latest_payment_by_external_reference(external_reference: str) -> dict |
         "limit": 1,
     }
     request_options = _build_request_options()
-    for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
-        try:
-            response = sdk.payment().search(
-                request_payload,
-                request_options=request_options,
-            )
-        except TimeoutError as exc:
-            if attempt == MAX_RETRY_ATTEMPTS:
-                raise PaymentProviderTimeoutError("mercadopago request timed out") from exc
-            time.sleep(RETRY_BASE_DELAY_SECONDS * attempt)
-            continue
-        except Exception as exc:
-            if attempt == MAX_RETRY_ATTEMPTS:
-                raise PaymentProviderUnavailableError("mercadopago request failed") from exc
-            time.sleep(RETRY_BASE_DELAY_SECONDS * attempt)
-            continue
+    data = _request(
+        lambda: sdk.payment().search(
+            request_payload,
+            request_options=request_options,
+        ),
+        operation="payment search",
+    )
 
-        status = int(response.get("status", 0))
-        data = response.get("response")
-        if status >= 500:
-            if attempt == MAX_RETRY_ATTEMPTS:
-                raise PaymentProviderUnavailableError("mercadopago unavailable")
-            time.sleep(RETRY_BASE_DELAY_SECONDS * attempt)
-            continue
-
-        _handle_response_status(status, operation="payment search")
-        if not isinstance(data, dict):
-            if attempt == MAX_RETRY_ATTEMPTS:
-                raise PaymentProviderUnavailableError("mercadopago invalid response payload")
-            time.sleep(RETRY_BASE_DELAY_SECONDS * attempt)
-            continue
-
-        results = data.get("results")
-        if not isinstance(results, list) or not results:
-            return None
-        first = results[0]
-        if not isinstance(first, dict):
-            return None
-        return first
-
-    raise PaymentProviderUnavailableError("mercadopago payment search failed")
+    results = data.get("results")
+    if not isinstance(results, list) or not results:
+        return None
+    first = results[0]
+    if not isinstance(first, dict):
+        return None
+    return first
 
 
 def create_refund(
@@ -289,40 +273,18 @@ def create_refund(
         payload["amount"] = float(int(amount)) / 100.0
 
     request_options = _build_request_options(idempotency_key=idempotency_key)
-    for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
-        try:
-            response = sdk.refund().create(
-                payment_id_str,
-                payload if payload else None,
-                request_options=request_options,
-            )
-        except TimeoutError as exc:
-            if attempt == MAX_RETRY_ATTEMPTS:
-                raise PaymentProviderTimeoutError("mercadopago refund request timed out") from exc
-            time.sleep(RETRY_BASE_DELAY_SECONDS * attempt)
-            continue
-        except Exception as exc:
-            if attempt == MAX_RETRY_ATTEMPTS:
-                raise PaymentProviderUnavailableError("mercadopago refund request failed") from exc
-            time.sleep(RETRY_BASE_DELAY_SECONDS * attempt)
-            continue
-
-        status = int(response.get("status", 0))
-        data = response.get("response")
-        if status >= 500:
-            if attempt == MAX_RETRY_ATTEMPTS:
-                raise PaymentProviderUnavailableError("mercadopago unavailable")
-            time.sleep(RETRY_BASE_DELAY_SECONDS * attempt)
-            continue
-        _handle_response_status(status, operation="refund creation")
-        if not isinstance(data, dict):
-            if attempt == MAX_RETRY_ATTEMPTS:
-                raise PaymentProviderUnavailableError("mercadopago invalid refund response payload")
-            time.sleep(RETRY_BASE_DELAY_SECONDS * attempt)
-            continue
-        return data
-
-    raise PaymentProviderUnavailableError("mercadopago refund creation failed")
+    return _request(
+        lambda: sdk.refund().create(
+            payment_id_str,
+            payload if payload else None,
+            request_options=request_options,
+        ),
+        operation="refund creation",
+        # Kept verbatim: these strings reach the client as the HTTP detail.
+        timeout_message="mercadopago refund request timed out",
+        failure_message="mercadopago refund request failed",
+        invalid_payload_message="mercadopago invalid refund response payload",
+    )
 
 
 def process_mercadopago_event_payload(

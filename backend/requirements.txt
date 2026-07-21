@@ -8,3 +8,4 @@ python-dotenv==1.2.2
 python-jose[cryptography]==3.5.0
 passlib==1.7.4
 mercadopago==2.3.0
+tenacity==9.1.4
