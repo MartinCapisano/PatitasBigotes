@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session, joinedload
 
-from source.db.models import Order, OrderItem, ProductVariant, User
+from source.db.models import Order, OrderItem, ProductVariant, User, variant_label
 from source.exceptions import (
     OrderStatusTransitionError,
     RegisteredAccountCheckoutConflictError,
@@ -85,12 +85,6 @@ def _order_lock_query(db: Session):
     return db.query(Order)
 
 
-def _variant_label(variant: ProductVariant | None) -> str:
-    if variant is None:
-        return "-/-"
-    return f"{variant.size or '-'}/{variant.color or '-'}"
-
-
 def _order_to_dict(order: Order) -> dict:
     items = []
     for item in sorted(order.items, key=lambda x: x.id):
@@ -100,7 +94,7 @@ def _order_to_dict(order: Order) -> dict:
                 "product_id": item.product_id,
                 "variant_id": item.variant_id,
                 "product_name": item.product.name if item.product is not None else None,
-                "variant_label": _variant_label(item.variant),
+                "variant_label": variant_label(item.variant),
                 "quantity": int(item.quantity),
                 "unit_price": int(item.unit_price),
                 "discount_id": item.discount_id,

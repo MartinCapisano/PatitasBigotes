@@ -25,6 +25,19 @@ def generate_public_status_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+def variant_label(variant) -> str:
+    """How a variant is named wherever an order is listed.
+
+    Lives here because every layer that shows an order line needs it -- the
+    order serializer, the public snapshots, the paid-order email -- and any
+    service-level home creates an import cycle with `payment_s`. There is only
+    one spelling of a variant so that two screens cannot disagree on it.
+    """
+    if variant is None:
+        return "-/-"
+    return f"{variant.size or '-'}/{variant.color or '-'}"
+
+
 class Category(Base):
     __tablename__ = "categories"
 

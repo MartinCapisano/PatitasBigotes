@@ -19,7 +19,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from source.db.models import Order, OrderItem, Payment, StockReservation
 from source.services.mercadopago_normalization_s import MERCADOPAGO_ALLOWED_CHECKOUT_HOSTS
-from source.services.orders_s import _utc_now, _variant_label
+from source.db.models import variant_label
+from source.services.orders_s import _utc_now
 from source.services.stock_reservations_s import expire_active_reservations_for_order
 
 
@@ -177,7 +178,7 @@ def get_public_order_snapshot_by_payment_token(
             "items": [
                 {
                     "product_name": item.product.name if item.product is not None else None,
-                    "variant_label": _variant_label(item.variant),
+                    "variant_label": variant_label(item.variant),
                     "quantity": int(item.quantity),
                     "line_total": int(item.line_total or 0),
                 }
