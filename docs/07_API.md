@@ -396,9 +396,11 @@ idénticos, `payment_core_s::find_active_pending_payment`).
 
 **Diferencias por método:**
 - `cash` → `expires_at = NULL` (no vence).
-- `bank_transfer` → `provider_payload` con instrucciones estáticas (alias `patitas.bigotes`, banco demo, referencia
-  `ORDER-{n}-PAY-{m}`) — `payment_core_s::build_bank_transfer_payload`.
-- `mercadopago` → crea preferencia en el proveedor y guarda `preference_id`, `external_ref`, `checkout_url`.
+- `bank_transfer` → `provider_payload` con las instrucciones desde configuración (alias, CBU, banco, titular,
+  CUIT/CUIL, monto, referencia `ORDER-{n}-PAY-{m}`, número y enlace de WhatsApp) —
+  `bank_transfer_s::build_bank_transfer_payload`.
+- `mercadopago` → **rechazado con 400 mientras `MERCADOPAGO_ENABLED=false`** (`payment_core_s::assert_payment_method_enabled`);
+  con el flag encendido crea preferencia en el proveedor y guarda `preference_id`, `external_ref`, `checkout_url`.
 
 **Manejo del fallo de proveedor** (`orders_r.py:92-124`): si `initialize_mercadopago_checkout_for_payment` falla,
 marca el pago con `provider_status='setup_failed'` y hace **commit de eso** antes de lanzar

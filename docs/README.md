@@ -36,6 +36,8 @@ aporta valor, a una línea concreta. Todo lo que es inferencia y no verificació
 | 20 | [Diccionario de Objetos](20_DiccionarioObjetos.md) | 22 | Backend |
 | 21 | [Mapa de Dependencias entre Módulos](21_MapaDependencias.md) | 23 | Arquitectura |
 | 22 | [Índice de Lectura](22_IndiceLectura.md) | 24 | Onboarding |
+| ★ | [Transferencia bancaria — método de pago online activo](banktransfer.md) *(incluye los tickets de implementación)* | — | Backend, producto |
+| ★ | [MercadoPago — en pausa ('in progress')](mercadopago.md) | — | Backend, producto, DevOps |
 
 Los diagramas Mermaid usados en los documentos también viven sueltos en [`diagrams/`](diagrams/) para poder
 reutilizarlos o renderizarlos de forma independiente.

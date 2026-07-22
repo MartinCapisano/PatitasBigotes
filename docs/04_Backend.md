@@ -253,7 +253,7 @@ errores, validaciones) está en [07_API.md](07_API.md). Aquí solo la ficha del 
 
 | Campo | Detalle |
 |---|---|
-| **Responsabilidad** | Kernel de pago: el conjunto mínimo compartido por todos los caminos de pago — serialización (`payment_to_dict`, `serialize_provider_payload`, `deserialize_provider_payload`), transiciones (`assert_valid_payment_transition`, `apply_order_paid_transition` — el **punto de entrada del dinero**), idempotencia (`resolve_payment_by_idempotency_key`, `find_active_pending_payment`) y `build_bank_transfer_payload`. |
+| **Responsabilidad** | Kernel de pago: el conjunto mínimo compartido por todos los caminos de pago — serialización (`payment_to_dict`, `serialize_provider_payload`, `deserialize_provider_payload`), transiciones (`assert_valid_payment_transition`, `apply_order_paid_transition` — el **punto de entrada del dinero**), idempotencia (`resolve_payment_by_idempotency_key`, `find_active_pending_payment`) y el candado de métodos deshabilitados (`assert_payment_method_enabled`). Las instrucciones de transferencia salieron a `bank_transfer_s` por ser específicas de un método. |
 | **Quién lo usa** | `payment_s`, `payment_provider_s`, `payment_admin_queries_s`, `webhook_events_s`. |
 | **Importa** | `Order`, `Payment`, `domain_events_s`, `stock_reservations_s`. No importa `payment_s` (acíclico). |
 | **Complejidad** | 🟢 230 líneas, bajo el umbral de alarma de ~350. |
@@ -607,7 +607,7 @@ Con los defaults (base 30, máx 720, máx 4 intentos): 30 → 60 → 120 min, y 
 |---|---|
 | **Responsabilidad** | Crear (o devolver) el intento de cobro de una orden. |
 | **Retorno** | `dict` del pago (`payment_core_s::payment_to_dict`). |
-| **Llama a** | `expire_active_reservations_for_order`, `list_active_reservations_for_order`, `payment_core_s::find_active_pending_payment`, `payment_core_s::validate_active_pending_compatibility`, `payment_provider_s::initialize_mercadopago_checkout_for_payment`, `payment_core_s::build_bank_transfer_payload`, `mercadopago_normalization_s::_build_mercadopago_payload`. |
+| **Llama a** | `expire_active_reservations_for_order`, `list_active_reservations_for_order`, `payment_core_s::find_active_pending_payment`, `payment_core_s::validate_active_pending_compatibility`, `payment_provider_s::initialize_mercadopago_checkout_for_payment`, `bank_transfer_s::build_bank_transfer_payload`, `mercadopago_normalization_s::_build_mercadopago_payload`. |
 | **La invoca** | `orders_r.create_order_payment`, `orders_r.create_guest_checkout_order`, `create_retry_payment_for_order`, `create_retry_payment_for_payment_token`. |
 
 **Paso a paso:**
@@ -727,7 +727,10 @@ guion bajo), el **proveedor** (`payment_provider_s`) y el remanente en `payment_
 | `find_active_pending_payment` | `payment_core_s` | 🟢 | Pendiente no vencido del método dado |
 | `validate_active_pending_compatibility` | `payment_core_s` | 🟢 | Mismo importe y moneda |
 | `resolve_payment_by_idempotency_key` | `payment_core_s` | 🟢 | Replay por idempotencia validando orden/método/usuario |
-| `build_bank_transfer_payload` | `payment_core_s` | 🟢 | Instrucciones bancarias estáticas ⚠️ hardcodeadas ("Banco Demo") |
+| `build_bank_transfer_payload` | `bank_transfer_s` | 🟢 | Instrucciones bancarias desde configuración (`BANK_TRANSFER_*`) + enlace de WhatsApp con la referencia |
+| `build_payment_reference` | `bank_transfer_s` | 🟢 | `ORDER-{n}-PAY-{m}`: lo único que ata el dinero en la cuenta a una orden |
+| `build_whatsapp_receipt_url` | `bank_transfer_s` | 🟢 | `wa.me` con el mensaje del comprobante precargado |
+| `assert_payment_method_enabled` | `payment_core_s` | 🟢 | Candado de la pausa de MercadoPago (`MERCADOPAGO_ENABLED`) |
 | `build_order_paid_event_payload` | `payment_core_s` | 🟢 | Arma el payload del evento con los ítems para el email |
 | `normalize_optional_str` | `payment_core_s` | 🟢 | Normaliza un `str` opcional a `None` si queda vacío |
 | `_mark_payment_checkout_setup_failed` | `payment_provider_s` | 🟢 | Anota el error de checkout en `provider_payload` |

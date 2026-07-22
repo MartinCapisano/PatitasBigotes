@@ -36,7 +36,9 @@ Cargar en el dashboard de Render todas las variables de `backend/.env.production
 - `JWT_SECRET` = secreto largo aleatorio
 - `AUTH_COOKIE_SAMESITE=none` y `AUTH_COOKIE_SECURE=true` (obligatorio para cross-origin; el backend aborta si `none` sin `Secure`)
 - `APP_BASE_URL` y `CORS_ALLOW_ORIGINS` = URL del frontend (paso 3); se completan despues de tener esa URL
-- `MERCADOPAGO_*` = credenciales y URLs reales de produccion
+- `BANK_TRANSFER_ALIAS` / `_CBU` / `_BANK_NAME` / `_HOLDER` / `_CUIT` y `WHATSAPP_NUMBER` = datos **reales** de la cuenta del comercio y su WhatsApp. **El backend no arranca sin ellos**: es el unico metodo de pago online y el cliente le transfiere plata a esa cuenta (ver [docs/banktransfer.md](docs/banktransfer.md))
+- `MERCADOPAGO_ENABLED=false` = MercadoPago esta **en pausa** (ver [docs/mercadopago.md](docs/mercadopago.md)). Mientras siga en `false`, el resto de las `MERCADOPAGO_*` no hace falta completarlas
+- `MERCADOPAGO_*` = credenciales y URLs reales de produccion (solo al reactivar MP)
 - `MAINTENANCE_RUN_TOKEN` = token largo aleatorio (paso 4)
 
 > El `alembic upgrade head` del build corre contra Supabase; el proyecto debe estar activo (no pausado) durante el deploy.
@@ -46,14 +48,15 @@ Cargar en el dashboard de Render todas las variables de `backend/.env.production
 1. Importar el repo. Root directory: `frontend`.
 2. Build command `npm run build`, output `dist` (ya declarado en `frontend/vercel.json`; para Cloudflare el fallback SPA esta en `frontend/public/_redirects`).
 3. Setear la variable de build `VITE_API_BASE_URL` = URL publica del backend en Render (paso 2). Vite la "hornea" en el build, no se lee en runtime.
-4. Deploy. Anotar la URL publica resultante.
+4. Setear `VITE_MERCADOPAGO_ENABLED=false` (MercadoPago en pausa): el checkout ofrece solo transferencia y efectivo. Tiene que coincidir con el `MERCADOPAGO_ENABLED` del backend.
+5. Deploy. Anotar la URL publica resultante.
 
 ## 4. Cerrar el circulo (las dos URLs)
 
 Con las URLs reales ya conocidas:
 
-- En Render, setear `APP_BASE_URL` y `CORS_ALLOW_ORIGINS` con la URL del frontend, y las `MERCADOPAGO_SUCCESS_URL/FAILURE_URL/PENDING_URL` al frontend, `MERCADOPAGO_NOTIFICATION_URL` al backend (`.../payments/webhook/mercadopago`). Redeploy.
-- En el panel de Mercado Pago, configurar el webhook apuntando a `MERCADOPAGO_NOTIFICATION_URL`.
+- En Render, setear `APP_BASE_URL` y `CORS_ALLOW_ORIGINS` con la URL del frontend. Redeploy.
+- Con MercadoPago en pausa (`MERCADOPAGO_ENABLED=false`) no hay webhook que configurar ni URLs de MP que completar. Al reactivarlo: setear `MERCADOPAGO_SUCCESS_URL/FAILURE_URL/PENDING_URL` al frontend, `MERCADOPAGO_NOTIFICATION_URL` al backend (`.../payments/webhook/mercadopago`), y configurar el webhook en el panel de Mercado Pago apuntando ahi.
 
 ## 5. Jobs de mantenimiento (ping externo)
 

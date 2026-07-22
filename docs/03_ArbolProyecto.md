@@ -197,7 +197,8 @@ PatitasBigotes/
 |---|---:|---|---|
 | `payment_s.py` | ~660 | Pagos | `create_payment_for_order`, `create_retry_payment_for_order`, `create_retry_payment_for_payment_token`, `confirm_manual_payment_for_order`, `list_payments_for_order` |
 | `payment_provider_s.py` | ~310 | Pagos · MercadoPago | `initialize_mercadopago_checkout_for_payment`, `apply_mercadopago_normalized_state`, `find_payment_for_mercadopago_event`, `list_reconcilable_pending_mercadopago_payments` |
-| `payment_core_s.py` | ~230 | Pagos · kernel | `apply_order_paid_transition`, `payment_to_dict`, `serialize_provider_payload`, `assert_valid_payment_transition`, `resolve_payment_by_idempotency_key`, `build_bank_transfer_payload` |
+| `payment_core_s.py` | ~230 | Pagos · kernel | `apply_order_paid_transition`, `payment_to_dict`, `serialize_provider_payload`, `assert_valid_payment_transition`, `assert_payment_method_enabled`, `resolve_payment_by_idempotency_key` |
+| `bank_transfer_s.py` | ~70 | Pagos · transferencia | `build_bank_transfer_payload`, `build_payment_reference`, `build_whatsapp_receipt_url` |
 | `orders_s.py` | ~770 | Órdenes | `change_order_status`, `replace_draft_order_items`, `create_admin_sale`, `create_manual_submitted_order` |
 | `orders_public_s.py` | ~200 | Órdenes · público | `get_public_order_snapshot_by_payment_token` |
 | `products_s.py` | ~615 | Catálogo administrado | `list_admin_catalog`, CRUD de producto/variante/categoría, stock |

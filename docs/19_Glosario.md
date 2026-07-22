@@ -43,9 +43,11 @@ Con los defaults: 30 → 60 → 120 minutos, con techo de 720.
 📍 `reprocess_failed_webhooks_job._retry_delay_minutes_for_attempt`
 
 ### `bank_transfer` (Transferencia bancaria)
-Método de pago manual. Genera instrucciones estáticas (alias, banco, referencia `ORDER-{n}-PAY-{m}`) y queda
+Método de pago manual. Genera las instrucciones que lee el cliente — alias, CBU, banco, titular, CUIT/CUIL,
+monto, referencia `ORDER-{n}-PAY-{m}` y el enlace de WhatsApp para mandar el comprobante — todo desde
+configuración (`BANK_TRANSFER_*` y `WHATSAPP_NUMBER`; el backend **no arranca** si falta alguna). Queda
 `pending` hasta que un administrador lo confirma con el comprobante.
-📍 `payment_core_s.build_bank_transfer_payload`
+📍 `bank_transfer_s.build_bank_transfer_payload`
 
 ### `blocking_reason` (Motivo de bloqueo)
 Campo del snapshot público que explica por qué el cliente **no** puede continuar ni reintentar su pago. Seis
@@ -375,6 +377,21 @@ acotado a `/auth`. Se guarda **hasheado** en `user_refresh_sessions`.
 📌 **Es rotativo:** cada refresh emite un par nuevo e incrementa `token_version`, invalidando los access tokens
 anteriores.
 📍 `auth_s.refresh_with_token`
+
+### Relojes del pago (los tres)
+Tres plazos distintos que se confunden con facilidad porque los tres "miden cuánto falta para que el pago se
+resuelva", pero gobiernan cosas diferentes. La distinción importa sobre todo en el pago por transferencia:
+- **Vencimiento del pago** (`payments.expires_at`, 60 min por defecto): plazo del **intento de pago**. Para
+  `mercadopago` fija el `date_of_expiration` de la preferencia; para `bank_transfer` es casi **vestigial** —
+  nada transiciona el pago a `expired` y la confirmación manual del admin **no** filtra por vencimiento, así que
+  su único efecto es impedir *reusar* ese pago pendiente en un nuevo checkout. **No cancela la orden.**
+- **Ventana de reserva** (`RESERVATION_TTL_HOURS`, 42 h + 12 h de reactivación única): el **reloj real** del
+  sistema. Al vencer sin pago, cancela la orden **y** sus pagos pendientes. Es el mecanismo que efectivamente
+  "cancela si no pagás".
+- **Ventana prometida al cliente**: el plazo que se le *comunica* ("tenés 24 hs para transferir"). No es un
+  parámetro del código: es copy. **Regla de consistencia:** debe ser **≤ la ventana de reserva garantizada
+  (42 h)**, o se corre el riesgo de cancelar antes de lo prometido.
+📍 `payment_s.py:149` (vencimiento) · `stock_reservations_s.py:11` (reserva) · [banktransfer.md](banktransfer.md)
 
 ### Replay (de webhook)
 Reprocesamiento manual de un evento en estado `failed` o `dead_letter`, disparado por un administrador.

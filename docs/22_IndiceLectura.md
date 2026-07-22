@@ -112,6 +112,8 @@ flowchart TD
 | 6 | `tests/http/_base.py` (184 líneas) | 20 min | Cómo se testea la API |
 | 7 | [`docs/11_Seguridad.md`](11_Seguridad.md) | 40 min | Postura de seguridad y riesgos abiertos |
 | 8 | [`docs/18_Roadmap.md`](18_Roadmap.md) | 25 min | Qué hay que hacer y en qué orden |
+| 9 | [`docs/banktransfer.md`](banktransfer.md) | 25 min | Método de pago online activo: transferencia con verificación manual + tickets para cerrarlo al 100% |
+| 10 | [`docs/mercadopago.md`](mercadopago.md) | 20 min | MercadoPago en pausa: estado y spec de reactivación |
 
 > ✅ **Al terminar el día 5:** sabés cómo se despliega, qué corre automáticamente, cómo se testea, dónde están
 > los riesgos y cuál es la próxima tarea prioritaria.
