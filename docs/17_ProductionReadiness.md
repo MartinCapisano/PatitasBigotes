@@ -398,7 +398,8 @@ privado el cron **superaría la cuota gratuita**. Conviene verificarlo.
 
 ### 🔴 Bloqueantes para producción con volumen real
 
-- [ ] Setear `FORWARDED_ALLOW_IPS` — el rate limiting por IP hoy no funciona
+- [x] ~~Setear `FORWARDED_ALLOW_IPS` — el rate limiting por IP hoy no funciona~~ — resuelto vía
+  `--forwarded-allow-ips '*'` en el `startCommand` de `render.yaml`. Ver §11.1.
 - [ ] Verificar que `alembic` esté disponible en el build de Render
 - [ ] `pool_pre_ping=True` en el engine
 - [ ] Alerta si falla el cron de mantenimiento
@@ -430,6 +431,41 @@ privado el cron **superaría la cuota gratuita**. Conviene verificarlo.
 - [ ] Worker separado para jobs
 - [ ] Tests de carga
 - [ ] Migraciones expand/contract documentadas
+
+### 11.1 Resuelto: IP real detrás del proxy de Render
+
+**El problema.** Los rate limits de login y de checkout derivan la IP de `request.client.host`
+(`auth_r.py:63-72` y `orders_r.py:69-75`). Uvicorn solo reescribe ese valor desde `X-Forwarded-For`
+cuando la conexión entrante viene de una IP listada en `FORWARDED_ALLOW_IPS`, cuyo default es
+`127.0.0.1`. En Render la conexión llega desde el proxy interno, así que el header se descartaba y
+**todo el tráfico compartía una única IP**: la del proxy. Con `MAX_FAILED_ATTEMPTS = 6` y
+`BLOCK_MINUTES = 20` (`auth_rate_limit_s.py:10-12`), 6 logins fallidos de cualquier origen bloqueaban
+el login a todos los usuarios legítimos durante 20 minutos. El eje `email` del rate limit nunca
+estuvo afectado; el roto era solo el eje `ip`.
+
+**La solución aplicada.** El `startCommand` de `render.yaml` pasa a:
+
+```
+uvicorn main:app --host 0.0.0.0 --port $PORT --forwarded-allow-ips '*'
+```
+
+No se agregó la variable de entorno `FORWARDED_ALLOW_IPS`: el flag de CLI cumple la misma función y
+queda versionado en el repo en lugar de vivir en el dashboard.
+
+**Por qué `'*'` y no un CIDR.** Render no publica un rango estable para su edge, así que una
+allowlist estrecha no es mantenible ahí. El comodín es aceptable **únicamente** porque el contenedor
+no es alcanzable de forma directa: todo el ingreso pasa por el proxy de Render. Esa premisa es la
+que sostiene la seguridad de este cambio.
+
+> ⚠️ **Si esa premisa deja de valer** —el servicio se expone en otro host, se pone otro proxy
+> adelante, o se migra fuera de Render— `'*'` pasa a significar que cualquier cliente puede falsear
+> su IP con un header y evadir los rate limits por completo. En ese caso hay que leer
+> `X-Forwarded-For` explícitamente en los dos helpers y tomar el **último** hop, que es el que el
+> proxy controla y el cliente no puede inyectar.
+
+**Pendiente operativo.** Las filas `scope="ip"` ya existentes en `auth_login_throttles` quedaron
+acumuladas bajo la IP del proxy. Conviene purgarlas junto con el deploy para no arrastrar bloqueos
+espurios sobre lo que ahora es una IP real de cliente.
 
 ---
 

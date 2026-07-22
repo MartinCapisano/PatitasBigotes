@@ -16,7 +16,12 @@ services:
     rootDir: backend
     # alembic runs against Supabase; the project must be un-paused for a deploy.
     buildCommand: "pip install -r requirements.txt && alembic upgrade head"
-    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
+    # --forwarded-allow-ips '*' habilita el ProxyHeadersMiddleware de Uvicorn para
+    # que reescriba request.client.host desde X-Forwarded-For. Sin esto la IP que
+    # ven los rate limits es la del proxy de Render, igual para todos los usuarios.
+    # El '*' es seguro solo porque el contenedor no es alcanzable directamente:
+    # todo el ingreso pasa por el edge de Render, que no publica un CIDR estable.
+    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT --forwarded-allow-ips '*'"
     healthCheckPath: /health
     envVars:
       - key: APP_ENV
