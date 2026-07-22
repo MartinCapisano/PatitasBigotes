@@ -37,6 +37,24 @@ services:
         sync: false
       - key: AUTH_COOKIE_SECURE
         sync: false
+      # Transferencia bancaria: unico metodo de pago online. El backend
+      # no arranca si falta alguna. Ver docs/banktransfer.md.
+      - key: BANK_TRANSFER_ALIAS
+        sync: false
+      - key: BANK_TRANSFER_CBU
+        sync: false
+      - key: BANK_TRANSFER_BANK_NAME
+        sync: false
+      - key: BANK_TRANSFER_HOLDER
+        sync: false
+      - key: BANK_TRANSFER_CUIT
+        sync: false
+      - key: WHATSAPP_NUMBER
+        sync: false
+      # Candado de la pausa de MercadoPago: en false el backend rechaza
+      # iniciar pagos con method=mercadopago. Ver docs/mercadopago.md.
+      - key: MERCADOPAGO_ENABLED
+        value: "false"
       - key: MERCADOPAGO_ACCESS_TOKEN
         sync: false
       - key: MERCADOPAGO_ENV
