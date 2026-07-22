@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from source.exceptions import (
     CategoryHasProductsError,
     OrderStatusTransitionError,
+    PaymentMethodDisabledError,
     PaymentRetryConflictError,
     RegisteredAccountCheckoutConflictError,
     WebhookReplayConflictError,
@@ -44,6 +45,10 @@ def raise_http_error_from_exception(exc: Exception, db: Session | None = None) -
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if isinstance(exc, CategoryHasProductsError):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    # Listed before the generic ValueError branch so the status stays 400 on purpose
+    # rather than by accident of ordering.
+    if isinstance(exc, PaymentMethodDisabledError):
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if isinstance(exc, ValueError):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if isinstance(exc, PaymentProviderValidationError):

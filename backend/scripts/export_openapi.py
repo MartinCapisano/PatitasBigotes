@@ -14,6 +14,16 @@ os.environ.setdefault("DATABASE_URL", "sqlite://")
 os.environ.setdefault("JWT_SECRET", "openapi-export")
 os.environ.setdefault("MERCADOPAGO_WEBHOOK_SECRET", "openapi-export")
 
+# The app refuses to boot without the shop's bank details (it could not be paid
+# without them). Dumping a schema is not taking payments, so stub them out the
+# same way as the database above.
+os.environ.setdefault("BANK_TRANSFER_ALIAS", "openapi-export")
+os.environ.setdefault("BANK_TRANSFER_CBU", "openapi-export")
+os.environ.setdefault("BANK_TRANSFER_BANK_NAME", "openapi-export")
+os.environ.setdefault("BANK_TRANSFER_HOLDER", "openapi-export")
+os.environ.setdefault("BANK_TRANSFER_CUIT", "openapi-export")
+os.environ.setdefault("WHATSAPP_NUMBER", "0000000000")
+
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))

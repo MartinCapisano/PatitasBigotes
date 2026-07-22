@@ -31,6 +31,24 @@ class OrderPaidEmailPayload(TypedDict):
     items: list[OrderPaidEmailLineItem]
 
 
+class BankTransferInstructionsEmailPayload(TypedDict):
+    to_email: str
+    order_id: int
+    payment_id: int
+    amount: int
+    currency: str
+    deadline_hours: int
+    alias: str
+    cbu: str
+    bank_name: str
+    holder: str
+    tax_id: str
+    reference: str
+    whatsapp_number: str
+    whatsapp_url: str
+    status_url: str
+
+
 def _build_message(*, to_email: str, subject: str, body: str) -> EmailMessage:
     msg = EmailMessage()
     msg["From"] = get_mail_from()
@@ -88,6 +106,49 @@ def send_password_reset(*, to_email: str, reset_link: str) -> None:
 def _format_money(amount_cents: int, currency: str) -> str:
     whole = int(amount_cents) / 100
     return f"{currency} {whole:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+
+
+def send_bank_transfer_instructions_email(
+    *, payload: BankTransferInstructionsEmailPayload
+) -> None:
+    """The instructions in the customer's inbox, not just on a page they closed.
+
+    Until this existed the only email of the payment cycle was the paid-order
+    one, which arrives *after* the admin confirms -- long after the customer
+    needed to know where to send the money.
+    """
+    order_id = int(payload["order_id"])
+    reference = str(payload["reference"])
+    currency = str(payload["currency"]).strip() or "ARS"
+    deadline_hours = int(payload["deadline_hours"])
+
+    body = (
+        "Hola,\n\n"
+        f"Recibimos tu orden #{order_id}. Para confirmarla necesitamos que hagas "
+        "la transferencia con estos datos:\n\n"
+        f"Monto exacto: {_format_money(int(payload['amount']), currency)}\n"
+        f"Alias: {payload['alias']}\n"
+        f"CBU: {payload['cbu']}\n"
+        f"Banco: {payload['bank_name']}\n"
+        f"Titular: {payload['holder']}\n"
+        f"CUIT/CUIL: {payload['tax_id']}\n"
+        f"Referencia: {reference}\n\n"
+        f"Importante: pone la referencia {reference} en la transferencia. Es lo que "
+        "nos permite reconocer tu pago.\n\n"
+        f"Tenes {deadline_hours} hs para transferir, sino la orden se cancela.\n\n"
+        f"Cuando transfieras, mandanos el comprobante por WhatsApp al "
+        f"{payload['whatsapp_number']}:\n"
+        f"{payload['whatsapp_url']}\n\n"
+        "Podes volver a ver estos datos cuando quieras desde este enlace:\n"
+        f"{payload['status_url']}\n\n"
+        "Si tenes alguna duda, respondenos por nuestros canales de contacto.\n"
+    )
+    msg = _build_message(
+        to_email=str(payload["to_email"]).strip(),
+        subject=f"Datos para transferir - orden #{order_id}",
+        body=body,
+    )
+    _send_message(msg)
 
 
 def send_order_paid_email(*, payload: OrderPaidEmailPayload) -> None:

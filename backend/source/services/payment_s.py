@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, UTC
 import hashlib
+import logging
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -19,9 +20,16 @@ from source.db.models import (
     generate_public_status_token,
 )
 from source.exceptions import PaymentRetryConflictError
+from source.services.bank_transfer_s import (
+    build_bank_transfer_payload,
+    build_instructions_email_payload,
+)
+from source.services.post_commit_actions_s import (
+    enqueue_post_commit_bank_transfer_instructions_email,
+)
 from source.services.payment_core_s import (
     apply_order_paid_transition,
-    build_bank_transfer_payload,
+    assert_payment_method_enabled,
     deserialize_provider_payload,
     find_active_pending_payment,
     normalize_optional_str,
@@ -44,6 +52,8 @@ from source.services.stock_reservations_s import (
     expire_active_reservations_for_order,
     list_active_reservations_for_order,
 )
+
+logger = logging.getLogger(__name__)
 
 ALLOWED_PAYMENT_METHODS = {"bank_transfer", "mercadopago", "cash"}
 RETRYABLE_PAYMENT_STATUSES = {"cancelled", "expired"}
@@ -75,6 +85,7 @@ def create_payment_for_order(
 
     if method not in ALLOWED_PAYMENT_METHODS:
         raise ValueError("invalid payment method")
+    assert_payment_method_enabled(method)
     if expires_in_minutes <= 0:
         raise ValueError("expires_in_minutes must be greater than 0")
     normalized_key = idempotency_key.strip()
@@ -201,6 +212,16 @@ def create_payment_for_order(
             currency=payment_currency,
         )
         payment.provider_payload = serialize_provider_payload(provider_payload)
+        # Only reached when a payment was genuinely created: an idempotent
+        # replay returns above, so the customer cannot be mailed twice for the
+        # same attempt. A retry does create a new payment with a new reference,
+        # and that one is worth mailing.
+        _enqueue_bank_transfer_instructions_email(
+            order=order,
+            payment=payment,
+            instructions=provider_payload["instructions"],
+            db=db,
+        )
     elif method == "mercadopago" and initialize_provider:
         existing_provider_payload = deserialize_provider_payload(
             payment.provider_payload
@@ -233,6 +254,49 @@ def create_payment_for_order(
     db.flush()
     db.refresh(payment)
     return payment_to_dict(payment)
+
+
+def _enqueue_bank_transfer_instructions_email(
+    *,
+    order: Order,
+    payment: Payment,
+    instructions: dict,
+    db: Session,
+) -> None:
+    """Queues the instructions email, never letting it break the checkout.
+
+    Post-commit by design: the order and the payment must survive even if the
+    mail server is down. Missing pieces are logged and skipped rather than
+    raised -- a customer who cannot be emailed still has the screen.
+    """
+    to_email = str(getattr(order.user, "email", "") or "").strip()
+    if not to_email:
+        logger.warning(
+            "event=bank_transfer_instructions_email_skipped order_id=%s payment_id=%s reason=missing_email",
+            int(order.id),
+            int(payment.id),
+        )
+        return
+
+    public_status_token = str(payment.public_status_token or "").strip()
+    if not public_status_token:
+        logger.warning(
+            "event=bank_transfer_instructions_email_skipped order_id=%s payment_id=%s reason=missing_token",
+            int(order.id),
+            int(payment.id),
+        )
+        return
+
+    enqueue_post_commit_bank_transfer_instructions_email(
+        payload=build_instructions_email_payload(
+            to_email=to_email,
+            order_id=int(order.id),
+            payment_id=int(payment.id),
+            instructions=instructions,
+            public_status_token=public_status_token,
+        ),
+        db=db,
+    )
 
 
 def _guard_order_retryable(db: Session, *, order_id: int, user_id: int | None) -> Order:

@@ -2,7 +2,7 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from source.db.config import get_cors_allow_origins
+from source.db.config import get_cors_allow_origins, validate_bank_transfer_config
 from source.dependencies.csrf_d import CSRFMiddleware
 from source.dependencies.security_headers_d import SecurityHeadersMiddleware
 from source.routes.auth_r import router as auth_router
@@ -24,6 +24,11 @@ app = FastAPI(
 
 )
 logger = logging.getLogger(__name__)
+
+# Bank transfer is the only online payment method: booting without its data
+# means booting a shop that cannot be paid. Better to break the deploy here
+# than to show a customer empty bank details.
+validate_bank_transfer_config()
 
 allowed_origins = get_cors_allow_origins()
 app.add_middleware(SecurityHeadersMiddleware)

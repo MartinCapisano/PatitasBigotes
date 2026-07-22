@@ -8,6 +8,7 @@ from source.schemas import (
     PaymentIncidentResolveNoRefundRequest,
     PaymentIncidentResolveRefundRequest,
 )
+from source.services.bank_transfer_s import get_public_bank_transfer_status
 from source.services.payment_admin_queries_s import (
     list_payments_for_admin,
     list_pending_bank_transfer_payments_for_admin,
@@ -58,6 +59,26 @@ def get_public_payment_status(
     except Exception as exc:
         raise_http_error_from_exception(exc, db=db)
     return {"data": payment}
+
+
+@router.get("/payments/public/bank-transfer")
+def get_public_bank_transfer(
+    public_status_token: str | None = None,
+    db: Session = Depends(get_db_transactional),
+):
+    """Lets a guest re-open their own transfer instructions with no account.
+
+    Transactional because the lookup sweeps the order's expired reservations
+    before answering, and that sweep has to stick.
+    """
+    try:
+        payload = get_public_bank_transfer_status(
+            public_status_token=public_status_token,
+            db=db,
+        )
+    except Exception as exc:
+        raise_http_error_from_exception(exc, db=db)
+    return {"data": payload}
 
 
 @router.get("/admin/payments/bank-transfer/pending")

@@ -277,6 +277,7 @@ def create_guest_checkout_order(
                     db=db,
                 )
                 db.commit()
+                dispatch_post_commit_actions(db=db, source="guest_checkout")
                 return {"data": result}
         mark_record_completed(
             record=claimed_record,
@@ -312,7 +313,9 @@ def create_guest_checkout_order(
                 db.rollback()
         else:
             db.rollback()
+        clear_post_commit_actions(db=db)
         raise_http_error_from_exception(exc, db=db)
+    dispatch_post_commit_actions(db=db, source="guest_checkout")
     return {"data": result}
 
 
@@ -622,8 +625,10 @@ def create_order_payment(
         db.commit()
     except Exception as exc:
         db.rollback()
+        clear_post_commit_actions(db=db)
         raise_http_error_from_exception(exc, db=db)
 
+    dispatch_post_commit_actions(db=db, source="create_order_payment")
     return {"data": payment}
 
 
@@ -688,14 +693,17 @@ def retry_order_payment(
         db.commit()
     except PaymentCheckoutInitializationError as exc:
         db.rollback()
+        clear_post_commit_actions(db=db)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=RETRY_FAILED_MERCADOPAGO_CHECKOUT_UNAVAILABLE,
         ) from exc
     except Exception as exc:
         db.rollback()
+        clear_post_commit_actions(db=db)
         raise_http_error_from_exception(exc, db=db)
 
+    dispatch_post_commit_actions(db=db, source="retry_payment")
     return {"data": payment}
 
 
@@ -722,14 +730,17 @@ def retry_guest_payment(
         db.commit()
     except PaymentCheckoutInitializationError as exc:
         db.rollback()
+        clear_post_commit_actions(db=db)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=RETRY_FAILED_MERCADOPAGO_CHECKOUT_UNAVAILABLE,
         ) from exc
     except Exception as exc:
         db.rollback()
+        clear_post_commit_actions(db=db)
         raise_http_error_from_exception(exc, db=db)
 
+    dispatch_post_commit_actions(db=db, source="retry_payment")
     return {"data": payment}
 
 

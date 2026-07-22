@@ -20,9 +20,13 @@ from datetime import datetime
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
-from source.db.models import Order, Payment
+from source.db.config import get_mercadopago_enabled
+from source.db.models import Order, Payment, variant_label
+from source.exceptions import PaymentMethodDisabledError
 from source.services.domain_events_s import publish_domain_event
 from source.services.stock_reservations_s import consume_reservations_for_paid_order
+
+PAYMENT_METHOD_DISABLED_MERCADOPAGO = "payment method is disabled: mercadopago"
 
 ALLOWED_PAYMENT_TRANSITIONS = {
     "pending": {"pending", "paid", "cancelled", "expired"},
@@ -89,14 +93,10 @@ def build_order_paid_event_payload(*, order: Order, payment: Payment) -> dict:
         product_name = None
         if getattr(item, "product", None) is not None:
             product_name = getattr(item.product, "name", None)
-        variant = getattr(item, "variant", None)
-        variant_label = "-/-"
-        if variant is not None:
-            variant_label = f"{variant.size or '-'}/{variant.color or '-'}"
         items_payload.append(
             {
                 "product_name": product_name,
-                "variant_label": variant_label,
+                "variant_label": variant_label(getattr(item, "variant", None)),
                 "quantity": int(item.quantity or 0),
                 "line_total": int(item.line_total or 0),
             }
@@ -138,6 +138,18 @@ def apply_order_paid_transition(
         payload=build_order_paid_event_payload(order=order, payment=payment),
         db=db,
     )
+
+
+def assert_payment_method_enabled(method: str) -> None:
+    """Reject payment methods that configuration has switched off.
+
+    Lives in the kernel so every path that can start a payment -- checkout,
+    retry and provider checkout initialization -- goes through the same check.
+    Hiding the option in the frontend is not a lock: the server has to refuse
+    it too, before anything is persisted or sent to the provider.
+    """
+    if method == "mercadopago" and not get_mercadopago_enabled():
+        raise PaymentMethodDisabledError(PAYMENT_METHOD_DISABLED_MERCADOPAGO)
 
 
 def assert_valid_payment_transition(current_status: str, next_status: str) -> None:
@@ -211,20 +223,3 @@ def resolve_payment_by_idempotency_key(
     if expected_user_id is not None and int(payment.order.user_id) != int(expected_user_id):
         raise LookupError("order not found")
     return payment
-
-
-def build_bank_transfer_payload(
-    order_id: int,
-    payment_id: int,
-    amount: int,
-    currency: str,
-) -> dict:
-    return {
-        "instructions": {
-            "alias": "patitas.bigotes",
-            "bank_name": "Banco Demo",
-            "reference": f"ORDER-{order_id}-PAY-{payment_id}",
-            "amount": amount,
-            "currency": currency,
-        }
-    }

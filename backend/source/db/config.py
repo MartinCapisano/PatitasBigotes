@@ -28,6 +28,22 @@ def get_maintenance_run_token() -> str:
     raise RuntimeError("MAINTENANCE_RUN_TOKEN is required")
 
 
+def get_mercadopago_enabled() -> bool:
+    """Whether MercadoPago may be used as a payment method.
+
+    Defaults to disabled: MercadoPago is paused and bank transfer is the only
+    online method, so an environment that forgets to declare the flag must fall
+    on the safe side instead of silently accepting card payments the business
+    is not ready to reconcile. Reactivating it is flipping this to true.
+    """
+    raw_value = os.getenv("MERCADOPAGO_ENABLED", "").strip().lower()
+    if raw_value in {"1", "true", "yes", "on"}:
+        return True
+    if raw_value in {"", "0", "false", "no", "off"}:
+        return False
+    raise RuntimeError("MERCADOPAGO_ENABLED must be a boolean value (true/false)")
+
+
 def get_mercadopago_access_token() -> str:
     access_token = os.getenv("MERCADOPAGO_ACCESS_TOKEN", "").strip()
     if access_token:
@@ -91,6 +107,75 @@ def get_mercadopago_webhook_max_age_seconds() -> int:
     if max_age <= 0:
         raise RuntimeError("MERCADOPAGO_WEBHOOK_MAX_AGE_SECONDS must be greater than 0")
     return max_age
+
+
+BANK_TRANSFER_ENV_VARS = (
+    "BANK_TRANSFER_ALIAS",
+    "BANK_TRANSFER_CBU",
+    "BANK_TRANSFER_BANK_NAME",
+    "BANK_TRANSFER_HOLDER",
+    "BANK_TRANSFER_CUIT",
+    "WHATSAPP_NUMBER",
+)
+
+
+def _require_env(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if value:
+        return value
+    raise RuntimeError(f"{name} is required")
+
+
+def get_bank_transfer_alias() -> str:
+    return _require_env("BANK_TRANSFER_ALIAS")
+
+
+def get_bank_transfer_cbu() -> str:
+    return _require_env("BANK_TRANSFER_CBU")
+
+
+def get_bank_transfer_bank_name() -> str:
+    return _require_env("BANK_TRANSFER_BANK_NAME")
+
+
+def get_bank_transfer_holder() -> str:
+    return _require_env("BANK_TRANSFER_HOLDER")
+
+
+def get_bank_transfer_cuit() -> str:
+    return _require_env("BANK_TRANSFER_CUIT")
+
+
+def get_whatsapp_number() -> str:
+    """The shop's WhatsApp in international digits, ready for a wa.me link.
+
+    Accepts the way a human writes it down (`+54 9 351 123-4567`) and keeps only
+    the digits, because that is the single form wa.me understands.
+    """
+    raw_value = _require_env("WHATSAPP_NUMBER")
+    digits = "".join(char for char in raw_value if char.isdigit())
+    if not digits:
+        raise RuntimeError("WHATSAPP_NUMBER must contain digits")
+    return digits
+
+
+def validate_bank_transfer_config() -> None:
+    """Fail at boot if the shop cannot be paid.
+
+    Bank transfer is the only online payment method, so an environment missing
+    these values cannot take money at all. Reporting every missing variable at
+    once turns a misconfigured deploy into one fix instead of six redeploys --
+    and failing here beats showing empty bank details to a customer who is
+    about to send money to them.
+    """
+    missing = [name for name in BANK_TRANSFER_ENV_VARS if not os.getenv(name, "").strip()]
+    if missing:
+        raise RuntimeError(
+            "missing required bank transfer configuration: " + ", ".join(missing)
+        )
+    # Catches values that are present but unusable, e.g. a WhatsApp number with
+    # no digits in it.
+    get_whatsapp_number()
 
 
 def get_app_base_url() -> str:

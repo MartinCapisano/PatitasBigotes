@@ -22,6 +22,7 @@ from source.services.mercadopago_normalization_s import (
 )
 from source.services.payment_core_s import (
     apply_order_paid_transition,
+    assert_payment_method_enabled,
     assert_valid_payment_transition,
     deserialize_provider_payload,
     normalize_optional_str,
@@ -55,6 +56,9 @@ def initialize_mercadopago_checkout_for_payment(
     payment_id: int,
     db: Session,
 ) -> dict:
+    # Second lock: `create_payment_for_order` blocks new MercadoPago payments, but a
+    # payment created before the pause could still be resumed from "continuar pago".
+    assert_payment_method_enabled("mercadopago")
     payment = (
         db.query(Payment)
         .join(Order, Payment.order_id == Order.id)
