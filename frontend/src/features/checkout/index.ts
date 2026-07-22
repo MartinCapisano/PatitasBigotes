@@ -1,3 +1,5 @@
 export * from "./types";
-export * from "./utils/format";
+export { formatArs, formatMoney } from "../../lib/money";
+export * from "./utils/payment-methods";
 export * from "./hooks";
+export * from "./components";

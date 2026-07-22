@@ -6,6 +6,9 @@ import { AdminRoute } from "./guards/AdminRoute";
 import { ProtectedRoute } from "./guards/ProtectedRoute";
 
 const AdminPage = lazy(() => import("./pages/AdminPage").then((m) => ({ default: m.AdminPage })));
+const BankTransferStatusPage = lazy(() =>
+  import("./pages/BankTransferStatusPage").then((m) => ({ default: m.BankTransferStatusPage }))
+);
 const CategoriesPage = lazy(() => import("./pages/CategoriesPage").then((m) => ({ default: m.CategoriesPage })));
 const CheckoutPage = lazy(() => import("./pages/CheckoutPage").then((m) => ({ default: m.CheckoutPage })));
 const ContactPage = lazy(() => import("./pages/ContactPage").then((m) => ({ default: m.ContactPage })));
@@ -42,6 +45,7 @@ export function App() {
             <Route path="/peluqueria" element={<GroomingPage />} />
             <Route path="/contacto" element={<ContactPage />} />
             <Route path="/checkout" element={<CheckoutPage />} />
+            <Route path="/transferencia" element={<BankTransferStatusPage />} />
             <Route path="/payments/success" element={<PaymentReturnPage variant="success" />} />
             <Route path="/payments/failure" element={<PaymentReturnPage variant="failure" />} />
             <Route path="/payments/pending" element={<PaymentReturnPage variant="pending" />} />

@@ -1,5 +1,5 @@
 import { http } from "./http";
-import type { MyPayment, PublicOrderSnapshot } from "../types";
+import type { MyPayment, PublicBankTransferStatus, PublicOrderSnapshot } from "../types";
 
 export type PublicPaymentStatus = {
   order_status: string | null;
@@ -22,6 +22,18 @@ export async function fetchPublicPaymentStatus(params: {
   const query = new URLSearchParams();
   if (params.publicStatusToken) query.set("public_status_token", params.publicStatusToken);
   const response = await http.get<PublicPaymentStatusEnvelope>(`/payments/public/status?${query.toString()}`);
+  return response.data.data;
+}
+
+/** Reopens a guest's own transfer instructions. The token is the whole credential. */
+export async function fetchPublicBankTransferStatus(params: {
+  publicStatusToken?: string | null;
+}): Promise<PublicBankTransferStatus> {
+  const query = new URLSearchParams();
+  if (params.publicStatusToken) query.set("public_status_token", params.publicStatusToken);
+  const response = await http.get<{ data: PublicBankTransferStatus }>(
+    `/payments/public/bank-transfer?${query.toString()}`
+  );
   return response.data.data;
 }
 

@@ -812,6 +812,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/payments/public/bank-transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Public Bank Transfer
+         * @description Lets a guest re-open their own transfer instructions with no account.
+         *
+         *     Transactional because the lookup sweeps the order's expired reservations
+         *     before answering, and that sweep has to stick.
+         */
+        get: operations["get_public_bank_transfer_payments_public_bank_transfer_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/payments/bank-transfer/pending": {
         parameters: {
             query?: never;
@@ -3528,6 +3551,37 @@ export interface operations {
         };
     };
     get_public_payment_status_payments_public_status_get: {
+        parameters: {
+            query?: {
+                public_status_token?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_public_bank_transfer_payments_public_bank_transfer_get: {
         parameters: {
             query?: {
                 public_status_token?: string | null;

@@ -1,4 +1,7 @@
+import { BankTransferInstructions } from "../features/checkout";
 import { useProfilePage } from "../features/profile";
+import { isAwaitingTransfer, readBankTransferInstructions } from "../lib/bank-transfer";
+import { formatArs, formatMoney } from "../lib/money";
 
 export function ProfilePage() {
   const profilePage = useProfilePage();
@@ -123,7 +126,7 @@ export function ProfilePage() {
               {!profilePage.ordersLoading && !profilePage.ordersError && profilePage.orders.map((order) => (
                 <article className="card" key={order.id}>
                   <p><strong>Orden #{order.id}</strong> - {order.status}</p>
-                  <p className="muted">Total: ${(order.total_amount / 100).toLocaleString("es-AR")} {order.currency}</p>
+                  <p className="muted">Total: {formatMoney(order.total_amount, order.currency)}</p>
                   <div className="profile-order-items">
                     {order.items.map((item) => (
                       <div className="checkout-row" key={item.id}>
@@ -133,7 +136,7 @@ export function ProfilePage() {
                         </div>
                         <div>
                           <p>Cant: {item.quantity}</p>
-                          <p>Unit: ${(item.unit_price / 100).toLocaleString("es-AR")}</p>
+                          <p>Unit: {formatArs(item.unit_price)}</p>
                         </div>
                       </div>
                     ))}
@@ -142,12 +145,13 @@ export function ProfilePage() {
                     <div className="profile-order-items">
                       <h3 className="section-title">Pagos</h3>
                       {(profilePage.paymentsByOrderId[order.id] ?? []).map((payment) => (
-                        <div className="checkout-row" key={payment.id}>
+                        <div key={payment.id}>
+                        <div className="checkout-row">
                           <div>
                             <strong>Pago #{payment.id}</strong>
                             <p className="muted">Metodo: {payment.method}</p>
                             <p className="muted">Estado: {payment.status}</p>
-                            <p className="muted">Monto: ${(payment.amount / 100).toLocaleString("es-AR")} {payment.currency}</p>
+                            <p className="muted">Monto: {formatMoney(payment.amount, payment.currency)}</p>
                           </div>
                           {profilePage.isRetryableMercadoPagoPayment(payment) && order.status === "submitted" && (
                             <div className="auth-form" style={{ minWidth: 280 }}>
@@ -182,6 +186,21 @@ export function ProfilePage() {
                                 Continuar pago
                               </button>
                             </div>
+                          )}
+                        </div>
+                        {isAwaitingTransfer(payment, order.status) &&
+                          readBankTransferInstructions(payment.provider_payload_data?.instructions) && (
+                            <details className="transfer-details">
+                              <summary>Ver los datos para transferir</summary>
+                              <BankTransferInstructions
+                                orderId={order.id}
+                                instructions={
+                                  readBankTransferInstructions(
+                                    payment.provider_payload_data?.instructions
+                                  )!
+                                }
+                              />
+                            </details>
                           )}
                         </div>
                       ))}

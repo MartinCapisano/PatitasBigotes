@@ -8,6 +8,8 @@ import {
   removeCartItem,
   type CartItem
 } from "../../../lib/cart-storage";
+import { getBankTransferInstructions } from "../../../lib/bank-transfer";
+import type { BankTransferInstructions } from "../../../types";
 import {
   getMercadoPagoCheckoutUrl,
   redirectToMercadoPago,
@@ -29,6 +31,11 @@ export function useCheckoutPage(params: { authLoading: boolean; isAuthenticated:
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [bankTransfer, setBankTransfer] = useState<{
+    orderId: number;
+    instructions: BankTransferInstructions;
+    publicStatusToken: string | null;
+  } | null>(null);
   const total = useMemo(
     () => items.reduce((sum, item) => sum + item.unit_price * item.quantity, 0),
     [items]
@@ -86,6 +93,19 @@ export function useCheckoutPage(params: { authLoading: boolean; isAuthenticated:
         return;
       }
       clearCart();
+      const instructions = getBankTransferInstructions(result.payment);
+      if (instructions) {
+        // Replaces the generic confirmation: the customer still has to send the
+        // money, so the screen has to tell them how.
+        setBankTransfer({
+          orderId: result.order.id,
+          instructions,
+          // Lets a guest -- who has no account to come back to -- keep a link
+          // to these same instructions.
+          publicStatusToken: result.payment?.public_status_token ?? null
+        });
+        return;
+      }
       if (result.payment) {
         if (result.payment.method === "cash") {
           setSuccess(
@@ -137,6 +157,7 @@ export function useCheckoutPage(params: { authLoading: boolean; isAuthenticated:
     loading,
     error,
     success,
+    bankTransfer,
     onIncrementItem,
     onDecrementItem,
     onRemoveItem,

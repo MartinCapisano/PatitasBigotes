@@ -1,25 +1,39 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { formatArs, useCheckoutPage } from "../features/checkout";
+import {
+  BankTransferInstructions,
+  formatArs,
+  getAvailablePaymentMethods,
+  useCheckoutPage
+} from "../features/checkout";
 import type { CheckoutPaymentMethod } from "../services/checkout-api";
 
 export function CheckoutPage() {
   const { isLoading: authLoading, isAuthenticated } = useAuth();
   const checkout = useCheckoutPage({ authLoading, isAuthenticated });
+  const paymentMethods = getAvailablePaymentMethods();
 
   return (
     <section>
       <h1 className="page-title">Finalizar compra</h1>
       {authLoading && <p className="muted">Verificando sesion...</p>}
       <p className="page-subtitle">
-        {authLoading
+        {checkout.bankTransfer
+          ? "Tu orden quedo registrada. Falta un paso: hacer la transferencia."
+          : authLoading
           ? "Estamos validando tu sesion antes de continuar."
           : isAuthenticated
           ? "Checkout de cuenta: se crea orden del usuario y se envia a submitted."
           : "Checkout invitado: completa tus datos para enviar la orden."}
       </p>
 
-      {checkout.items.length === 0 ? (
+      {checkout.bankTransfer ? (
+        <BankTransferInstructions
+          orderId={checkout.bankTransfer.orderId}
+          instructions={checkout.bankTransfer.instructions}
+          publicStatusToken={checkout.bankTransfer.publicStatusToken}
+        />
+      ) : checkout.items.length === 0 ? (
         <div className="card">
           <p>Tu carrito esta vacio.</p>
           <Link className="btn btn-small" to="/home">
@@ -77,9 +91,11 @@ export function CheckoutPage() {
             <label>
               Metodo de pago
               <select className="input" value={checkout.paymentMethod} onChange={(event) => checkout.setPaymentMethod(event.target.value as CheckoutPaymentMethod)}>
-                <option value="bank_transfer">Transferencia</option>
-                <option value="mercadopago">MercadoPago</option>
-                <option value="cash">Efectivo</option>
+                {paymentMethods.map((method) => (
+                  <option key={method.value} value={method.value}>
+                    {method.label}
+                  </option>
+                ))}
               </select>
             </label>
             {!authLoading && !isAuthenticated && (

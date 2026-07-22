@@ -483,6 +483,90 @@ a {
   margin-top: 0.8rem;
 }
 
+.transfer-card {
+  margin-top: 1rem;
+  max-width: 640px;
+}
+
+.transfer-deadline {
+  margin: 0.9rem 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fef2f2;
+}
+
+.transfer-amount-block {
+  margin: 1rem 0;
+  padding: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.transfer-data {
+  margin: 1rem 0;
+  display: grid;
+}
+
+.transfer-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 0.6rem 0;
+}
+
+.transfer-row-main {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.transfer-row-side {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.transfer-label {
+  font-size: 0.8rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.transfer-value {
+  font-weight: 700;
+  word-break: break-all;
+}
+
+.transfer-copy-status {
+  font-size: 0.8rem;
+  min-width: 4.5rem;
+}
+
+.transfer-keep-link {
+  margin: 1rem 0;
+  padding: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.transfer-details {
+  margin-top: 0.6rem;
+}
+
+.transfer-details > summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #7a5a45;
+  padding: 0.35rem 0;
+}
+
 .options-grid {
   display: flex;
   flex-wrap: wrap;
@@ -915,6 +999,11 @@ a {
     min-width: 0;
     justify-items: start;
     text-align: left;
+  }
+
+  .transfer-row {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .product-detail-layout {

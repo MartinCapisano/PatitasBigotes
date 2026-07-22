@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { type PaymentReturnVariant, usePaymentReturnStatus } from "../features/checkout";
+import { formatMoney } from "../lib/money";
 import type { PublicOrderBlockingReason } from "../types";
 
 const CONTENT: Record<PaymentReturnVariant, { title: string; subtitle: string }> = {
@@ -25,14 +26,6 @@ const BLOCKING_REASON_MESSAGE: Record<PublicOrderBlockingReason, string> = {
   stock_reservation_expired: "La reserva de stock vencio. Ya no podemos reintentar este pago.",
   checkout_unavailable: "No pudimos recuperar el enlace de Mercado Pago para este intento.",
 };
-
-function formatAmount(amount: number, currency: string) {
-  return new Intl.NumberFormat("es-AR", {
-    style: "currency",
-    currency: currency || "ARS",
-    maximumFractionDigits: 0,
-  }).format(amount / 100);
-}
 
 export function PaymentReturnPage({ variant }: { variant: PaymentReturnVariant }) {
   const {
@@ -63,13 +56,13 @@ export function PaymentReturnPage({ variant }: { variant: PaymentReturnVariant }
         <div className="card">
           <p><strong>Estado del pago:</strong> {snapshot.payment.status}</p>
           <p className="muted">Estado de orden: {snapshot.order.status}</p>
-          <p><strong>Total:</strong> {formatAmount(snapshot.order.total_amount, snapshot.order.currency)}</p>
+          <p><strong>Total:</strong> {formatMoney(snapshot.order.total_amount, snapshot.order.currency)}</p>
           {snapshot.order.items.length > 0 && (
             <div>
               <p><strong>Detalle:</strong></p>
               {snapshot.order.items.map((item, index) => (
                 <p className="muted" key={`${item.product_name ?? "producto"}-${item.variant_label}-${index}`}>
-                  {item.quantity} x {item.product_name ?? "Producto"} ({item.variant_label}) - {formatAmount(item.line_total, snapshot.order.currency)}
+                  {item.quantity} x {item.product_name ?? "Producto"} ({item.variant_label}) - {formatMoney(item.line_total, snapshot.order.currency)}
                 </p>
               ))}
             </div>

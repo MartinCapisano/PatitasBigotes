@@ -1,4 +1,5 @@
 import type { CartItem } from "../lib/cart-storage";
+import type { BankTransferInstructions } from "../types";
 import { http } from "./http";
 import { buildIdempotencyKey } from "./idempotency";
 
@@ -26,6 +27,8 @@ type OrderData = {
   items: Array<{ id: number }>;
 };
 
+export type { BankTransferInstructions };
+
 type PaymentData = {
   id: number;
   method: "bank_transfer" | "mercadopago" | "cash";
@@ -40,6 +43,7 @@ type PaymentData = {
       sandbox_init_point?: string | null;
       public_status_token?: string | null;
     };
+    instructions?: Partial<BankTransferInstructions>;
   };
 };
 

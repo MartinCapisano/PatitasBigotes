@@ -36,12 +36,34 @@ vi.mock("../../../lib/cart-storage", async () => {
   };
 });
 
-vi.mock("../../../services/checkout-api", () => ({
-  submitGuestCheckoutFromCart: vi.fn(),
-  submitAuthenticatedCheckoutFromCart: vi.fn(),
-  getMercadoPagoCheckoutUrl: vi.fn(),
-  redirectToMercadoPago: vi.fn(),
-}));
+// Only the network calls are stubbed. `lib/bank-transfer` is left alone: it is
+// a pure reader of the payment payload, and the point here is what the hook
+// does with its result.
+vi.mock("../../../services/checkout-api", async () => {
+  const actual = await vi.importActual<typeof import("../../../services/checkout-api")>(
+    "../../../services/checkout-api"
+  );
+  return {
+    ...actual,
+    submitGuestCheckoutFromCart: vi.fn(),
+    submitAuthenticatedCheckoutFromCart: vi.fn(),
+    getMercadoPagoCheckoutUrl: vi.fn(),
+    redirectToMercadoPago: vi.fn(),
+  };
+});
+
+const TRANSFER_INSTRUCTIONS = {
+  alias: "patitas.bigotes.real",
+  cbu: "0110599520000012345678",
+  bank_name: "Banco Nacion",
+  holder: "Martin Capisano",
+  tax_id: "20-35123456-7",
+  reference: "ORDER-42-PAY-7",
+  amount: 10000,
+  currency: "ARS",
+  whatsapp_number: "5493511234567",
+  whatsapp_url: "https://wa.me/5493511234567?text=Referencia%3A%20ORDER-42-PAY-7",
+};
 
 function wrapper() {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -103,6 +125,122 @@ describe("useCheckoutPage", () => {
     expect(clearCart).toHaveBeenCalledTimes(1);
     expect(result.current.success).toContain("Orden #42");
     expect(result.current.error).toBe("");
+  });
+
+  it("hands the guest the transfer instructions instead of a plain confirmation", async () => {
+    vi.mocked(submitGuestCheckoutFromCart).mockResolvedValue({
+      order: { id: 42, status: "submitted", total_amount: 10000, items: [{ id: 1 }] },
+      payment: {
+        id: 7,
+        method: "bank_transfer",
+        status: "pending",
+        amount: 10000,
+        currency: "ARS",
+        provider_payload_data: { instructions: TRANSFER_INSTRUCTIONS },
+      },
+    });
+
+    const { result } = renderHook(
+      () => useCheckoutPage({ authLoading: false, isAuthenticated: false }),
+      { wrapper: wrapper() }
+    );
+
+    await act(async () => {
+      await result.current.onFinalizeCheckout();
+    });
+
+    expect(result.current.bankTransfer).toEqual({
+      orderId: 42,
+      instructions: TRANSFER_INSTRUCTIONS,
+      publicStatusToken: null,
+    });
+    expect(result.current.success).toBe("");
+    expect(clearCart).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands the logged-in shopper the same instructions as the guest", async () => {
+    vi.mocked(submitAuthenticatedCheckoutFromCart).mockResolvedValue({
+      order: { id: 99, status: "submitted", total_amount: 10000, items: [{ id: 1 }] },
+      payment: {
+        id: 8,
+        method: "bank_transfer",
+        status: "pending",
+        amount: 10000,
+        currency: "ARS",
+        provider_payload_data: { instructions: TRANSFER_INSTRUCTIONS },
+      },
+    });
+
+    const { result } = renderHook(
+      () => useCheckoutPage({ authLoading: false, isAuthenticated: true }),
+      { wrapper: wrapper() }
+    );
+
+    await act(async () => {
+      await result.current.onFinalizeCheckout();
+    });
+
+    expect(result.current.bankTransfer).toEqual({
+      orderId: 99,
+      instructions: TRANSFER_INSTRUCTIONS,
+      publicStatusToken: null,
+    });
+  });
+
+  it("carries the public token so a guest keeps a way back to the instructions", async () => {
+    vi.mocked(submitGuestCheckoutFromCart).mockResolvedValue({
+      order: { id: 42, status: "submitted", total_amount: 10000, items: [{ id: 1 }] },
+      payment: {
+        id: 7,
+        method: "bank_transfer",
+        status: "pending",
+        amount: 10000,
+        currency: "ARS",
+        public_status_token: "tok-invitado-42",
+        provider_payload_data: { instructions: TRANSFER_INSTRUCTIONS },
+      },
+    });
+
+    const { result } = renderHook(
+      () => useCheckoutPage({ authLoading: false, isAuthenticated: false }),
+      { wrapper: wrapper() }
+    );
+
+    await act(async () => {
+      await result.current.onFinalizeCheckout();
+    });
+
+    expect(result.current.bankTransfer?.publicStatusToken).toBe("tok-invitado-42");
+  });
+
+  it("falls back to the plain confirmation when the instructions come incomplete", async () => {
+    // Better a bare confirmation than a screen with a blank CBU next to an
+    // amount: the customer could transfer into the void.
+    const withoutCbu: Partial<typeof TRANSFER_INSTRUCTIONS> = { ...TRANSFER_INSTRUCTIONS };
+    delete withoutCbu.cbu;
+    vi.mocked(submitGuestCheckoutFromCart).mockResolvedValue({
+      order: { id: 42, status: "submitted", total_amount: 10000, items: [{ id: 1 }] },
+      payment: {
+        id: 7,
+        method: "bank_transfer",
+        status: "pending",
+        amount: 10000,
+        currency: "ARS",
+        provider_payload_data: { instructions: withoutCbu },
+      },
+    });
+
+    const { result } = renderHook(
+      () => useCheckoutPage({ authLoading: false, isAuthenticated: false }),
+      { wrapper: wrapper() }
+    );
+
+    await act(async () => {
+      await result.current.onFinalizeCheckout();
+    });
+
+    expect(result.current.bankTransfer).toBeNull();
+    expect(result.current.success).toContain("Orden #42");
   });
 
   it("uses the authenticated checkout endpoint when the shopper is logged in", async () => {

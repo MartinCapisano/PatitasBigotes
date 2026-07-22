@@ -90,6 +90,21 @@ export type MyOrder = {
   items: MyOrderItem[];
 };
 
+/** What the customer needs in order to transfer. Built by the backend so the
+ *  checkout screen, the email and "Mi cuenta" all say exactly the same thing. */
+export type BankTransferInstructions = {
+  alias: string;
+  cbu: string;
+  bank_name: string;
+  holder: string;
+  tax_id: string;
+  reference: string;
+  amount: number;
+  currency: string;
+  whatsapp_number: string;
+  whatsapp_url: string;
+};
+
 export type MyPayment = {
   id: number;
   order_id: number;
@@ -108,9 +123,29 @@ export type MyPayment = {
       sandbox_init_point?: string | null;
       public_status_token?: string | null;
     };
+    instructions?: Partial<BankTransferInstructions>;
   };
   created_at: string;
   paid_at: string | null;
+};
+
+export type PublicBankTransferItem = {
+  product_name: string | null;
+  variant_label: string;
+  quantity: number;
+  line_total: number;
+};
+
+export type PublicBankTransferStatus = {
+  order_id: number;
+  order_status: string;
+  order_total: number;
+  currency: string;
+  items: PublicBankTransferItem[];
+  payment_id: number;
+  payment_status: string;
+  can_pay: boolean;
+  instructions: Partial<BankTransferInstructions> | null;
 };
 
 export type PublicOrderBlockingReason =
