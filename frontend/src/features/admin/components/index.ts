@@ -5,6 +5,7 @@ export { DiscountsSection } from "./DiscountsSection";
 export { TurnsSection } from "./TurnsSection";
 export { OrdersPaymentsSection } from "./OrdersPaymentsSection";
 export { PaymentIncidentsSection } from "./PaymentIncidentsSection";
+export { BankTransfersSection } from "./BankTransfersSection";
 export { RegisterPaymentSection } from "./RegisterPaymentSection";
 export { SalesSection } from "./SalesSection";
 export { AdminActionsMenu } from "./shared/AdminActionsMenu";

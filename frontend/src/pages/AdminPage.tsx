@@ -5,6 +5,7 @@ import {
   type AdminMode,
   type AdminSection,
   formatArs,
+  useAdminBankTransfers,
   useAdminCatalog,
   useAdminDiscounts,
   useAdminPaymentIncidents,
@@ -15,6 +16,7 @@ import {
 } from "../features/admin";
 import {
   AdminSectionTabs,
+  BankTransfersSection,
   CategoriesSection,
   CatalogSection,
   DiscountsSection,
@@ -42,6 +44,7 @@ export function AdminPage() {
   });
   const ordersPayments = useAdminOrdersPayments({ adminSection });
   const paymentIncidents = useAdminPaymentIncidents({ adminSection });
+  const bankTransfers = useAdminBankTransfers({ adminSection });
   const sales = useAdminSales({
     adminSection,
     productsSorted: catalog.productsSorted,
@@ -297,6 +300,19 @@ export function AdminPage() {
           paymentsList={ordersPayments.paymentsList}
           selectedOrder={ordersPayments.selectedOrder}
           orderPayments={ordersPayments.orderPayments}
+          formatArs={formatArs}
+        />
+      )}
+
+      {adminSection === "transferencias" && (
+        <BankTransfersSection
+          transfers={bankTransfers.transfers}
+          loading={bankTransfers.loading}
+          error={bankTransfers.error}
+          success={bankTransfers.success}
+          confirmingPaymentId={bankTransfers.confirmingPaymentId}
+          confirmTransfer={bankTransfers.confirmTransfer}
+          reload={bankTransfers.reload}
           formatArs={formatArs}
         />
       )}

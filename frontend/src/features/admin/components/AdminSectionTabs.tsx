@@ -31,6 +31,8 @@ export function AdminSectionTabs(props: {
             ? "Incidencias"
             : section === "registrar_venta"
             ? "Registrar venta"
+            : section === "transferencias"
+            ? "Transferencias"
             : "Registrar pago"}
         </button>
       ))}

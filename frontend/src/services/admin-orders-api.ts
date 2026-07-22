@@ -57,6 +57,29 @@ export type AdminPayment = {
   paid_at: string | null;
 };
 
+/**
+ * A row of the admin's pending-transfer queue.
+ *
+ * Richer than `AdminPayment` because verifying a transfer is a human crossing a
+ * line of a bank statement with an order: the reference the customer was told to
+ * write, who bought, the exact amount, and when the stock reservation lapses --
+ * the clock that actually cancels the order.
+ */
+export type AdminPendingBankTransfer = AdminPayment & {
+  reference: string;
+  order_total: number | null;
+  reservation_expires_at: string | null;
+  customer: {
+    id: number;
+    first_name: string;
+    last_name: string;
+    email: string;
+    dni: string | null;
+    phone: string | null;
+    has_account: boolean;
+  } | null;
+};
+
 export type AdminPaymentIncident = {
   id: number;
   order_id: number;
@@ -120,6 +143,17 @@ export async function listAdminPayments(params?: {
   if (params?.sort_by) qs.set("sort_by", params.sort_by);
   if (params?.sort_dir) qs.set("sort_dir", params.sort_dir);
   const response = await http.get<{ data: AdminPayment[] }>(`/admin/payments?${qs.toString()}`);
+  return response.data.data;
+}
+
+export async function listAdminPendingBankTransfers(params?: {
+  limit?: number;
+}): Promise<AdminPendingBankTransfer[]> {
+  const qs = new URLSearchParams();
+  if (params?.limit) qs.set("limit", String(params.limit));
+  const response = await http.get<{ data: AdminPendingBankTransfer[] }>(
+    `/admin/payments/bank-transfer/pending?${qs.toString()}`
+  );
   return response.data.data;
 }
 

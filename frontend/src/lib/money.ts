@@ -25,3 +25,18 @@ export function formatMoney(cents: number | null, currency: string = "ARS"): str
 export function formatArs(cents: number | null): string {
   return formatMoney(cents, "ARS");
 }
+
+/**
+ * The same amount, without the currency symbol, ready to sit in a text input.
+ *
+ * Prefilling an amount field is only safe if what lands there is typeable back:
+ * `$ 260` in a box that expects `259,90` is exactly the trap that made the
+ * admin unable to confirm a payment by copying what the screen showed.
+ */
+export function formatAmountForInput(cents: number | null): string {
+  if (cents === null) return "";
+  return new Intl.NumberFormat("es-AR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(cents / 100);
+}
