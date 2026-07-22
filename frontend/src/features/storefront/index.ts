@@ -1,3 +1,3 @@
 export * from "./types";
-export * from "./utils/format";
+export { formatArs, formatMoney } from "../../lib/money";
 export * from "./hooks";

@@ -12,7 +12,8 @@ function parseMoneyInputToCents(rawValue: string): number {
   return Number.parseInt(digitsOnly, 10);
 }
 
-function normalizePaymentAmountsForOrder(params: {
+/** Exported for the regression test that guards "what the screen shows is typeable". */
+export function normalizePaymentAmountsForOrder(params: {
   paidRaw: string;
   changeRaw: string;
   totalCents: number;
