@@ -5,6 +5,7 @@ export type AuthUiErrorKind =
   | "csrf"
   | "validation"
   | "conflict"
+  | "rate-limit"
   | "server"
   | "unknown";
 
@@ -111,11 +112,26 @@ export function classifyHttpError(error: unknown): ClassifiedHttpError {
   if (status === 409) {
     return { kind: "conflict", status, detail, isNetwork: false };
   }
+  if (status === 429) {
+    return { kind: "rate-limit", status, detail, isNetwork: false };
+  }
   if (status !== null && status >= 500) {
     return { kind: "server", status, detail, isNetwork: false };
   }
   return { kind: "unknown", status, detail, isNetwork: false };
 }
+
+/**
+ * Red de seguridad para el 429 de los envios de email.
+ *
+ * El cooldown del boton (`useEmailCooldown`) impide que el usuario *provoque*
+ * este error con un click, pero no cubre dos pestanas abiertas ni los limites
+ * por ventana (6 cada 10 min) o por IP (20). Cuando el 429 llegue igual, que no
+ * llegue en ingles: el backend manda "please wait before retrying verification"
+ * y sin esto se mostraba crudo.
+ */
+const EMAIL_RATE_LIMIT_MESSAGE =
+  "Estas pidiendo emails muy seguido. Espera unos minutos e intenta de nuevo.";
 
 function retryPaymentMessage(detail: string | null): string | null {
   if (detail === "retry not allowed: order cancelled") {
@@ -201,6 +217,9 @@ export function toUserMessage(error: unknown, context: ErrorContext): string {
     if (classified.kind === "server") {
       return "Error interno del servidor. Intenta nuevamente en unos minutos.";
     }
+    if (classified.kind === "rate-limit") {
+      return EMAIL_RATE_LIMIT_MESSAGE;
+    }
     if (classified.detail) {
       return classified.detail;
     }
@@ -216,6 +235,9 @@ export function toUserMessage(error: unknown, context: ErrorContext): string {
     }
     if (classified.kind === "server") {
       return "Error interno del servidor. Intenta nuevamente en unos minutos.";
+    }
+    if (classified.kind === "rate-limit") {
+      return EMAIL_RATE_LIMIT_MESSAGE;
     }
     if (classified.kind === "validation" || classified.kind === "forbidden" || classified.kind === "conflict") {
       return "No pudimos restablecer la password con este enlace. Solicita uno nuevo.";
@@ -235,6 +257,9 @@ export function toUserMessage(error: unknown, context: ErrorContext): string {
     }
     if (classified.kind === "server") {
       return "Error interno del servidor. Intenta nuevamente en unos minutos.";
+    }
+    if (classified.kind === "rate-limit") {
+      return EMAIL_RATE_LIMIT_MESSAGE;
     }
     if (classified.detail) {
       return classified.detail;
