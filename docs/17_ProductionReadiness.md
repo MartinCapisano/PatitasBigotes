@@ -400,8 +400,10 @@ privado el cron **superaría la cuota gratuita**. Conviene verificarlo.
 
 - [x] ~~Setear `FORWARDED_ALLOW_IPS` — el rate limiting por IP hoy no funciona~~ — resuelto vía
   `--forwarded-allow-ips '*'` en el `startCommand` de `render.yaml`. Ver §11.1.
+- [ ] **Cargar las variables de entorno que no están en `render.yaml`** — ver §11.2. Una de ellas rompe el login
+  y **no falla en el arranque**
 - [ ] Verificar que `alembic` esté disponible en el build de Render
-- [ ] `pool_pre_ping=True` en el engine
+- [x] ~~`pool_pre_ping=True` en el engine~~ — resuelto junto con `pool_recycle=300` (`db/session.py`)
 - [ ] Alerta si falla el cron de mantenimiento
 - [ ] **Probar una restauración de backup**
 - [ ] Health check que verifique la base
@@ -466,6 +468,62 @@ que sostiene la seguridad de este cambio.
 **Pendiente operativo.** Las filas `scope="ip"` ya existentes en `auth_login_throttles` quedaron
 acumuladas bajo la IP del proxy. Conviene purgarlas junto con el deploy para no arrastrar bloqueos
 espurios sobre lo que ahora es una IP real de cliente.
+
+### 11.2 Variables de entorno a cargar a mano antes del deploy
+
+`render.yaml` declara 28 variables, pero **21 van con `sync: false`**: el Blueprint las pide al crear el
+servicio y quedan vacías si alguien las saltea. Esta sección es la lista de qué pasa si falta cada una,
+ordenada por **cuándo se entera uno**.
+
+#### 🔴 La trampa: la que no está declarada en `render.yaml`
+
+| Variable | Qué pasa si falta |
+|---|---|
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `obtener_config_jwt()` tira `RuntimeError` → **el login responde 500**. No tiene default y **no está en `render.yaml`**, así que Render no la pide en el setup del Blueprint: nadie la va a extrañar hasta que un usuario intente entrar |
+
+Es la peor de la lista porque **la app arranca perfecto**: el health check pasa, el catálogo se ve, y el
+login falla. Setearla en el dashboard (`120` es el valor de `.env.production.example`) o, mejor, agregarla a
+`render.yaml` con valor.
+
+#### 🟠 Rompen el arranque — se ven en rojo en el deploy
+
+Fallan al importar `main.py`, así que el deploy muere y Render lo muestra al instante. Molestas pero honestas.
+
+| Variable(s) | Validación |
+|---|---|
+| `DATABASE_URL` | `RuntimeError` al importar `db/session.py` |
+| `BANK_TRANSFER_ALIAS` · `_CBU` · `_BANK_NAME` · `_HOLDER` · `_CUIT` · `WHATSAPP_NUMBER` | `validate_bank_transfer_config()` — reporta **todas** las faltantes juntas |
+| `SMTP_PASSWORD` | `validate_smtp_config()`. Las otras tres obligatorias (`SMTP_HOST`, `SMTP_USERNAME`, `MAIL_FROM`) ya tienen valor en `render.yaml`; ésta va `sync: false` porque es un secreto |
+
+#### 🟡 Fallan en runtime, no en el boot
+
+| Variable(s) | Qué pasa si falta |
+|---|---|
+| `JWT_SECRET` | `RuntimeError` en el primer login |
+| `AUTH_COOKIE_SAMESITE` · `AUTH_COOKIE_SECURE` | Con `none` sin `Secure` → `RuntimeError` al setear la cookie. Cross-origin necesita **ambas** (`none` + `true`) |
+| `MAINTENANCE_RUN_TOKEN` | `/internal/maintenance/run` responde **503** — queda deshabilitado, no abierto 🔒 |
+
+#### ⚠️ No fallan: hacen algo peor
+
+Tienen default apuntando a `localhost`. No hay error en ningún log; simplemente el producto está roto de una
+forma que sólo se ve desde afuera.
+
+| Variable | Default | Síntoma real |
+|---|---|---|
+| `APP_BASE_URL` | `http://localhost:5173` | Los links de verificación de email y de reset **apuntan a localhost**. Llegan al inbox del cliente y no funcionan para nadie |
+| `CORS_ALLOW_ORIGINS` | `http://localhost:5173,...` | El frontend real recibe error de CORS en cada request |
+
+#### ⚪ No hacen falta mientras MercadoPago siga en pausa
+
+`MERCADOPAGO_ACCESS_TOKEN`, `_ENV`, `_SUCCESS_URL`, `_FAILURE_URL`, `_PENDING_URL`, `_NOTIFICATION_URL`,
+`_WEBHOOK_SECRET`. Con `MERCADOPAGO_ENABLED=false` el backend rechaza iniciar pagos con ese método y ninguna
+de estas se lee. Al reactivarlo hay que completarlas todas **y** poner `VITE_MERCADOPAGO_ENABLED=true` en el
+frontend — son dos switches distintos.
+
+> 📌 **El patrón que conviene notar.** Las variables agrupadas en 🟠 tienen validación al arranque porque
+> alguien decidió que fallaran ahí. Las de ⚠️ tienen un default cómodo para desarrollo local, y ese mismo
+> default es lo que las vuelve peligrosas en producción: un default nunca es "sin configurar", es
+> "configurado para otra cosa". Son las dos candidatas obvias a sumar a `validate_*` si esto crece.
 
 ---
 
