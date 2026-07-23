@@ -299,20 +299,24 @@ def create_guest_checkout_order(
             db.commit()
         raise_http_error_from_exception(exc, db=db)
     except Exception as exc:
-        # Ensure idempotency records created by this request don't remain stuck in 'processing'.
-        if record_created and claimed_record is not None and getattr(claimed_record, "status", None) == "processing":
-            try:
-                mark_record_failed(
-                    record=claimed_record,
-                    response_payload={"detail": str(exc)},
-                    db=db,
-                )
-                db.commit()
-            except Exception:
-                # If marking failed itself errors, rollback to avoid partial state.
-                db.rollback()
-        else:
-            db.rollback()
+        # Always roll back, with no idempotency bookkeeping — same reasoning as
+        # create_admin_sale_endpoint below. Marking the record failed here would
+        # require a commit, and that commit shares this session with everything
+        # create_manual_submitted_order() and create_payment_for_order() already
+        # wrote, so it would persist a half-built order alongside the 'failed'
+        # record. The rollback discards the acquire_record INSERT too (it lives
+        # in a SAVEPOINT inside this same transaction), so nothing is left in
+        # 'processing' and the same Idempotency-Key can be retried.
+        #
+        # The PaymentCheckoutInitializationError branch above is deliberately
+        # different: there the order and payment are fully valid and only the
+        # provider handoff failed, so committing them is what makes the recovery
+        # path on replay possible.
+        #
+        # On SQLite (the test suite) pysqlite's broken SAVEPOINT handling lets
+        # the INSERT escape this rollback and strands the record in 'processing';
+        # idempotency_sweeper_job is the backstop that ages those out.
+        db.rollback()
         clear_post_commit_actions(db=db)
         raise_http_error_from_exception(exc, db=db)
     dispatch_post_commit_actions(db=db, source="guest_checkout")
