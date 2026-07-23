@@ -2,7 +2,11 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from source.db.config import get_cors_allow_origins, validate_bank_transfer_config
+from source.db.config import (
+    get_cors_allow_origins,
+    validate_bank_transfer_config,
+    validate_smtp_config,
+)
 from source.dependencies.csrf_d import CSRFMiddleware
 from source.dependencies.security_headers_d import SecurityHeadersMiddleware
 from source.routes.auth_r import router as auth_router
@@ -29,6 +33,11 @@ logger = logging.getLogger(__name__)
 # means booting a shop that cannot be paid. Better to break the deploy here
 # than to show a customer empty bank details.
 validate_bank_transfer_config()
+
+# Los emails se mandan despues del commit y se tragan sus errores, asi que una
+# credencial faltante no se nota en runtime: la tienda anda y nadie recibe nada.
+# Este es el unico momento en que ese problema se puede ver.
+validate_smtp_config()
 
 allowed_origins = get_cors_allow_origins()
 app.add_middleware(SecurityHeadersMiddleware)

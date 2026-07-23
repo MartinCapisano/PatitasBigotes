@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from urllib.parse import urlparse
@@ -8,6 +9,8 @@ from dotenv import load_dotenv
 
 ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 load_dotenv(dotenv_path=ENV_PATH)
+
+logger = logging.getLogger(__name__)
 
 
 def get_database_url() -> str:
@@ -268,3 +271,40 @@ def get_mail_from() -> str:
     if value:
         return value
     raise RuntimeError("MAIL_FROM is required")
+
+
+SMTP_ENV_VARS = (
+    "SMTP_HOST",
+    "SMTP_USERNAME",
+    "SMTP_PASSWORD",
+    "MAIL_FROM",
+)
+
+# Los mismos entornos donde `seed_demo` se deja correr: son los que trabajan con
+# datos de mentira y a los que no les importa si el mail sale. Cualquier otro
+# valor -- incluido un typo -- cae del lado estricto a proposito.
+EMAIL_OPTIONAL_ENVIRONMENTS = {"local", "demo"}
+
+
+def validate_smtp_config() -> None:
+    """Ruidoso al arrancar, silencioso en runtime.
+
+    Los envios de email se despachan despues del commit y se tragan sus
+    excepciones (`post_commit_actions_s`): un Gmail caido a las 3 AM no puede
+    voltear una venta. El costo de esa decision es que una credencial revocada o
+    una variable borrada en Render no producen ningun error visible -- la tienda
+    funciona perfecto y nadie recibe nada.
+
+    Este chequeo es la contraparte: un deploy sin credenciales muere en el boot,
+    donde se ve en rojo al instante. En local avisa y sigue, porque ahi no tener
+    SMTP es lo normal.
+    """
+    missing = [name for name in SMTP_ENV_VARS if not os.getenv(name, "").strip()]
+    if not missing:
+        return
+
+    detail = "missing required SMTP configuration: " + ", ".join(missing)
+    if get_app_env() in EMAIL_OPTIONAL_ENVIRONMENTS:
+        logger.warning("event=smtp_config_incomplete detail=%s", detail)
+        return
+    raise RuntimeError(detail)
