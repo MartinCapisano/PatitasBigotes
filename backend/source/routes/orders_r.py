@@ -42,7 +42,6 @@ from source.services.idempotency_s import (
     mark_record_completed,
     mark_record_failed,
     normalize_idempotency_key,
-    prune_expired_records,
 )
 from source.services.payment_errors import PaymentCheckoutInitializationError
 from source.services.payment_admin_queries_s import list_payments_for_order_admin
@@ -144,8 +143,6 @@ def create_guest_checkout_order(
     claimed_record = None
     try:
         now = datetime.now(UTC)
-        prune_expired_records(now=now, db=db)
-
         normalized_key = normalize_idempotency_key(idempotency_key)
         scope = build_guest_checkout_scope(payload.customer.email)
         canonical_payload = canonicalize_payload(payload.model_dump())
@@ -155,6 +152,7 @@ def create_guest_checkout_order(
             idempotency_key=normalized_key,
             request_hash=request_hash,
             expires_at=now + timedelta(hours=IDEMPOTENCY_TTL_HOURS),
+            now=now,
             db=db,
         )
         if not record_created:
@@ -314,7 +312,6 @@ def create_admin_sale_endpoint(
     try:
         if idempotency_key is not None and str(idempotency_key).strip():
             now = datetime.now(UTC)
-            prune_expired_records(now=now, db=db)
             normalized_key = normalize_idempotency_key(idempotency_key)
             scope = f"admin_sales:{int(admin_user_id)}"
             canonical_payload = canonicalize_payload(payload.model_dump())
@@ -324,6 +321,7 @@ def create_admin_sale_endpoint(
                 idempotency_key=normalized_key,
                 request_hash=request_hash,
                 expires_at=now + timedelta(hours=IDEMPOTENCY_TTL_HOURS),
+                now=now,
                 db=db,
             )
             if not record_created:

@@ -118,6 +118,18 @@ def save_completed_record(
     return record
 
 
+def _is_expired(record: IdempotencyRecord, *, now: datetime) -> bool:
+    # SQLite hands back naive datetimes even for DateTime(timezone=True), so
+    # comparing against an aware `now` would raise. Everything written here is
+    # UTC, so reading a naive value as UTC is the truthful interpretation.
+    expires_at = record.expires_at
+    if expires_at is None:
+        return False
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    return expires_at <= now
+
+
 def acquire_record(
     *,
     scope: str,
@@ -125,26 +137,60 @@ def acquire_record(
     request_hash: str,
     db: Session,
     expires_at: datetime | None = None,
+    now: datetime | None = None,
 ) -> tuple[IdempotencyRecord, bool]:
-    record = IdempotencyRecord(
-        scope=scope,
-        idempotency_key=idempotency_key,
-        request_hash=request_hash,
-        response_payload="{}",
-        status="processing",
-        created_at=datetime.now(UTC),
-        expires_at=expires_at or (datetime.now(UTC) + timedelta(hours=IDEMPOTENCY_TTL_HOURS)),
-    )
-    try:
+    """Take (scope, idempotency_key), replacing a collision that has expired.
+
+    The unique index does not know about expires_at, so a record past its TTL
+    still collides and would come back as an unusable claim: a 'completed' one
+    replays a stale response forever, a 'processing' one answers 409 forever.
+    Something has to make an expired key claimable again.
+
+    That expiry check lives here, scoped to the one key being acquired, rather
+    than in a prune pass over the whole table at the start of each request. Same
+    effect for the caller, but O(1) and touching only rows this request owns --
+    a bulk prune took locks on up to 200 unrelated rows inside the caller's
+    transaction, so two concurrent checkouts contended over expired records
+    neither of them had asked about. Bulk cleanup belongs to the sweeper job.
+    """
+    moment = now or datetime.now(UTC)
+    deadline = expires_at or (moment + timedelta(hours=IDEMPOTENCY_TTL_HOURS))
+
+    def _insert() -> IdempotencyRecord:
+        record = IdempotencyRecord(
+            scope=scope,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            response_payload="{}",
+            status="processing",
+            created_at=moment,
+            expires_at=deadline,
+        )
         with db.begin_nested():
             db.add(record)
             db.flush()
-        return record, True
+        return record
+
+    try:
+        return _insert(), True
     except IntegrityError:
         existing = get_record(scope=scope, idempotency_key=idempotency_key, db=db)
         if existing is None:
             raise
-        return existing, False
+        if not _is_expired(existing, now=moment):
+            return existing, False
+        db.delete(existing)
+        db.flush()
+        try:
+            return _insert(), True
+        except IntegrityError:
+            # Another request claimed the key between our delete and our
+            # insert. Theirs is live by definition, so it wins and this one
+            # reports the collision as usual.
+            retaken = get_record(scope=scope, idempotency_key=idempotency_key, db=db)
+            if retaken is None:
+                raise
+            return retaken, False
 
 
 def mark_record_completed(
