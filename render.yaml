@@ -28,6 +28,14 @@ services:
         value: production
       - key: PYTHON_VERSION
         value: "3.12.7"
+      # Declarada aca con valor y no en el dashboard porque su ausencia no se
+      # nota: obtener_config_jwt() no tiene default para esta variable y tira
+      # RuntimeError si esta vacia, pero recien al emitir un token. La app
+      # arranca perfecto -- health check verde, catalogo visible -- y el login
+      # responde 500. No es un secreto, asi que no hay razon para dejarla
+      # dependiendo de que alguien se acuerde de cargarla.
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "120"
       # Secrets / environment-specific values: set these in the dashboard.
       # sync: false keeps them out of the repo and prompts on blueprint setup.
       - key: DATABASE_URL

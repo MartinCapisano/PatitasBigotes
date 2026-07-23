@@ -400,8 +400,8 @@ privado el cron **superaría la cuota gratuita**. Conviene verificarlo.
 
 - [x] ~~Setear `FORWARDED_ALLOW_IPS` — el rate limiting por IP hoy no funciona~~ — resuelto vía
   `--forwarded-allow-ips '*'` en el `startCommand` de `render.yaml`. Ver §11.1.
-- [ ] **Cargar las variables de entorno que no están en `render.yaml`** — ver §11.2. Una de ellas rompe el login
-  y **no falla en el arranque**
+- [ ] **Cargar las 21 variables `sync: false` del Blueprint** — ver §11.2. Dos de ellas no fallan nunca:
+  apuntan a `localhost` y rompen el producto en silencio
 - [ ] Verificar que `alembic` esté disponible en el build de Render
 - [x] ~~`pool_pre_ping=True` en el engine~~ — resuelto junto con `pool_recycle=300` (`db/session.py`)
 - [ ] Alerta si falla el cron de mantenimiento
@@ -471,19 +471,20 @@ espurios sobre lo que ahora es una IP real de cliente.
 
 ### 11.2 Variables de entorno a cargar a mano antes del deploy
 
-`render.yaml` declara 28 variables, pero **21 van con `sync: false`**: el Blueprint las pide al crear el
-servicio y quedan vacías si alguien las saltea. Esta sección es la lista de qué pasa si falta cada una,
+`render.yaml` declara 30 variables: **9 con valor** y **21 con `sync: false`**. Estas últimas el Blueprint las
+pide al crear el servicio, y quedan vacías si alguien las saltea. Esta sección es la lista de qué pasa si falta cada una,
 ordenada por **cuándo se entera uno**.
 
-#### 🔴 La trampa: la que no está declarada en `render.yaml`
+#### ✅ Resuelto: `ACCESS_TOKEN_EXPIRE_MINUTES`
 
-| Variable | Qué pasa si falta |
-|---|---|
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | `obtener_config_jwt()` tira `RuntimeError` → **el login responde 500**. No tiene default y **no está en `render.yaml`**, así que Render no la pide en el setup del Blueprint: nadie la va a extrañar hasta que un usuario intente entrar |
+Faltaba en `render.yaml` y no tiene default: `obtener_config_jwt()` tira `RuntimeError` si está vacía, pero
+recién al emitir un token. La app arrancaba perfecto —health check verde, catálogo visible— y **el login
+respondía 500**. Como el Blueprint sólo pide las `sync: false`, nadie la iba a extrañar hasta que un usuario
+intentara entrar.
 
-Es la peor de la lista porque **la app arranca perfecto**: el health check pasa, el catálogo se ve, y el
-login falla. Setearla en el dashboard (`120` es el valor de `.env.production.example`) o, mejor, agregarla a
-`render.yaml` con valor.
+Ahora está declarada **con valor** (`120`), no en el dashboard. No es un secreto, así que no había razón para
+dejarla dependiendo de que alguien se acordara. Si aparece un impulso de "limpiarla" de `render.yaml` por
+redundante, el comentario en el archivo explica por qué está ahí.
 
 #### 🟠 Rompen el arranque — se ven en rojo en el deploy
 

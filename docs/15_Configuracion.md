@@ -481,7 +481,8 @@ Extraído de `DEPLOYMENT.md`, `render.yaml` y los `.env.production.example`:
 - [ ] `APP_ENV=production`
 - [ ] `DATABASE_URL`
 - [ ] `JWT_SECRET` largo y aleatorio
-- [ ] `ACCESS_TOKEN_EXPIRE_MINUTES`
+- [ ] `ACCESS_TOKEN_EXPIRE_MINUTES` — ya viene con valor en `render.yaml`; no tiene default en el código y sin
+      ella el login responde 500 con la app aparentemente sana
 - [ ] `AUTH_COOKIE_SAMESITE=none` **y** `AUTH_COOKIE_SECURE=true`
 - [ ] `APP_BASE_URL` = URL del frontend
 - [ ] `CORS_ALLOW_ORIGINS` = URL exacta del frontend, sin wildcards
