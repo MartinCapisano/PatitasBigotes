@@ -40,8 +40,21 @@ Cargar en el dashboard de Render todas las variables de `backend/.env.production
 - `MERCADOPAGO_ENABLED=false` = MercadoPago esta **en pausa** (ver [docs/mercadopago.md](docs/mercadopago.md)). Mientras siga en `false`, el resto de las `MERCADOPAGO_*` no hace falta completarlas
 - `MERCADOPAGO_*` = credenciales y URLs reales de produccion (solo al reactivar MP)
 - `MAINTENANCE_RUN_TOKEN` = token largo aleatorio (paso 4)
+- `SMTP_HOST` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `MAIL_FROM` = credenciales de Gmail. **El backend no arranca sin las cuatro** (ver abajo)
 
 > El `alembic upgrade head` del build corre contra Supabase; el proyecto debe estar activo (no pausado) durante el deploy.
+
+### 2.1 SMTP con Gmail
+
+`render.yaml` ya trae `SMTP_HOST`, `SMTP_PORT`, `SMTP_USE_TLS`, `SMTP_USERNAME` y `MAIL_FROM` con valor. La unica que hay que cargar a mano en el dashboard es **`SMTP_PASSWORD`** (`sync: false` — nunca va al repo).
+
+**El backend no arranca si falta alguna.** Es deliberado: los emails se despachan despues del commit y se tragan sus errores, asi que en runtime una credencial revocada no da ningun sintoma — la tienda funciona perfecto y nadie recibe nada. El boot es el unico momento en que ese problema se ve, y ahi se ve en rojo. En local (`APP_ENV=local`) arranca igual y avisa con un `WARNING`.
+
+Tres trampas de Gmail, en orden de cuanto tiempo hacen perder:
+
+1. **`SMTP_PASSWORD` es un *app password*, no la contrasena de la cuenta.** Google solo ofrece la opcion si la cuenta tiene **verificacion en 2 pasos activada**. Sin 2FA no aparece por ningun lado, y no dice por que.
+2. **`MAIL_FROM` tiene que ser la misma direccion que `SMTP_USERNAME`.** Si no coinciden, Gmail reescribe el header `From` y el cliente ve la casilla de Gmail igual — el remitente "lindo" no llega nunca.
+3. **Un mail desde `@gmail.com` hablando de ordenes cae en spam mas seguido** que uno de dominio propio. Por eso el aviso de "revisa spam" en la app no es una formalidad. Si el volumen crece, la salida es un dominio propio con SPF/DKIM, no pelearle al filtro.
 
 ## 3. Frontend — Vercel / Cloudflare Pages
 

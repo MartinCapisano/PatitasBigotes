@@ -20,6 +20,7 @@ sequenceDiagram
     participant AB as anti_abuse_s
     participant US as users_s
     participant AT as auth_tokens_s
+    participant PC as post_commit_actions_s
     participant EM as email_s
     participant DB as PostgreSQL
 
@@ -45,9 +46,10 @@ sequenceDiagram
     AT->>DB: INSERT auth_action_tokens (solo el hash SHA-256)
     AT-->>API: token crudo
     API->>DB: UPDATE users SET email_verification_sent_at = now
-    API->>EM: send_email_verification(email, APP_BASE_URL/verify-email?token=…)
-    Note over EM: ⚠️ SMTP síncrono DENTRO de la transacción
+    API->>PC: enqueue_post_commit_email_verification(email, APP_BASE_URL/verify-email?token=…)
     API->>DB: COMMIT (get_db_transactional)
+    API->>PC: dispatch_post_commit_actions(source="transactional")
+    PC->>EM: send_email_verification  (fallo → solo logger.exception)
     API-->>FE: 201 {data:{registered:true}}
     FE->>FE: savePendingVerificationEmail(email) en localStorage
     FE->>U: navigate("/login", state:{reason:"registration_completed"})
@@ -56,9 +58,13 @@ sequenceDiagram
 **Tablas escritas:** `users`, `auth_action_tokens`, `auth_login_throttles`
 
 **Puntos a tener en cuenta:**
-- ⚠️ El email se envía **dentro** de la transacción. Si el SMTP tarda o falla, la transacción se alarga o revierte
-  el alta. Contrasta con el flujo de pago, que usa `post_commit_actions`. Ver
-  [18_Roadmap.md](18_Roadmap.md#R-04).
+- 🟢 El email se **encola** y sale después del `COMMIT`, igual que el flujo de pago ([R-04](18_Roadmap.md#R-04),
+  hecho). Con el SMTP caído la cuenta se crea igual y el endpoint responde 201; antes el alta hacía rollback y el
+  usuario veía un 500.
+- ⚠️ La contracara: el envío es **silencioso**. La respuesta se arma antes de que el mail salga, así que la ruta
+  no puede saber si funcionó — un fallo deja sólo un `logger.exception`. Lo que hace visible el problema es el
+  chequeo de SMTP al arranque (`validate_smtp_config`, ver [15_Configuracion.md](15_Configuracion.md#25-smtp)):
+  si falta una credencial en producción, la app no levanta.
 - 🟢 El *upgrade de invitado* es transparente: el cliente que compró sin cuenta y luego se registra encuentra sus
   órdenes anteriores en `/profile`.
 - El banner de "Verifica tu email" en `Layout` se alimenta del `localStorage` que escribe este flujo.
@@ -925,6 +931,39 @@ sequenceDiagram
 | Registro de pago | 3 | `payment_s`, `stock_reservations_s`, `post_commit_actions_s` | 5 tablas | SMTP |
 | Reembolso | 2 | `refund_s`, `mercadopago_client`, `domain_events_s` | `payment_incidents`, `payment_refunds`, `notifications` | Mercado Pago |
 | Catálogo admin | 5+ | `products_s` | `products`, `product_variants`, `categories` | — |
+
+---
+
+## 18. Los emails del sistema
+
+Son **cuatro**, todos texto plano, todos enviados por `email_s.py`. Ninguno se manda dentro de una transacción:
+se encolan con `post_commit_actions_s` y salen después del `COMMIT`. Si el envío falla, se registra con
+`logger.exception` y el flujo sigue — un SMTP caído no puede voltear un alta ni una venta.
+
+| Email | Asunto | Cuándo | Se encola en |
+|---|---|---|---|
+| Verificación de cuenta | `Verifica tu email` | Registro, reenvío manual, y cambio de email en el perfil | `auth_r.py` (×2), `auth_s.py` |
+| Restablecer contraseña | `Restablecer contraseña` | Pedido de reset desde *Recuperar password* | `auth_r.py` |
+| Recibimos tu orden | `Recibimos tu orden #N` | Al crearse el pago por **transferencia** (es decir, al terminar el checkout) | `payment_s.py` |
+| Pago confirmado | `Confirmamos el pago de tu orden #N` | Cuando el admin confirma la transferencia (evento `order_paid`) | `domain_events_s.py` |
+
+**«Recibimos tu orden» es también el de instrucciones bancarias.** No son dos mails: con transferencia como único
+método, ambos se dispararían en el mismo instante por la misma orden, y un *«recibimos tu orden»* sin el CBU es un
+callejón sin salida. Lleva los datos bancarios primero y el detalle del pedido después — el orden importa, porque
+en un celular el detalle arriba empujaría el CBU abajo del pliegue.
+
+> ⚠️ **El acoplamiento a dejar escrito: «Recibimos tu orden» cuelga de la rama de transferencia.**
+> Se encola en la creación del pago por transferencia (`payment_s.py`), no en el envío de la orden. Mercado Pago no
+> está borrado, está apagado con `MERCADOPAGO_ENABLED` (`db/config.py`). **El día que alguien lo ponga en `true`,
+> las órdenes de MP no recibirán ningún email de confirmación**: nunca pasan por esa rama. Sin error y sin test en
+> rojo.
+>
+> Se decidió no anticiparlo. Engancharlo en `order_submitted` obligaría a escribir una rama "sin datos bancarios"
+> que hoy ninguna orden puede recorrer: código muerto que se activaría solo, sin supervisión, el día que alguien
+> toca una variable de entorno. La contención es esta línea y el comentario en el sitio del enqueue.
+
+**Las ventas presenciales del admin saltean el mail de pago confirmado a propósito** (`orders_s.py`): el cliente
+está en el mostrador.
 
 ---
 

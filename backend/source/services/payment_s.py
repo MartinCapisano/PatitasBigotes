@@ -269,6 +269,12 @@ def _enqueue_bank_transfer_instructions_email(
     Post-commit by design: the order and the payment must survive even if the
     mail server is down. Missing pieces are logged and skipped rather than
     raised -- a customer who cannot be emailed still has the screen.
+
+    ⚠️ Si se reactiva MercadoPago, este email deja de cubrir todas las ordenes.
+    Es tambien el "Recibimos tu orden #N" del cliente, pero cuelga de la rama de
+    transferencia: una orden pagada con MP nunca pasa por aca y no recibiria
+    ningun email de confirmacion. Sin error y sin test en rojo -- alcanza con
+    poner MERCADOPAGO_ENABLED en true. Ver docs/10_Flujos.md, seccion 18.
     """
     to_email = str(getattr(order.user, "email", "") or "").strip()
     if not to_email:

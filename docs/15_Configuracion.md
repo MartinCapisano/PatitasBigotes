@@ -93,8 +93,10 @@ con ServiceAccount y gestión de secretos por External Secrets Operator.
 | `MAINTENANCE_RUN_TOKEN` | ✅ en prod | No vacía | El endpoint responde **503** (queda deshabilitado, no abierto) 🔒 |
 | `MERCADOPAGO_ACCESS_TOKEN` | ✅ para pagar | No vacía | `RuntimeError` al crear una preferencia |
 | `MERCADOPAGO_WEBHOOK_SECRET` | ✅ para webhooks | No vacía | `RuntimeError` al validar la firma |
-| `SMTP_HOST` | ✅ para emails | No vacía | `RuntimeError` al enviar |
-| `MAIL_FROM` | ✅ para emails | No vacía | `RuntimeError` al enviar |
+| `SMTP_HOST` | ✅ en prod | No vacía | **La app no arranca** (`validate_smtp_config`) |
+| `SMTP_USERNAME` | ✅ en prod | No vacía | **La app no arranca** |
+| `SMTP_PASSWORD` | ✅ en prod | No vacía | **La app no arranca** |
+| `MAIL_FROM` | ✅ en prod | No vacía | **La app no arranca** |
 
 ### 2.4 Mercado Pago
 
@@ -116,9 +118,24 @@ con ServiceAccount y gestión de secretos por External Secrets Operator.
 
 | Variable | Default | Nota |
 |---|---|---|
-| `SMTP_PORT` | `587` | > 0 |
+| `SMTP_HOST` | — | `smtp.gmail.com` en producción |
+| `SMTP_PORT` | `587` | > 0. STARTTLS |
 | `SMTP_USERNAME` / `SMTP_PASSWORD` | vacíos | Si `USERNAME` está vacío, no se hace `login()` |
 | `SMTP_USE_TLS` | `true` | `starttls()` |
+| `MAIL_FROM` | — | **Debe ser la misma dirección que `SMTP_USERNAME`** con Gmail |
+
+> 🔊 **Ruidoso al arrancar, silencioso en runtime.** Los emails se despachan después del commit y se tragan sus
+> excepciones a propósito: un Gmail caído a las 3 AM no puede voltear una venta. El costo de esa decisión es que en
+> runtime **una credencial revocada no da ningún síntoma** — la tienda funciona perfecto y nadie recibe nada, con
+> una línea de log que nadie mira.
+>
+> Por eso `validate_smtp_config()` corre al importar `main.py`: si `APP_ENV` **no** es `local` ni `demo` y falta
+> alguna de `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD` o `MAIL_FROM`, **la app no levanta** y el mensaje nombra
+> todas las que faltan de una vez. En `local`/`demo` arranca igual y loguea un `WARNING`. Un `APP_ENV` con typo cae
+> del lado estricto a propósito.
+>
+> Un deploy sin credenciales muere en el boot de Render, donde se ve en rojo al instante. Es el único momento en
+> que este problema es visible.
 
 ### 2.6 Parámetros operativos de los jobs
 
@@ -474,7 +491,9 @@ Extraído de `DEPLOYMENT.md`, `render.yaml` y los `.env.production.example`:
 - [ ] `MERCADOPAGO_NOTIFICATION_URL` → **backend** `/payments/webhook/mercadopago`
 - [ ] `MERCADOPAGO_WEBHOOK_SECRET`
 - [ ] `MAINTENANCE_RUN_TOKEN`
-- [ ] SMTP si se quieren emails
+- [ ] 🔴 **SMTP obligatorio**: `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `MAIL_FROM` — sin esto **la app no
+      arranca**. El `SMTP_PASSWORD` es un app password de Google y se carga a mano en el dashboard
+      (`sync: false` en `render.yaml`). Ver [DEPLOYMENT.md](../DEPLOYMENT.md)
 - [ ] 🔴 **`FORWARDED_ALLOW_IPS`** con el rango del proxy de Render
 
 ### Vercel / Cloudflare (frontend)
