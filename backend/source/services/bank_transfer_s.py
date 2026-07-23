@@ -99,6 +99,7 @@ def build_instructions_email_payload(
     order_id: int,
     payment_id: int,
     instructions: dict,
+    items: list[dict],
     public_status_token: str,
 ) -> dict:
     """Turns the stored instructions into what the email needs.
@@ -120,6 +121,7 @@ def build_instructions_email_payload(
         "holder": str(instructions["holder"]),
         "tax_id": str(instructions["tax_id"]),
         "reference": str(instructions["reference"]),
+        "items": list(items),
         "whatsapp_number": str(instructions["whatsapp_number"]),
         "whatsapp_url": str(instructions["whatsapp_url"]),
         "status_url": build_status_url(public_status_token),

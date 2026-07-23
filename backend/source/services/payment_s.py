@@ -30,6 +30,7 @@ from source.services.post_commit_actions_s import (
 from source.services.payment_core_s import (
     apply_order_paid_transition,
     assert_payment_method_enabled,
+    build_order_line_items,
     deserialize_provider_payload,
     find_active_pending_payment,
     normalize_optional_str,
@@ -293,6 +294,7 @@ def _enqueue_bank_transfer_instructions_email(
             order_id=int(order.id),
             payment_id=int(payment.id),
             instructions=instructions,
+            items=build_order_line_items(order),
             public_status_token=public_status_token,
         ),
         db=db,

@@ -123,6 +123,19 @@ class BankTransferInstructionsEmailQueueTests(unittest.TestCase):
         self.assertEqual(payload["cbu"], "0110599520000012345678")
         self.assertEqual(payload["reference"], f"ORDER-{order_id}-PAY-{payment['id']}")
         self.assertEqual(payload["deadline_hours"], TRANSFER_DEADLINE_HOURS)
+        # Tambien es el mail de confirmacion de la orden, asi que lleva lo que
+        # se compro y no solo el monto.
+        self.assertEqual(
+            payload["items"],
+            [
+                {
+                    "product_name": "Test Product",
+                    "variant_label": "M/Blue",
+                    "quantity": 1,
+                    "line_total": 10000,
+                }
+            ],
+        )
 
     def test_the_email_carries_the_link_back_to_the_instructions(self) -> None:
         """A guest has no account, so the link is their only way back."""
@@ -330,6 +343,20 @@ class BankTransferInstructionsEmailContentTests(unittest.TestCase):
         "holder": "Martin Capisano",
         "tax_id": "20-35123456-7",
         "reference": "ORDER-42-PAY-7",
+        "items": [
+            {
+                "product_name": "Collar Urban Paseo",
+                "variant_label": "M/Azul",
+                "quantity": 2,
+                "line_total": 19990,
+            },
+            {
+                "product_name": "Correa Retractil",
+                "variant_label": "U/Negro",
+                "quantity": 1,
+                "line_total": 6000,
+            },
+        ],
         "whatsapp_number": "5493511234567",
         "whatsapp_url": "https://wa.me/5493511234567?text=Referencia",
         "status_url": "https://tienda.test/transferencia?token=tok-42",
@@ -345,7 +372,10 @@ class BankTransferInstructionsEmailContentTests(unittest.TestCase):
         body = self._sent_body()
 
         self.assertEqual(self.msg["To"], "buyer@example.com")
-        self.assertEqual(self.msg["Subject"], "Datos para transferir - orden #42")
+        # Es tambien el mail de confirmacion de la orden: con transferencia como
+        # unico metodo, "recibimos tu orden" y "datos para transferir" son el
+        # mismo mail.
+        self.assertEqual(self.msg["Subject"], "Recibimos tu orden #42")
         for expected in (
             "patitas.bigotes.real",
             "0110599520000012345678",
@@ -373,6 +403,29 @@ class BankTransferInstructionsEmailContentTests(unittest.TestCase):
 
         self.assertIn("https://wa.me/5493511234567?text=Referencia", body)
         self.assertIn("https://tienda.test/transferencia?token=tok-42", body)
+
+    def test_it_lists_what_was_ordered(self) -> None:
+        body = self._sent_body()
+
+        self.assertIn("- Collar Urban Paseo (M/Azul) x 2: ARS 199,90", body)
+        self.assertIn("- Correa Retractil (U/Negro) x 1: ARS 60,00", body)
+
+    def test_the_bank_details_come_before_the_item_list(self) -> None:
+        """Este mail tiene un solo trabajo, que es cobrar.
+
+        Si el detalle del pedido va arriba, en un celular el CBU queda abajo del
+        pliegue y el cliente tiene que scrollear para pagar.
+        """
+        body = self._sent_body()
+
+        self.assertLess(body.index("0110599520000012345678"), body.index("Collar Urban Paseo"))
+        self.assertLess(body.index("ORDER-42-PAY-7"), body.index("Collar Urban Paseo"))
+
+    def test_an_order_with_no_items_still_gets_its_bank_details(self) -> None:
+        body = self._sent_body(items=[])
+
+        self.assertIn("0110599520000012345678", body)
+        self.assertIn("- Sin items disponibles", body)
 
 
 if __name__ == "__main__":

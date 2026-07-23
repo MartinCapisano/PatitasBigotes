@@ -87,7 +87,13 @@ def normalize_optional_str(value: str | None) -> str | None:
     return normalized
 
 
-def build_order_paid_event_payload(*, order: Order, payment: Payment) -> dict:
+def build_order_line_items(order: Order) -> list[dict]:
+    """Lo que compro, en la forma que consumen los emails de la orden.
+
+    Los dos mails que listan el pedido -- el de transferencia y el de pago
+    confirmado -- salen de aca, para que no puedan describir la misma orden de
+    dos maneras distintas.
+    """
     items_payload: list[dict] = []
     for item in sorted(order.items, key=lambda row: row.id):
         product_name = None
@@ -101,6 +107,11 @@ def build_order_paid_event_payload(*, order: Order, payment: Payment) -> dict:
                 "line_total": int(item.line_total or 0),
             }
         )
+    return items_payload
+
+
+def build_order_paid_event_payload(*, order: Order, payment: Payment) -> dict:
+    items_payload = build_order_line_items(order)
 
     return {
         "order_id": int(order.id),

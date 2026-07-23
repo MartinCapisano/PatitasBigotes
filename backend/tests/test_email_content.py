@@ -67,9 +67,12 @@ class EmailContentTests(unittest.TestCase):
 
         msg = mocked_send.call_args.args[0]
         self.assertEqual(msg["To"], "buyer@example.com")
-        self.assertEqual(msg["Subject"], "Actualizacion de tu orden #42")
+        self.assertEqual(msg["Subject"], "Confirmamos el pago de tu orden #42")
         body = msg.get_content()
-        self.assertIn("Estado actual: paid", body)
+        self.assertIn("Confirmamos el pago de tu orden #42", body)
+        # `order_status` sigue viniendo en el payload del evento, pero no se
+        # muestra: "estado actual: paid" no le dice nada al cliente.
+        self.assertNotIn("Estado actual", body)
         self.assertIn("Pago registrado: #7", body)
         self.assertIn("ARS 12.345,50", body)
         self.assertIn("- Collar (M/Azul) x 2: ARS 12.345,50", body)
