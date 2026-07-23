@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { confirmEmailVerification, requestEmailVerification } from "../../../services/auth-api";
 import { toUserMessage } from "../../../services/http-errors";
 import { clearPendingVerificationEmail, readPendingVerificationEmail } from "../verification-storage";
+import { useEmailCooldown } from "./useEmailCooldown";
 import { useAuth } from "../../../auth/AuthContext";
 
 export function useVerifyEmailPage() {
@@ -14,6 +15,7 @@ export function useVerifyEmailPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [tokenProcessed, setTokenProcessed] = useState(false);
+  const resendCooldown = useEmailCooldown("verification");
 
   useEffect(() => {
     setEmail(readPendingVerificationEmail());
@@ -77,12 +79,15 @@ export function useVerifyEmailPage() {
 
   async function onResendVerification() {
     const normalizedEmail = email.trim();
-    if (!normalizedEmail || loading) return;
+    if (!normalizedEmail || loading || resendCooldown.active) return;
     setLoading(true);
     setError("");
     setSuccess("");
     try {
       await requestEmailVerification(normalizedEmail);
+      // Solo despues de un envio real: si fallo, el usuario tiene que poder
+      // reintentar en el acto.
+      resendCooldown.start();
       setSuccess("Reenviamos el email de verificacion. Revisa tu bandeja y spam.");
     } catch (apiError: unknown) {
       setError(toUserMessage(apiError, "email-verify"));
@@ -96,6 +101,7 @@ export function useVerifyEmailPage() {
     loading,
     error,
     success,
+    resendCooldownSeconds: resendCooldown.remainingSeconds,
     tokenPresent: Boolean(new URLSearchParams(location.search).get("token")?.trim()),
     onResendVerification
   };

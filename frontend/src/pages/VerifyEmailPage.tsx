@@ -28,9 +28,17 @@ export function VerifyEmailPage() {
             className="btn"
             type="button"
             onClick={() => void verifyEmailPage.onResendVerification()}
-            disabled={verifyEmailPage.loading || !verifyEmailPage.email}
+            disabled={
+              verifyEmailPage.loading ||
+              !verifyEmailPage.email ||
+              verifyEmailPage.resendCooldownSeconds > 0
+            }
           >
-            {verifyEmailPage.loading ? "Reenviando..." : "Reenviar email"}
+            {verifyEmailPage.loading
+              ? "Reenviando..."
+              : verifyEmailPage.resendCooldownSeconds > 0
+                ? `Reenviar en ${verifyEmailPage.resendCooldownSeconds}s...`
+                : "Reenviar email"}
           </button>
         ) : null}
         <p className="muted">
