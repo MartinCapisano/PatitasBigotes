@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from source.db.config import (
     get_cors_allow_origins,
     validate_bank_transfer_config,
+    validate_public_urls_config,
     validate_smtp_config,
 )
 from source.dependencies.csrf_d import CSRFMiddleware
@@ -38,6 +39,11 @@ validate_bank_transfer_config()
 # credencial faltante no se nota en runtime: la tienda anda y nadie recibe nada.
 # Este es el unico momento en que ese problema se puede ver.
 validate_smtp_config()
+
+# Y estas dos tienen default a localhost, asi que mal puestas no fallan en
+# ningun lado: los links de verificacion salen por mail apuntando a localhost y
+# el frontend real come CORS. Un default no es "sin configurar".
+validate_public_urls_config()
 
 allowed_origins = get_cors_allow_origins()
 app.add_middleware(SecurityHeadersMiddleware)

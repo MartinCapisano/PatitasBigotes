@@ -93,6 +93,8 @@ con ServiceAccount y gestión de secretos por External Secrets Operator.
 | `MAINTENANCE_RUN_TOKEN` | ✅ en prod | No vacía | El endpoint responde **503** (queda deshabilitado, no abierto) 🔒 |
 | `MERCADOPAGO_ACCESS_TOKEN` | ✅ para pagar | No vacía | `RuntimeError` al crear una preferencia |
 | `MERCADOPAGO_WEBHOOK_SECRET` | ✅ para webhooks | No vacía | `RuntimeError` al validar la firma |
+| `APP_BASE_URL` | ✅ en prod | No puede apuntar a localhost | **La app no arranca** (`validate_public_urls_config`) |
+| `CORS_ALLOW_ORIGINS` | ✅ en prod | Ningún origen puede ser localhost | **La app no arranca** (`validate_public_urls_config`) |
 | `SMTP_HOST` | ✅ en prod | No vacía | **La app no arranca** (`validate_smtp_config`) |
 | `SMTP_USERNAME` | ✅ en prod | No vacía | **La app no arranca** |
 | `SMTP_PASSWORD` | ✅ en prod | No vacía | **La app no arranca** |

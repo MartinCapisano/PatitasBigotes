@@ -280,10 +280,15 @@ SMTP_ENV_VARS = (
     "MAIL_FROM",
 )
 
-# Los mismos entornos donde `seed_demo` se deja correr: son los que trabajan con
-# datos de mentira y a los que no les importa si el mail sale. Cualquier otro
-# valor -- incluido un typo -- cae del lado estricto a proposito.
-EMAIL_OPTIONAL_ENVIRONMENTS = {"local", "demo"}
+# Los mismos entornos donde `seed_demo` se deja correr: los que trabajan con
+# datos de mentira, donde apuntar a localhost y no tener SMTP es lo normal.
+# Cualquier otro valor -- incluido un typo en APP_ENV -- cae del lado estricto a
+# proposito.
+DEVELOPMENT_ENVIRONMENTS = {"local", "demo"}
+
+
+def is_development_environment() -> bool:
+    return get_app_env() in DEVELOPMENT_ENVIRONMENTS
 
 
 def validate_smtp_config() -> None:
@@ -304,7 +309,56 @@ def validate_smtp_config() -> None:
         return
 
     detail = "missing required SMTP configuration: " + ", ".join(missing)
-    if get_app_env() in EMAIL_OPTIONAL_ENVIRONMENTS:
+    if is_development_environment():
         logger.warning("event=smtp_config_incomplete detail=%s", detail)
         return
     raise RuntimeError(detail)
+
+
+PUBLIC_URL_ENV_VARS = ("APP_BASE_URL", "CORS_ALLOW_ORIGINS")
+
+_LOCAL_HOSTNAMES = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+
+
+def _hostname_of(value: str) -> str:
+    """El host de una URL, tolerando que venga sin esquema (`localhost:5173`)."""
+    candidate = value.strip()
+    if "://" not in candidate:
+        candidate = "//" + candidate
+    return (urlparse(candidate).hostname or "").lower()
+
+
+def validate_public_urls_config() -> None:
+    """Las dos variables que, mal puestas, no fallan nunca.
+
+    A diferencia del resto, estas tienen un default comodo para desarrollo
+    (`http://localhost:5173`). Eso las vuelve el peor caso en produccion: no hay
+    `RuntimeError`, no hay log, no hay sintoma del lado del servidor. Simplemente
+
+      - `APP_BASE_URL` arma los links de verificacion y de reset apuntando a
+        localhost, y esos links **salen por mail al cliente**, que abre uno que no
+        le va a funcionar nunca; y
+      - `CORS_ALLOW_ORIGINS` deja al frontend real recibiendo un error de CORS en
+        cada request.
+
+    Un default no es "sin configurar", es "configurado para otra cosa". El chequeo
+    mira el valor efectivo, asi que cubre por igual la variable ausente (cae al
+    default) y la mal cargada.
+    """
+    if is_development_environment():
+        return
+
+    pointing_at_localhost = [
+        name
+        for name in PUBLIC_URL_ENV_VARS
+        for origin in os.getenv(name, "").split(",") or []
+        if _hostname_of(origin) in _LOCAL_HOSTNAMES
+    ]
+    missing = [name for name in PUBLIC_URL_ENV_VARS if not os.getenv(name, "").strip()]
+
+    broken = sorted(set(missing) | set(pointing_at_localhost))
+    if broken:
+        raise RuntimeError(
+            "public URLs must be set to the real frontend origin, not localhost: "
+            + ", ".join(broken)
+        )

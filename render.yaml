@@ -42,6 +42,11 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
+      # Las dos son la URL publica del FRONTEND y tienen default a localhost en
+      # el codigo, asi que mal puestas no fallarian en ningun lado: los links de
+      # verificacion saldrian por mail apuntando a localhost y el frontend real
+      # comeria CORS. validate_public_urls_config() no deja arrancar si el valor
+      # efectivo apunta a localhost fuera de local/demo.
       - key: APP_BASE_URL
         sync: false
       - key: CORS_ALLOW_ORIGINS

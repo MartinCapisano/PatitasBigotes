@@ -400,8 +400,8 @@ privado el cron **superaría la cuota gratuita**. Conviene verificarlo.
 
 - [x] ~~Setear `FORWARDED_ALLOW_IPS` — el rate limiting por IP hoy no funciona~~ — resuelto vía
   `--forwarded-allow-ips '*'` en el `startCommand` de `render.yaml`. Ver §11.1.
-- [ ] **Cargar las 21 variables `sync: false` del Blueprint** — ver §11.2. Dos de ellas no fallan nunca:
-  apuntan a `localhost` y rompen el producto en silencio
+- [ ] **Cargar las 21 variables `sync: false` del Blueprint** — ver §11.2. Todas las que importan tienen ahora
+  validación al arranque: si falta alguna, el deploy muere en rojo en vez de arrancar roto
 - [ ] Verificar que `alembic` esté disponible en el build de Render
 - [x] ~~`pool_pre_ping=True` en el engine~~ — resuelto junto con `pool_recycle=300` (`db/session.py`)
 - [ ] Alerta si falla el cron de mantenimiento
@@ -495,6 +495,7 @@ Fallan al importar `main.py`, así que el deploy muere y Render lo muestra al in
 | `DATABASE_URL` | `RuntimeError` al importar `db/session.py` |
 | `BANK_TRANSFER_ALIAS` · `_CBU` · `_BANK_NAME` · `_HOLDER` · `_CUIT` · `WHATSAPP_NUMBER` | `validate_bank_transfer_config()` — reporta **todas** las faltantes juntas |
 | `SMTP_PASSWORD` | `validate_smtp_config()`. Las otras tres obligatorias (`SMTP_HOST`, `SMTP_USERNAME`, `MAIL_FROM`) ya tienen valor en `render.yaml`; ésta va `sync: false` porque es un secreto |
+| `APP_BASE_URL` · `CORS_ALLOW_ORIGINS` | `validate_public_urls_config()` — ver el ✅ de abajo |
 
 #### 🟡 Fallan en runtime, no en el boot
 
@@ -504,15 +505,28 @@ Fallan al importar `main.py`, así que el deploy muere y Render lo muestra al in
 | `AUTH_COOKIE_SAMESITE` · `AUTH_COOKIE_SECURE` | Con `none` sin `Secure` → `RuntimeError` al setear la cookie. Cross-origin necesita **ambas** (`none` + `true`) |
 | `MAINTENANCE_RUN_TOKEN` | `/internal/maintenance/run` responde **503** — queda deshabilitado, no abierto 🔒 |
 
-#### ⚠️ No fallan: hacen algo peor
+#### ✅ Resuelto: `APP_BASE_URL` y `CORS_ALLOW_ORIGINS`
 
-Tienen default apuntando a `localhost`. No hay error en ningún log; simplemente el producto está roto de una
-forma que sólo se ve desde afuera.
+Eran el peor caso de toda la lista, porque **no fallaban en ningún lado**. Tienen default apuntando a
+`localhost`, así que sin cargarlas no había `RuntimeError`, ni log, ni ningún síntoma del lado del servidor:
 
 | Variable | Default | Síntoma real |
 |---|---|---|
 | `APP_BASE_URL` | `http://localhost:5173` | Los links de verificación de email y de reset **apuntan a localhost**. Llegan al inbox del cliente y no funcionan para nadie |
 | `CORS_ALLOW_ORIGINS` | `http://localhost:5173,...` | El frontend real recibe error de CORS en cada request |
+
+`validate_public_urls_config()` ahora las mueve al grupo 🟠: fuera de `local`/`demo`, si el **valor efectivo**
+apunta a `localhost`, `127.0.0.1`, `0.0.0.0` o `::1`, la app no levanta. Mirar el valor efectivo y no "si está
+seteada" cubre por igual la variable ausente —que cae al default— y la cargada mal, que son el mismo bug visto
+desde dos lados.
+
+Compara por **hostname**, no por substring: un dominio real como `localhost-tools.com` no se confunde. Y acepta
+la URL sin esquema (`localhost:5173`), que es como uno la escribe de apuro.
+
+> 📌 **El patrón, ahora explícito.** Un default nunca es "sin configurar": es "configurado para otra cosa". Un
+> default cómodo para desarrollo es exactamente lo que vuelve peligrosa a una variable en producción, porque
+> reemplaza el error ruidoso por un producto que funciona mal en silencio. Cualquier variable nueva con default
+> de desarrollo debería entrar acá.
 
 #### ⚪ No hacen falta mientras MercadoPago siga en pausa
 
@@ -520,11 +534,6 @@ forma que sólo se ve desde afuera.
 `_WEBHOOK_SECRET`. Con `MERCADOPAGO_ENABLED=false` el backend rechaza iniciar pagos con ese método y ninguna
 de estas se lee. Al reactivarlo hay que completarlas todas **y** poner `VITE_MERCADOPAGO_ENABLED=true` en el
 frontend — son dos switches distintos.
-
-> 📌 **El patrón que conviene notar.** Las variables agrupadas en 🟠 tienen validación al arranque porque
-> alguien decidió que fallaran ahí. Las de ⚠️ tienen un default cómodo para desarrollo local, y ese mismo
-> default es lo que las vuelve peligrosas en producción: un default nunca es "sin configurar", es
-> "configurado para otra cosa". Son las dos candidatas obvias a sumar a `validate_*` si esto crece.
 
 ---
 
