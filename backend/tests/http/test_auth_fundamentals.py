@@ -11,7 +11,7 @@ from source.db.models import AuthLoginThrottle, User
 
 class HttpAuthFundamentalsTests(HttpFundamentalsBase):
     def test_register_login_and_me_flow_over_http(self) -> None:
-        with patch("source.routes.auth_r.send_email_verification") as mocked_send:
+        with patch("source.services.post_commit_actions_s.send_email_verification") as mocked_send:
             register_response = self.client.post(
                 "/auth/register",
                 json=build_register_payload(),
@@ -75,7 +75,7 @@ class HttpAuthFundamentalsTests(HttpFundamentalsBase):
             phone="1166677788",
         )
 
-        with patch("source.routes.auth_r.send_email_verification") as mocked_send:
+        with patch("source.services.post_commit_actions_s.send_email_verification") as mocked_send:
             register_response = self.client.post(
                 "/auth/register",
                 json=build_register_payload(
@@ -143,7 +143,7 @@ class HttpAuthFundamentalsTests(HttpFundamentalsBase):
     def test_email_verify_request_returns_200_and_resends_token_over_http(self) -> None:
         self._create_user(email="verify-request@example.com", verified=False)
 
-        with patch("source.routes.auth_r.send_email_verification") as mocked_send:
+        with patch("source.services.post_commit_actions_s.send_email_verification") as mocked_send:
             response = self.client.post(
                 "/auth/email/verify/request",
                 json={"email": "verify-request@example.com"},
@@ -154,7 +154,7 @@ class HttpAuthFundamentalsTests(HttpFundamentalsBase):
         mocked_send.assert_called_once()
 
     def test_email_verify_confirm_token_is_single_use_over_http(self) -> None:
-        with patch("source.routes.auth_r.send_email_verification") as mocked_send:
+        with patch("source.services.post_commit_actions_s.send_email_verification") as mocked_send:
             register_response = self.client.post(
                 "/auth/register",
                 json=build_register_payload(
@@ -185,7 +185,7 @@ class HttpAuthFundamentalsTests(HttpFundamentalsBase):
     def test_password_reset_request_is_non_enumerable_over_http(self) -> None:
         self._create_user(email="reset@example.com", verified=True)
 
-        with patch("source.routes.auth_r.send_password_reset") as mocked_send:
+        with patch("source.services.post_commit_actions_s.send_password_reset") as mocked_send:
             existing = self.client.post(
                 "/auth/password/reset/request",
                 json=build_password_reset_request_payload(email="reset@example.com"),
@@ -204,7 +204,7 @@ class HttpAuthFundamentalsTests(HttpFundamentalsBase):
     def test_password_reset_confirm_updates_password_over_http(self) -> None:
         self._create_user(email="reset-confirm@example.com", verified=True)
 
-        with patch("source.routes.auth_r.send_password_reset") as mocked_send:
+        with patch("source.services.post_commit_actions_s.send_password_reset") as mocked_send:
             request_response = self.client.post(
                 "/auth/password/reset/request",
                 json=build_password_reset_request_payload(email="reset-confirm@example.com"),

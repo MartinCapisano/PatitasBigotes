@@ -9,7 +9,9 @@ from source.services.email_s import (
     BankTransferInstructionsEmailPayload,
     OrderPaidEmailPayload,
     send_bank_transfer_instructions_email,
+    send_email_verification,
     send_order_paid_email,
+    send_password_reset,
 )
 
 logger = logging.getLogger(__name__)
@@ -18,6 +20,8 @@ POST_COMMIT_ACTIONS_KEY = "post_commit_actions"
 SKIP_ORDER_PAID_EMAIL_KEY = "skip_order_paid_email"
 ACTION_ORDER_PAID_EMAIL = "order_paid_email"
 ACTION_BANK_TRANSFER_INSTRUCTIONS_EMAIL = "bank_transfer_instructions_email"
+ACTION_EMAIL_VERIFICATION = "email_verification"
+ACTION_PASSWORD_RESET = "password_reset"
 
 
 class PostCommitAction(TypedDict):
@@ -43,6 +47,30 @@ def enqueue_post_commit_bank_transfer_instructions_email(
         PostCommitAction(
             kind=ACTION_BANK_TRANSFER_INSTRUCTIONS_EMAIL,
             payload=dict(payload),
+        )
+    )
+
+
+def enqueue_post_commit_email_verification(
+    *, to_email: str, verify_link: str, db: Session
+) -> None:
+    actions = db.info.setdefault(POST_COMMIT_ACTIONS_KEY, [])
+    actions.append(
+        PostCommitAction(
+            kind=ACTION_EMAIL_VERIFICATION,
+            payload={"to_email": to_email, "verify_link": verify_link},
+        )
+    )
+
+
+def enqueue_post_commit_password_reset(
+    *, to_email: str, reset_link: str, db: Session
+) -> None:
+    actions = db.info.setdefault(POST_COMMIT_ACTIONS_KEY, [])
+    actions.append(
+        PostCommitAction(
+            kind=ACTION_PASSWORD_RESET,
+            payload={"to_email": to_email, "reset_link": reset_link},
         )
     )
 
@@ -89,5 +117,32 @@ def dispatch_post_commit_actions(*, db: Session, source: str) -> None:
                     source,
                     payload.get("order_id"),
                     payload.get("payment_id"),
+                    payload.get("to_email"),
+                )
+        elif kind == ACTION_EMAIL_VERIFICATION:
+            # El link lleva el token de un solo uso, asi que nunca entra al log.
+            try:
+                send_email_verification(
+                    to_email=str(payload.get("to_email") or ""),
+                    verify_link=str(payload.get("verify_link") or ""),
+                )
+            except Exception:
+                logger.exception(
+                    "event=post_commit_action_failed kind=%s source=%s to_email=%s",
+                    ACTION_EMAIL_VERIFICATION,
+                    source,
+                    payload.get("to_email"),
+                )
+        elif kind == ACTION_PASSWORD_RESET:
+            try:
+                send_password_reset(
+                    to_email=str(payload.get("to_email") or ""),
+                    reset_link=str(payload.get("reset_link") or ""),
+                )
+            except Exception:
+                logger.exception(
+                    "event=post_commit_action_failed kind=%s source=%s to_email=%s",
+                    ACTION_PASSWORD_RESET,
+                    source,
                     payload.get("to_email"),
                 )

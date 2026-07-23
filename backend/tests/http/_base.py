@@ -30,6 +30,10 @@ from source.services.auth_security_s import hash_password
 from main import app
 from source.db.models import Base, Category, Product, ProductVariant, User
 from source.db.session import get_db, get_db_transactional
+from source.services.post_commit_actions_s import (
+    clear_post_commit_actions,
+    dispatch_post_commit_actions,
+)
 
 
 class HttpFundamentalsBase(unittest.TestCase):
@@ -54,13 +58,18 @@ class HttpFundamentalsBase(unittest.TestCase):
             finally:
                 db.close()
 
+        # Copia fiel de `get_db_transactional`, incluido el despacho post-commit:
+        # sin eso las rutas de auth quedarian sin mandar ningun mail bajo test y
+        # los casos que verifican el envio pasarian por el motivo equivocado.
         def _get_db_transactional_override():
             db = cls.SessionLocal()
             try:
                 yield db
                 db.commit()
+                dispatch_post_commit_actions(db=db, source="transactional")
             except Exception:
                 db.rollback()
+                clear_post_commit_actions(db=db)
                 raise
             finally:
                 db.close()

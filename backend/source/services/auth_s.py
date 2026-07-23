@@ -17,7 +17,7 @@ from source.services.auth_security_s import (
     verify_password,
 )
 from source.services.auth_tokens_s import ACTION_EMAIL_VERIFY, create_one_time_token
-from source.services.email_s import send_email_verification
+from source.services.post_commit_actions_s import enqueue_post_commit_email_verification
 from source.db.config import get_app_base_url
 from source.db.models import User, UserRefreshSession
 
@@ -316,7 +316,11 @@ def update_user_profile(
             db=db,
         )
         verify_link = f"{get_app_base_url()}/verify-email?token={raw_token}"
-        send_email_verification(to_email=user.email, verify_link=verify_link)
+        enqueue_post_commit_email_verification(
+            to_email=user.email,
+            verify_link=verify_link,
+            db=db,
+        )
         verification_email_sent = True
 
     user.first_name = str(first_name).strip()

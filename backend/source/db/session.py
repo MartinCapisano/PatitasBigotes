@@ -7,6 +7,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from source.db.config import get_database_url
+from source.services.post_commit_actions_s import (
+    clear_post_commit_actions,
+    dispatch_post_commit_actions,
+)
 
 DATABASE_URL = get_database_url()
 
@@ -50,12 +54,28 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def get_db_transactional() -> Generator[Session, None, None]:
+    """Commitea al salir de la ruta y recien ahi despacha los efectos externos.
+
+    Las rutas que usan `get_db` commitean a mano y llaman a
+    `dispatch_post_commit_actions` ellas mismas (`orders_r.py:318`). Las que usan
+    esta dependencia no tenian donde hacerlo, y por eso mandaban SMTP adentro de
+    la transaccion: si el mail fallaba, el registro entero hacia rollback.
+
+    Despachar aca no puede romper la respuesta HTTP -- el despachador ya envuelve
+    cada accion en su propio try/except (`post_commit_actions_s.py:70`). Sin esa
+    garantia, un SMTP caido tumbaria todas las rutas de auth, no solo las que
+    mandan mail.
+    """
     db = SessionLocal()
     try:
         yield db
         db.commit()
+        dispatch_post_commit_actions(db=db, source="transactional")
     except Exception:
         db.rollback()
+        # La transaccion no existio: lo que sea que se haya encolado hablaba de
+        # datos que no quedaron en la base.
+        clear_post_commit_actions(db=db)
         raise
     finally:
         db.close()

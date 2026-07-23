@@ -53,7 +53,10 @@ from source.services.auth_cookies_s import (
     get_refresh_token_from_request,
     set_auth_cookies,
 )
-from source.services.email_s import send_email_verification, send_password_reset
+from source.services.post_commit_actions_s import (
+    enqueue_post_commit_email_verification,
+    enqueue_post_commit_password_reset,
+)
 from source.services.users_s import create_auth_user
 
 router = APIRouter()
@@ -217,7 +220,14 @@ def register(
         )
         user.email_verification_sent_at = datetime.now(UTC)
         verify_link = f"{get_app_base_url()}/verify-email?token={raw_token}"
-        send_email_verification(to_email=user.email, verify_link=verify_link)
+        # Encolado, no enviado: el mail sale despues del commit. Mandarlo aca
+        # ataba la creacion de la cuenta a que Gmail contestara -- un SMTP caido
+        # hacia rollback del registro y el usuario veia un 500.
+        enqueue_post_commit_email_verification(
+            to_email=user.email,
+            verify_link=verify_link,
+            db=db,
+        )
     except Exception as exc:
         raise_http_error_from_exception(exc, db=db)
     logger.info("event=auth_register email=%s ip=%s", str(payload.email).strip().lower(), client_ip)
@@ -248,7 +258,11 @@ def email_verify_request(
             )
             user.email_verification_sent_at = datetime.now(UTC)
             verify_link = f"{get_app_base_url()}/verify-email?token={raw_token}"
-            send_email_verification(to_email=user.email, verify_link=verify_link)
+            enqueue_post_commit_email_verification(
+                to_email=user.email,
+                verify_link=verify_link,
+                db=db,
+            )
     except Exception as exc:
         raise_http_error_from_exception(exc, db=db)
     logger.info("event=auth_verify_requested email=%s ip=%s", str(payload.email).strip().lower(), client_ip)
@@ -297,7 +311,11 @@ def password_reset_request(
                 db=db,
             )
             reset_link = f"{get_app_base_url()}/reset-password?token={raw_token}"
-            send_password_reset(to_email=user.email, reset_link=reset_link)
+            enqueue_post_commit_password_reset(
+                to_email=user.email,
+                reset_link=reset_link,
+                db=db,
+            )
     except Exception as exc:
         raise_http_error_from_exception(exc, db=db)
     logger.info("event=auth_reset_requested email=%s ip=%s", str(payload.email).strip().lower(), client_ip)
