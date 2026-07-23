@@ -11,6 +11,40 @@ from source.db.models import IdempotencyRecord
 
 IDEMPOTENCY_TTL_HOURS = 24
 
+# Substrings that mark a key as carrying a secret. Matched case-insensitively
+# against the key name, not its value, so the check stays cheap and predictable.
+_SECRET_KEY_MARKERS = (
+    "token",
+    "secret",
+    "access",
+    "password",
+    "card",
+    "cvv",
+    "number",
+)
+
+
+def sanitize_failure_payload(payload: object) -> object:
+    """Recursively redact obvious secrets from a payload before persisting it.
+
+    Only failure payloads go through this. A 'completed' record's payload is
+    replayed verbatim to the client, so redacting it would corrupt the replay;
+    a 'failed' record's payload is built from exception text that can carry
+    provider tokens, and nothing reads it back except our own recovery path.
+    """
+    if isinstance(payload, dict):
+        out = {}
+        for key, value in payload.items():
+            lowered = str(key).lower()
+            if any(marker in lowered for marker in _SECRET_KEY_MARKERS):
+                out[key] = "<redacted>"
+            else:
+                out[key] = sanitize_failure_payload(value)
+        return out
+    if isinstance(payload, list):
+        return [sanitize_failure_payload(item) for item in payload]
+    return payload
+
 
 def _json_default(value: object) -> str:
     if isinstance(value, datetime):

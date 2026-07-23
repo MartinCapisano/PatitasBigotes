@@ -75,29 +75,6 @@ def _client_ip_from_request(request: Request) -> str:
     return "unknown"
 
 
-def _sanitize_response_payload(payload: object) -> object:
-    """Recursively redact obvious secrets from response payloads before persisting.
-
-    Currently unused: its only caller was the failure bookkeeping in
-    create_admin_sale_endpoint, which was removed because the surrounding
-    transaction discards it. Kept because R-S-06 asks for the opposite change —
-    create_guest_checkout_order persists failure payloads through
-    mark_record_failed() without redacting them, and this is the helper for that.
-    """
-    if isinstance(payload, dict):
-        out = {}
-        for k, v in payload.items():
-            kl = k.lower()
-            if any(s in kl for s in ("token", "secret", "access", "password", "card", "cvv", "number")):
-                out[k] = "<redacted>"
-            else:
-                out[k] = _sanitize_response_payload(v)
-        return out
-    if isinstance(payload, list):
-        return [_sanitize_response_payload(i) for i in payload]
-    return payload
-
-
 def _initialize_mercadopago_payment_or_raise(*, payment: dict, db: Session) -> dict:
     if payment.get("method") != "mercadopago":
         return payment
