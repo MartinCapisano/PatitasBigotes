@@ -21,8 +21,16 @@ export function ForgotPasswordPage() {
         </label>
         {forgotPasswordPage.error && <p className="error">{forgotPasswordPage.error}</p>}
         {forgotPasswordPage.success && <p className="success">{forgotPasswordPage.success}</p>}
-        <button className="btn" type="submit" disabled={forgotPasswordPage.loading}>
-          {forgotPasswordPage.loading ? "Enviando..." : "Enviar link"}
+        <button
+          className="btn"
+          type="submit"
+          disabled={forgotPasswordPage.loading || forgotPasswordPage.resendCooldownSeconds > 0}
+        >
+          {forgotPasswordPage.loading
+            ? "Enviando..."
+            : forgotPasswordPage.resendCooldownSeconds > 0
+              ? `Reenviar en ${forgotPasswordPage.resendCooldownSeconds}s...`
+              : "Enviar link"}
         </button>
         <p className="muted">
           <Link className="link-back" to="/login">Volver a ingresar</Link>
