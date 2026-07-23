@@ -74,5 +74,26 @@ services:
         sync: false
       - key: MERCADOPAGO_WEBHOOK_SECRET
         sync: false
+      # SMTP (Gmail): sin esto no sale ni la verificacion de email ni el reset
+      # de contrasena ni los avisos de una orden. El backend no arranca si falta
+      # alguna en produccion. Ver docs/15_Configuracion.md.
+      #
+      # MAIL_FROM tiene que ser la MISMA direccion que SMTP_USERNAME: Gmail
+      # reescribe el header From si no coinciden, y el cliente termina viendo
+      # la casilla de todos modos.
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USE_TLS
+        value: "true"
+      - key: MAIL_FROM
+        value: patitasbigotes@gmail.com
+      - key: SMTP_USERNAME
+        value: patitasbigotes@gmail.com
+      # App password de Google, no la contrasena de la cuenta. Requiere tener
+      # la verificacion en 2 pasos activada, sino Google no ofrece la opcion.
+      - key: SMTP_PASSWORD
+        sync: false
       - key: MAINTENANCE_RUN_TOKEN
         sync: false
