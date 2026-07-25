@@ -13,8 +13,9 @@ DEFAULT_REFRESH_TOKEN_EXPIRE_DAYS = 30
 DEFAULT_JWT_ISSUER = "patitasbigotes-api"
 
 pwd_context = CryptContext(
-    schemes=["pbkdf2_sha256"],
+    schemes=["argon2", "pbkdf2_sha256"],
     deprecated="auto",
+    argon2__type="ID",
 )
 
 
@@ -27,6 +28,19 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return pwd_context.verify(plain_password, hashed_password)
     except (UnknownHashError, ValueError, TypeError):
         return False
+
+
+def verify_and_upgrade_password(
+    plain_password: str, hashed_password: str
+) -> tuple[bool, Optional[str]]:
+    """Verifica la password y, si el hash usa un esquema deprecado
+    (p. ej. pbkdf2_sha256), devuelve un hash Argon2id nuevo para persistir.
+    El segundo valor es None cuando el hash ya está al día."""
+    try:
+        ok, new_hash = pwd_context.verify_and_update(plain_password, hashed_password)
+    except (UnknownHashError, ValueError, TypeError):
+        return False, None
+    return ok, new_hash
 
 
 def ensure_password_policy(password: str) -> None:

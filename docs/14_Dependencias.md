@@ -29,7 +29,8 @@ mitiga.
 | **email-validator** | 2.3.0 | Habilita `EmailStr` de Pydantic | ✅ Sí | Regex propia (peor: validar emails bien es difícil) |
 | **python-dotenv** | 1.2.2 | Cargar `backend/.env` en desarrollo | 🟡 Solo en local | `pydantic-settings` cubre esto y más |
 | **python-jose[cryptography]** | 3.5.0 | Firmar y validar JWT (HS256) | 🟠 Sustituible | **PyJWT** — mejor mantenido y más usado |
-| **passlib** | 1.7.4 | Hash de password (`pbkdf2_sha256`) | 🟠 Sustituible | **argon2-cffi**, **pwdlib**, `bcrypt` directo |
+| **passlib** | 1.7.4 | Fachada de hashing (`argon2id`, fallback `pbkdf2_sha256`) | 🟠 Sustituible | **pwdlib**, `argon2-cffi` directo |
+| **argon2-cffi** | 25.1.0 | Backend Argon2id de passlib | ✅ Sí | — |
 | **mercadopago** | 2.3.0 | SDK oficial de la pasarela | ✅ Sí | HTTP directo con `httpx` (más control, más trabajo) |
 
 ### Análisis por dependencia
@@ -49,16 +50,14 @@ import jwt
 from jwt import ExpiredSignatureError, InvalidTokenError as JWTError
 ```
 
-#### 🟠 `passlib` — evaluar reemplazo
-**Uso real:** `CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")` y sus métodos `hash`/`verify`.
+#### 🟠 `passlib` — evaluar reemplazo (a futuro)
+**Uso real:** `CryptContext(schemes=["argon2", "pbkdf2_sha256"], deprecated="auto", argon2__type="ID")`
+y sus métodos `hash`/`verify`/`verify_and_update`.
 **Problema:** última versión publicada en 2020. El proyecto está efectivamente sin mantenimiento.
-**Recomendación inmediata (sin cambiar de librería):** cambiar el esquema a Argon2id o bcrypt.
-`deprecated="auto"` **rehashea al vuelo** en el siguiente login exitoso, así que no hace falta migrar datos:
-
-```python
-pwd_context = CryptContext(schemes=["argon2", "pbkdf2_sha256"], deprecated="auto")
-# requiere: pip install argon2-cffi
-```
+**Estado (R-S-02 / D-03 ✅):** ya se usa **Argon2id** vía `argon2-cffi`. `deprecated="auto"` marca los hashes
+`pbkdf2_sha256` como obsoletos y `verify_and_upgrade_password` (`auth_s.py`) los **rehashea al vuelo** en el
+siguiente login exitoso, sin migrar datos. passlib queda como fachada fina; a futuro se puede reemplazar por
+`pwdlib` o `argon2-cffi` directo.
 
 **Recomendación a medio plazo:** `pwdlib`, sucesor moderno con la misma idea de contextos.
 
@@ -183,7 +182,7 @@ mantiene tipos escritos a mano en `src/types.ts`.
 | `pydantic-settings` | Reemplazar `db/config.py` por un `Settings` tipado; elimina `python-dotenv` | 🟠 Alta |
 | `pip-audit` (dev) | Escaneo de CVEs en CI | 🔴 Alta |
 | `pytest-cov` (dev) | Medición de cobertura | 🟠 Alta |
-| `argon2-cffi` | Hash de password moderno vía passlib | 🟠 Alta |
+| ~~`argon2-cffi`~~ | ✅ Agregado (25.1.0) — Argon2id vía passlib (R-S-02) | — |
 | `httpx` | Cliente HTTP con timeout y reintentos decentes; el SDK de MP obliga a un bucle manual | 🟡 Media |
 | `structlog` o `python-json-logger` | Logs estructurados en JSON, parseables | 🟡 Media |
 | `mypy` (dev) | Type checking estático | 🟡 Media |
@@ -288,6 +287,7 @@ la carga inicial: la home solo trae `StorefrontPage`, no `AdminPage` (que es la 
 | python-dotenv, email-validator | BSD / CC0 | ✅ |
 | python-jose | MIT | ✅ |
 | passlib | BSD | ✅ |
+| argon2-cffi | MIT | ✅ |
 | mercadopago | MIT | ✅ |
 | tenacity | Apache-2.0 | ✅ |
 | react, react-dom, react-router-dom, axios | MIT | ✅ |
@@ -307,7 +307,7 @@ una explícita.
 |---|---|---|---|---|
 | <a id="D-01"></a>**D-01** | Verificar/corregir `alembic` en `requirements.txt` | Evita que falle el deploy | 15 min | **P0** |
 | <a id="D-02"></a>**D-02** | `pip-audit` + `npm audit` en CI | Detección de CVEs | 1 h | **P1** |
-| <a id="D-03"></a>**D-03** | `deprecated="auto"` con Argon2id en passlib | Hash moderno sin migración de datos | 2 h | **P1** |
+| <a id="D-03"></a>~~**D-03**~~ | ✅ **Resuelto** — Argon2id (`argon2-cffi`) con rehash al vuelo en passlib | Hash moderno sin migración de datos | 2 h | **P1** |
 | <a id="D-04"></a>**D-04** | `react-error-boundary` en el frontend | Evita la pantalla blanca | 2 h | **P1** |
 | <a id="D-05"></a>**D-05** | Prettier + `ruff format` | Consistencia de estilo | 2 h | **P1** |
 | <a id="D-06"></a>**D-06** | Dependabot o Renovate | Actualizaciones gestionadas | 30 min | **P1** |

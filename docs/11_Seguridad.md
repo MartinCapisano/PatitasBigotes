@@ -72,15 +72,18 @@ Los tokens de refresh se guardan **hasheados** (SHA-256), nunca en claro. 🟢
 
 | Aspecto | Implementación | Valoración |
 |---|---|---|
-| Algoritmo | `pbkdf2_sha256` (passlib, rondas por defecto ≈29.000) | 🟠 Aceptable pero **no** es lo recomendado hoy |
+| Algoritmo | `argon2id` (passlib + `argon2-cffi`; fallback `pbkdf2_sha256` para hashes legados) | 🟢 Recomendado actual |
 | Política | ≥8 caracteres **y** ≥1 no alfanumérico | 🟡 Débil: sin mayúsculas ni dígitos |
 | Passwords comunes | Sin verificación | 🟠 `Password!` cumple la política |
 | Verificación | Captura `UnknownHashError`, `ValueError`, `TypeError` → `False` | 🟢 Es lo que hace seguro el centinela `"!"` |
+| Rehash | `verify_and_upgrade_password` migra hashes `pbkdf2` a Argon2id en el login | 🟢 Sin migración de datos |
 | Timing | passlib compara en tiempo constante | 🟢 |
 
-> 🟠 **Recomendación (R-S-02):** migrar a **Argon2id** o **bcrypt (cost ≥12)**. Passlib soporta ambos; el cambio
-> es de una línea en `CryptContext(schemes=[...], deprecated="auto")`, y `deprecated="auto"` rehashea al vuelo en
-> el siguiente login exitoso, sin migración de datos.
+> ✅ **Resuelto (R-S-02):** se migró a **Argon2id**. `CryptContext(schemes=["argon2", "pbkdf2_sha256"],
+> deprecated="auto", argon2__type="ID")` en `auth_security_s.py:15`. Los hashes nuevos son Argon2id; los
+> `pbkdf2_sha256` existentes se rehashean al vuelo en el siguiente login exitoso vía
+> `verify_and_upgrade_password` (`auth_s.py`), que persiste el nuevo hash con el commit de la transacción de
+> login. Sin migración de datos ni reset de passwords.
 
 ### 2.4 Tokens de un solo uso
 
@@ -441,7 +444,7 @@ navegadores modernos, pero es higiene faltante.
 
 ## 15. Dependencias
 
-### Backend (10 de runtime, todas pinneadas exactas 🟢)
+### Backend (11 de runtime, todas pinneadas exactas 🟢)
 
 | Paquete | Versión | Nota de seguridad |
 |---|---|---|
@@ -454,6 +457,7 @@ navegadores modernos, pero es higiene faltante.
 | `python-dotenv` | 1.2.2 | — |
 | `python-jose[cryptography]` | 3.5.0 | 🟡 Ver abajo |
 | `passlib` | 1.7.4 | 🟠 Ver abajo |
+| `argon2-cffi` | 25.1.0 | Backend Argon2id (R-S-02) |
 | `mercadopago` | 2.3.0 | SDK oficial |
 
 **🟡 `python-jose`:** ha tenido CVEs relevantes en versiones anteriores (confusión de algoritmos, DoS por JWE).
@@ -462,7 +466,8 @@ La 3.5.0 es posterior a los parches conocidos, pero el proyecto tiene mantenimie
 > **Recomendación (R-S-09):** evaluar migración a `PyJWT`. El cambio afecta solo a `auth_security_s.py`.
 
 **🟠 `passlib` 1.7.4:** última versión publicada en 2020. El proyecto está prácticamente sin mantenimiento.
-Funciona correctamente, pero conviene planificar la migración a `argon2-cffi` directo o a `pwdlib`.
+Funciona correctamente y desde R-S-02 solo se usa como fachada sobre `argon2-cffi` (backend activo y mantenido).
+A futuro conviene evaluar reemplazarlo por `pwdlib` o usar `argon2-cffi` directo, eliminando la fachada.
 
 ⚠️ **No hay escaneo automático de vulnerabilidades**: el CI no ejecuta `pip-audit`, `safety` ni Dependabot.
 

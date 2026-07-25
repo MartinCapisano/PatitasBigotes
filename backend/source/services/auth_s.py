@@ -14,6 +14,7 @@ from source.services.auth_security_s import (
     hash_refresh_token,
     obtener_config_jwt,
     parsear_sub_a_user_id,
+    verify_and_upgrade_password,
     verify_password,
 )
 from source.services.auth_tokens_s import ACTION_EMAIL_VERIFY, create_one_time_token
@@ -84,8 +85,13 @@ def authenticate_user(*, email: str, password: str, db: Session) -> User:
         raise ValueError("user does not have an account yet")
     if user.email_verified_at is None:
         raise ValueError("email not verified")
-    if not verify_password(password, user.password_hash):
+    ok, upgraded_hash = verify_and_upgrade_password(password, user.password_hash)
+    if not ok:
         raise ValueError("invalid credentials")
+    if upgraded_hash is not None:
+        # Hash con esquema deprecado (pbkdf2_sha256): se rehashea a Argon2id
+        # y se persiste con el commit de la transacción de login.
+        user.password_hash = upgraded_hash
     return user
 
 
