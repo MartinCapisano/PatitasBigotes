@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from source.exceptions import (
+    ContactDataMismatchError,
+    EmailAlreadyExistsError,
+    UserNotAdminError,
+)
 from source.services.auth_security_s import ensure_password_policy, hash_password
 from source.db.models import User, UserRefreshSession
 from source.schemas import (
@@ -43,7 +47,7 @@ def serialize_admin_user(user: User) -> dict:
 def _normalize_required_text(value: str, *, field_name: str) -> str:
     normalized = str(value).strip()
     if not normalized:
-        raise HTTPException(status_code=400, detail=f"{field_name} is required")
+        raise ValueError(f"{field_name} is required")
     return normalized
 
 
@@ -64,7 +68,7 @@ def create_auth_user(
 ) -> User:
     normalized_email = str(email).strip().lower()
     if not normalized_email:
-        raise HTTPException(status_code=400, detail="email is required")
+        raise ValueError("email is required")
     ensure_password_policy(password)
 
     existing_user = (
@@ -75,7 +79,7 @@ def create_auth_user(
     )
     if existing_user is not None:
         if bool(existing_user.has_account):
-            raise HTTPException(status_code=409, detail="email already exists")
+            raise EmailAlreadyExistsError("email already exists")
 
         existing_user.first_name = _normalize_required_text(first_name, field_name="first_name")
         existing_user.last_name = _normalize_required_text(last_name, field_name="last_name")
@@ -108,7 +112,7 @@ def create_admin_user(payload: CreateAdminUserRequest, db: Session) -> dict:
     user_data = payload.model_dump()
     normalized_email = str(user_data["email"]).strip().lower()
     if not normalized_email:
-        raise HTTPException(status_code=400, detail="email is required")
+        raise ValueError("email is required")
 
     existing_user = (
         db.query(User)
@@ -117,7 +121,7 @@ def create_admin_user(payload: CreateAdminUserRequest, db: Session) -> dict:
         .first()
     )
     if existing_user is not None:
-        raise HTTPException(status_code=409, detail="email already exists")
+        raise EmailAlreadyExistsError("email already exists")
     ensure_password_policy(user_data["password"])
 
     user = User(
@@ -161,7 +165,7 @@ def revoke_admin_status(
     if user is None:
         raise LookupError("user not found")
     if not bool(user.is_admin):
-        raise HTTPException(status_code=409, detail="user is not admin")
+        raise UserNotAdminError("user is not admin")
 
     user.is_admin = False
     user.token_version = int(user.token_version) + 1
@@ -196,7 +200,7 @@ def get_or_create_user_by_contact(
 ) -> tuple[User, bool]:
     normalized_email = str(email).strip().lower()
     if not normalized_email:
-        raise HTTPException(status_code=400, detail="email is required")
+        raise ValueError("email is required")
     normalized_dni = _normalize_optional_text(dni)
     normalized_phone = _normalize_required_text(phone, field_name="phone")
     normalized_first_name = _normalize_required_text(first_name, field_name="first_name")
@@ -209,19 +213,16 @@ def get_or_create_user_by_contact(
         existing_phone = _normalize_optional_text(existing_user.phone)
 
         if existing_first_name and existing_first_name != normalized_first_name.lower():
-            raise HTTPException(
-                status_code=409,
-                detail="contact data does not match existing user for this email",
+            raise ContactDataMismatchError(
+                "contact data does not match existing user for this email"
             )
         if existing_last_name and existing_last_name != normalized_last_name.lower():
-            raise HTTPException(
-                status_code=409,
-                detail="contact data does not match existing user for this email",
+            raise ContactDataMismatchError(
+                "contact data does not match existing user for this email"
             )
         if existing_phone is not None and existing_phone != normalized_phone:
-            raise HTTPException(
-                status_code=409,
-                detail="contact data does not match existing user for this email",
+            raise ContactDataMismatchError(
+                "contact data does not match existing user for this email"
             )
         if (
             normalized_dni is not None

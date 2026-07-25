@@ -4,10 +4,13 @@ from sqlalchemy.orm import Session
 
 from source.exceptions import (
     CategoryHasProductsError,
+    ContactDataMismatchError,
+    EmailAlreadyExistsError,
     OrderStatusTransitionError,
     PaymentMethodDisabledError,
     PaymentRetryConflictError,
     RegisteredAccountCheckoutConflictError,
+    UserNotAdminError,
     WebhookReplayConflictError,
 )
 from source.services.payment_errors import (
@@ -52,6 +55,15 @@ def raise_http_error_from_exception(exc: Exception, db: Session | None = None) -
         logger.info("event=business_error status=409 detail=%s", exc)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if isinstance(exc, CategoryHasProductsError):
+        logger.info("event=business_error status=409 detail=%s", exc)
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if isinstance(exc, EmailAlreadyExistsError):
+        logger.info("event=business_error status=409 detail=%s", exc)
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if isinstance(exc, UserNotAdminError):
+        logger.info("event=business_error status=409 detail=%s", exc)
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if isinstance(exc, ContactDataMismatchError):
         logger.info("event=business_error status=409 detail=%s", exc)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     # Listed before the generic ValueError branch so the status stays 400 on purpose
