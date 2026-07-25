@@ -3,7 +3,6 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -12,6 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from source.db.models import AuthLoginThrottle, Base
+from source.exceptions import RateLimitExceededError
 from source.services.anti_abuse_s import enforce_public_signup_limits
 
 
@@ -44,14 +44,13 @@ class SignupRateLimitTests(unittest.TestCase):
             )
             db.flush()
 
-            with self.assertRaises(HTTPException) as ctx:
+            with self.assertRaises(RateLimitExceededError) as ctx:
                 enforce_public_signup_limits(
                     client_ip="10.0.0.1",
                     email="signup@example.com",
                     db=db,
                 )
-            self.assertEqual(ctx.exception.status_code, 429)
-            self.assertEqual(ctx.exception.detail, "please wait before retrying signup")
+            self.assertEqual(str(ctx.exception), "please wait before retrying signup")
         finally:
             db.close()
 
@@ -91,14 +90,13 @@ class SignupRateLimitTests(unittest.TestCase):
             )
             db.commit()
 
-            with self.assertRaises(HTTPException) as ctx:
+            with self.assertRaises(RateLimitExceededError) as ctx:
                 enforce_public_signup_limits(
                     client_ip="10.0.0.2",
                     email="overflow@example.com",
                     db=db,
                 )
-            self.assertEqual(ctx.exception.status_code, 429)
-            self.assertEqual(ctx.exception.detail, "too many signup attempts from this ip")
+            self.assertEqual(str(ctx.exception), "too many signup attempts from this ip")
         finally:
             db.close()
 
@@ -138,14 +136,13 @@ class SignupRateLimitTests(unittest.TestCase):
             )
             db.commit()
 
-            with self.assertRaises(HTTPException) as ctx:
+            with self.assertRaises(RateLimitExceededError) as ctx:
                 enforce_public_signup_limits(
                     client_ip="10.0.0.3",
                     email="busy@example.com",
                     db=db,
                 )
-            self.assertEqual(ctx.exception.status_code, 429)
-            self.assertEqual(ctx.exception.detail, "too many signup attempts for this email")
+            self.assertEqual(str(ctx.exception), "too many signup attempts for this email")
         finally:
             db.close()
 

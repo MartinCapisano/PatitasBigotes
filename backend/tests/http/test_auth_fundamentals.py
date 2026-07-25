@@ -227,6 +227,23 @@ class HttpAuthFundamentalsTests(HttpFundamentalsBase):
         )
         self.assertEqual(login_response.status_code, 200)
 
+    def test_signup_rate_limit_returns_429_over_http(self) -> None:
+        with patch("source.routes.auth_r.send_email_verification"):
+            first = self.client.post(
+                "/auth/register",
+                json=build_register_payload(email="flood@example.com"),
+                headers=self._origin_headers(),
+            )
+            second = self.client.post(
+                "/auth/register",
+                json=build_register_payload(email="flood@example.com"),
+                headers=self._origin_headers(),
+            )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 429)
+        self.assertEqual(second.json()["detail"], "please wait before retrying signup")
+
     def test_update_profile_rejects_existing_email_over_http(self) -> None:
         self._create_user(email="taken@example.com", verified=True)
         self._create_user(email="mover@example.com", verified=True)

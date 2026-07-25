@@ -9,6 +9,7 @@ from source.exceptions import (
     OrderStatusTransitionError,
     PaymentMethodDisabledError,
     PaymentRetryConflictError,
+    RateLimitExceededError,
     RegisteredAccountCheckoutConflictError,
     UserNotAdminError,
     WebhookReplayConflictError,
@@ -42,6 +43,9 @@ def raise_http_error_from_exception(exc: Exception, db: Session | None = None) -
     if isinstance(exc, LookupError):
         logger.info("event=business_error status=404 detail=%s", exc)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if isinstance(exc, RateLimitExceededError):
+        logger.info("event=rate_limited status=429 detail=%s", exc)
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     if isinstance(exc, OrderStatusTransitionError):
         logger.info("event=business_error status=409 detail=%s", exc)
         raise HTTPException(status_code=409, detail=str(exc)) from exc

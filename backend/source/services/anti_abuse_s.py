@@ -2,11 +2,11 @@
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from source.db.models import AuthLoginThrottle
+from source.exceptions import RateLimitExceededError
 
 IP_WINDOW = timedelta(minutes=5)
 IP_MAX_REQUESTS = 20
@@ -106,10 +106,7 @@ def _enforce_window_limit(
         row.window_started_at = now
 
     if int(row.failed_count) >= int(max_requests):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=detail,
-        )
+        raise RateLimitExceededError(detail)
 
     row.failed_count = int(row.failed_count) + 1
     row.updated_at = now
@@ -131,10 +128,7 @@ def _enforce_min_interval(
     if last_hit_at is not None:
         elapsed = (now - last_hit_at).total_seconds()
         if elapsed < float(min_interval_seconds):
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=detail,
-            )
+            raise RateLimitExceededError(detail)
 
     row.updated_at = now
 
@@ -147,10 +141,7 @@ def enforce_public_guest_checkout_limits(
     db: Session,
 ) -> None:
     if website is not None and str(website).strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="invalid request",
-        )
+        raise ValueError("invalid request")
 
     _enforce_public_email_ip_limits(
         client_ip=client_ip,

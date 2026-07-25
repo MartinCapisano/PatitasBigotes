@@ -32,3 +32,8 @@ class UserNotAdminError(ValueError):
 
 class ContactDataMismatchError(ValueError):
     """Contact data provided does not match the existing user for that email."""
+
+
+class RateLimitExceededError(Exception):
+    """An anti-abuse rate limit was hit. Maps to HTTP 429. Not a ValueError:
+    it is not a validation error and must not be swallowed by the 400 branch."""
