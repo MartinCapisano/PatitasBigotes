@@ -62,10 +62,18 @@ Con las URLs reales ya conocidas:
 
 En el free tier de Render no hay cron ni proceso siempre despierto, asi que los jobs (reconciliacion de pagos, reprocesamiento de webhooks, expiracion de reservas de stock, sweep de idempotencia, prunes) se disparan por un ping externo a `POST /internal/maintenance/run`, protegido por `MAINTENANCE_RUN_TOKEN`.
 
-El workflow [`.github/workflows/maintenance.yml`](.github/workflows/maintenance.yml) lo pinga cada ~13 min (tambien mantiene despierto a Render y activo a Supabase). Configurar como **repository secrets** de GitHub:
+El workflow [`.github/workflows/maintenance.yml`](.github/workflows/maintenance.yml) lo pinga cada ~13 min (tambien mantiene despierto a Render y activo a Supabase). Mientras falten los secrets el workflow termina en verde con `skipped: not configured yet`, sin correr nada; se activa solo cuando esten cargados.
 
-- `PROD_API_BASE_URL` = URL del backend en Render
-- `MAINTENANCE_RUN_TOKEN` = el mismo valor seteado en Render
+### Activacion (go-live)
+
+El token es una credencial: la genera y la carga una persona, no el agente. Pasos para activar el ping el dia del deploy:
+
+- [ ] 1. Generar un token aleatorio largo (p. ej. `openssl rand -hex 32`).
+- [ ] 2. Cargarlo como env `MAINTENANCE_RUN_TOKEN` en el web service de Render (paso 2 de esta guia).
+- [ ] 3. En el repo (GitHub -> Settings -> Secrets and variables -> Actions) cargar los **repository secrets**:
+  - `PROD_API_BASE_URL` = URL del backend en Render.
+  - `MAINTENANCE_RUN_TOKEN` = **el mismo valor** que se seteo en Render (paso 2). Si no coincide, el backend responde 401 y el ping falla.
+- [ ] 4. Correr el workflow a mano (pestaña Actions -> Maintenance ping -> Run workflow / `workflow_dispatch`) y confirmar que la corrida queda en verde y que la respuesta trae `status: ok`. Recien ahi el feature esta activado.
 
 ## 6. Backups de la base
 
