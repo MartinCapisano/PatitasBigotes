@@ -28,8 +28,11 @@ jobs:
           MAINTENANCE_RUN_TOKEN: ${{ secrets.MAINTENANCE_RUN_TOKEN }}
         run: |
           if [ -z "$API_BASE_URL" ] || [ -z "$MAINTENANCE_RUN_TOKEN" ]; then
-            echo "Missing PROD_API_BASE_URL or MAINTENANCE_RUN_TOKEN secret." >&2
-            exit 1
+            # Prod no desplegada todavia: sin secrets no hay a quien pegarle.
+            # Salir en verde para no spamear mails de fallo en cada corrida del
+            # cron. El workflow se activa solo cuando se carguen ambos secrets.
+            echo "skipped: not configured yet"
+            exit 0
           fi
           # --max-time is generous to absorb Render's cold start (30-60s).
           curl -fsS -X POST "${API_BASE_URL%/}/internal/maintenance/run" \
