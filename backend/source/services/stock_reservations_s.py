@@ -146,8 +146,8 @@ def _expire_active_reservations_internal(
     for reservation in expiring_reservations:
         reservations_by_order.setdefault(int(reservation.order_id), []).append(reservation)
 
-    for order_id, reservations in reservations_by_order.items():
-        order, items = _lock_order_items_for_order(order_id=order_id, db=db)
+    for current_order_id, reservations in reservations_by_order.items():
+        order, items = _lock_order_items_for_order(order_id=current_order_id, db=db)
 
         for reservation in reservations:
             reservation.status = RESERVATION_EXPIRED
@@ -170,13 +170,13 @@ def _expire_active_reservations_internal(
             publish_domain_event(
                 event_type="order_cancelled",
                 payload={
-                    "order_id": int(order_id),
+                    "order_id": int(current_order_id),
                     "user_id": int(order.user_id) if order.user_id is not None else None,
                     "reason": "expiracion de reserva",
                 },
                 db=db,
             )
-            _cancel_pending_payments_for_order(order_id=order_id, now=now, db=db)
+            _cancel_pending_payments_for_order(order_id=current_order_id, now=now, db=db)
             expired_count += len(reservations)
             continue
 
@@ -209,13 +209,13 @@ def _expire_active_reservations_internal(
         publish_domain_event(
             event_type="order_cancelled",
             payload={
-                "order_id": int(order_id),
+                "order_id": int(current_order_id),
                 "user_id": int(order.user_id) if order.user_id is not None else None,
                 "reason": "expiracion de reserva",
             },
             db=db,
         )
-        _cancel_pending_payments_for_order(order_id=order_id, now=now, db=db)
+        _cancel_pending_payments_for_order(order_id=current_order_id, now=now, db=db)
         expired_count += len(reservations)
 
     db.flush()
