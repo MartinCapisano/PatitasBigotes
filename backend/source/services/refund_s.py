@@ -352,6 +352,30 @@ def create_mercadopago_refund(
         # Commit the failed status now instead of leaving it to the caller's
         # transactional session wrapper, so that re-raising below doesn't trigger
         # a rollback that discards this refund request and its failed status.
+        #
+        # KNOWN SMELL (frágil, no arreglar a la ligera): esto commitea desde
+        # dentro del servicio y rompe el contrato de get_db_transactional, que
+        # es el único dueño de la transacción (una request = una transacción
+        # atómica). El commit no es selectivo: persiste TODA la Session, así
+        # que si alguien agrega una mutación antes del try de arriba, el camino
+        # de fallo la va a guardar en silencio. Y como commitea la transacción
+        # entera, NO se puede anidar bajo un begin_nested()/SAVEPOINT (p.ej. la
+        # idempotencia): cerraría la transacción externa antes de tiempo.
+        #
+        # POR QUÉ EXISTE: la causa raíz es que create_refund() es una llamada
+        # de red a Mercado Pago hecha DENTRO de la transacción (con el incidente
+        # lockeado FOR UPDATE). Queremos que el rastro "se intentó y falló"
+        # sobreviva aunque re-lancemos, pero el Unit of Work es todo-o-nada, así
+        # que hay que escapar de su rollback commiteando acá. El arreglo real no
+        # es sacar este commit (perderíamos el registro fallido) sino sacar la
+        # llamada a MP fuera de la transacción (patrón Outbox, o dos sesiones
+        # separadas: persistir 'requested' y commitear, llamar a MP, y registrar
+        # el resultado en una transacción fresca).
+        #
+        # CONTEXTO: el flujo de Mercado Pago está PAUSADO, por lo que este
+        # camino no se ejercita hoy. Se deja tal cual, documentado, hasta que
+        # el flujo se reactive; recién ahí conviene rediseñarlo (Outbox) y
+        # cubrir este camino de fallo con un test contra PostgreSQL.
         try:
             refund.status = PAYMENT_REFUND_STATUS_FAILED
             refund.provider_payload = _serialize_payload(
