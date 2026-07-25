@@ -34,7 +34,41 @@ jobs:
             echo "skipped: not configured yet"
             exit 0
           fi
-          # --max-time is generous to absorb Render's cold start (30-60s).
-          curl -fsS -X POST "${API_BASE_URL%/}/internal/maintenance/run" \
+          # Capture body + HTTP code ourselves (no `curl -f`): run_all_maintenance
+          # returns HTTP 200 with status "partial" when a job fails, and -f would
+          # hide that. --max-time is generous to absorb Render's cold start (30-60s).
+          body_file="$(mktemp)"
+          http_code="$(curl -sS -o "$body_file" -w '%{http_code}' \
+            -X POST "${API_BASE_URL%/}/internal/maintenance/run" \
             -H "Authorization: Bearer ${MAINTENANCE_RUN_TOKEN}" \
-            --max-time 150
+            --max-time 150)" || {
+              echo "maintenance ping failed: transport error (timeout or cold start)" >&2
+              exit 1
+            }
+
+          if [ "$http_code" -ge 400 ]; then
+            echo "maintenance ping failed: HTTP $http_code" >&2
+            cat "$body_file" >&2
+            exit 1
+          fi
+
+          # run_all_maintenance() isolates each job and still answers 200; the real
+          # signal is .data.status. partial => a job failed (mail); busy => two pings
+          # overlapped, which is healthy; ok => all clear.
+          run_status="$(jq -r '.data.status // "unknown"' "$body_file" 2>/dev/null || echo "unknown")"
+          echo "maintenance run status: $run_status"
+          case "$run_status" in
+            ok|busy)
+              exit 0
+              ;;
+            partial)
+              echo "maintenance run reported partial failure" >&2
+              cat "$body_file" >&2
+              exit 1
+              ;;
+            *)
+              echo "maintenance run reported unexpected status: $run_status" >&2
+              cat "$body_file" >&2
+              exit 1
+              ;;
+          esac
