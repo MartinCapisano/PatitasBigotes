@@ -383,16 +383,26 @@ No expone secretos ni permite ejecutar nada sin credenciales, pero **facilita el
 
 | # | Fuga | Severidad | Detalle |
 |---|---|---|---|
-| 1 | Mensajes de `ValueError` internos llegan al cliente | 🟡 | `errors.py:44-45` mapea cualquier `ValueError` a 400 con `str(exc)`. Un `int("abc")` accidental produce `invalid literal for int() with base 10: 'abc'` |
-| 2 | Enumeración de usuarios vía login | 🟡 | `403 email not verified` solo ocurre si el email existe |
+| 1 | Mensajes de `ValueError` internos llegan al cliente | 🟡 Abierto | `errors.py` mapea cualquier `ValueError` a 400 con `str(exc)`. Un `int("abc")` accidental produce `invalid literal for int() with base 10: 'abc'`. Fix pendiente en **R-S-07** (ver nota) |
+| 2 | Enumeración de usuarios vía login | 🟡 Aceptado | `403 email not verified` solo ocurre si el email existe. Se decide **no** modificarlo: el frontend usa ese 403 para ofrecer el reenvío de verificación; explotabilidad baja |
 | 3 | Distinción de errores de token | 🟢 Bajo | `invalid` / `already used` / `expired` |
-| 4 | `/docs` público | 🟡 | Ver §11 |
-| 5 | `logger.exception` de toda excepción | 🟡 | `errors.py:25` loguea stack traces incluso de errores de negocio esperados. Ruido + posible PII en logs |
-| 6 | `provider_payload` completo en las respuestas de pago | 🟡 | `_payment_to_dict` devuelve `provider_payload` y `provider_payload_data` al cliente, incluyendo el payload crudo de Mercado Pago |
+| 4 | `/docs` público | 🟡 | Ver §11 (**R-S-05**) |
+| 5 | ~~`logger.exception` de toda excepción~~ | ✅ Resuelto | `raise_http_error_from_exception` ahora loguea según severidad: negocio esperado (4xx) → `logger.info` sin stack; fallo de proveedor (5xx upstream) → `logger.warning`; solo lo genuinamente inesperado (DB, sin mapear) conserva `logger.exception` con stack (`errors.py`) |
+| 6 | ~~`provider_payload` completo en las respuestas de pago~~ | ✅ Resuelto | `payment_to_dict` recorta por defecto el payload a las claves que el frontend consume (`checkout`, `instructions`) y omite la cadena cruda `provider_payload`; el crudo del webhook de MP (payer, tarjeta, IP) ya no llega al usuario. Admin conserva el payload completo vía `include_provider_payload=True` (`payment_core_s.py`) |
 
-> **Recomendación (R-S-07):** para el punto 1, distinguir errores de negocio (mensaje seguro) de errores
-> inesperados (mensaje genérico + log). Una subclase `BusinessRuleError(ValueError)` cuyo mensaje sí se expone,
-> y `ValueError` genérico → "solicitud inválida".
+> **Recomendación (R-S-07) — pendiente:** para el punto 1, distinguir errores de negocio (mensaje seguro) de
+> errores inesperados (mensaje genérico + log). Una subclase `BusinessRuleError(ValueError)` cuyo mensaje sí se
+> expone, y `ValueError` genérico → "solicitud inválida".
+>
+> ⚠️ **Coste real más alto de lo estimado:** hoy hay ~228 `raise ValueError(...)` en `source/services/` cuyos
+> mensajes de negocio el cliente **sí** debe ver (y 53 tests asertan sobre ellos). Hacerlo bien exige migrar esos
+> call sites a `BusinessRuleError` (revisando cada uno) **antes** de invertir el default en `errors.py`. Es una
+> migración mecánica grande, no un cambio de una línea.
+
+> **Nota sobre el punto 6:** el `provider_payload_data` no era puramente interno — el frontend depende de
+> `checkout.checkout_url` (redirección de Mercado Pago) y de `instructions` (datos de la transferencia bancaria).
+> Por eso el fix no lo elimina sino que aplica una **allowlist** de esas dos claves para el usuario, preservando
+> los flujos de checkout y transferencia.
 
 ---
 
