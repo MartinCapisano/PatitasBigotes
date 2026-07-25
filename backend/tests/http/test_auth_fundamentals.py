@@ -227,6 +227,27 @@ class HttpAuthFundamentalsTests(HttpFundamentalsBase):
         )
         self.assertEqual(login_response.status_code, 200)
 
+    def test_update_profile_rejects_existing_email_over_http(self) -> None:
+        self._create_user(email="taken@example.com", verified=True)
+        self._create_user(email="mover@example.com", verified=True)
+
+        login_response = self._login(email="mover@example.com")
+        self.assertEqual(login_response.status_code, 200)
+
+        response = self.client.patch(
+            "/auth/me",
+            json={
+                "first_name": "Mover",
+                "last_name": "User",
+                "phone": "1122334455",
+                "email": "taken@example.com",
+            },
+            headers=self._origin_headers(),
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "email already exists")
+
     def test_password_change_requires_current_password_over_http(self) -> None:
         self._create_user(email="change@example.com", verified=True)
         login_response = self._login(email="change@example.com")

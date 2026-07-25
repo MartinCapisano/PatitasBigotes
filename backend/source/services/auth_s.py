@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone, UTC
 
-from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from source.exceptions import EmailAlreadyExistsError
 from source.services.auth_security_s import (
     create_access_token,
     create_refresh_token,
@@ -309,7 +309,7 @@ def update_user_profile(
             .first()
         )
         if existing is not None:
-            raise HTTPException(status_code=409, detail="email already exists")
+            raise EmailAlreadyExistsError("email already exists")
 
         user.email = normalized_email
         user.email_verified_at = None
