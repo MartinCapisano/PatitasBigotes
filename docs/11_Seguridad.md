@@ -260,19 +260,17 @@ pendientes duplicados, el reintento tiene 6 precondiciones).
 > **Recomendación (R-S-03):** rate limiting genérico por `user_id` en las rutas mutantes, reutilizando
 > `auth_login_throttles` con un scope nuevo.
 
-### ⚠️ Hallazgo: la IP depende de `FORWARDED_ALLOW_IPS`
+### ✅ Resuelto: la IP depende de `FORWARDED_ALLOW_IPS` (R-S-04)
 
 `_extract_client_ip` usa `request.client.host` (`auth_r.py:63-72`), que Uvicorn reescribe desde
 `X-Forwarded-For` **solo** si la conexión viene de una IP listada en `FORWARDED_ALLOW_IPS` (default
-`127.0.0.1`).
+`127.0.0.1`). Con el default, en Render la conexión llega desde el proxy interno y el header se
+descartaba: **todo el rate limiting por IP usaba una sola IP** (la del proxy) para todos los usuarios.
 
-🟢 El código lo documenta en un comentario de 8 líneas.
-🔴 **Pero `FORWARDED_ALLOW_IPS` no aparece en `render.yaml` ni en `.env.production.example`.**
-Si no está configurada, **todo el rate limiting por IP en producción usa la IP del proxy de Render**, es decir,
-una sola IP para todos los usuarios. El límite de 20 requests / 5 min se agotaría globalmente.
-
-> 🔴 **Recomendación (R-S-04) — prioridad alta:** verificar y documentar `FORWARDED_ALLOW_IPS` en producción, o
-> leer `X-Forwarded-For` explícitamente con una allowlist de proxies conocida.
+🟢 **Resuelto** en `render.yaml:24`: el `startCommand` pasa `--forwarded-allow-ips '*'`, que habilita el
+`ProxyHeadersMiddleware` de Uvicorn y restaura la IP real por usuario. El comodín es seguro porque el
+contenedor solo es alcanzable a través del proxy de Render. Detalle completo en
+[17_ProductionReadiness.md §11.1](17_ProductionReadiness.md#111-resuelto-ip-real-detrás-del-proxy-de-render).
 
 ---
 
@@ -352,9 +350,9 @@ placeholders y los manifiestos de K8s son plantillas.
 | `Referrer-Policy` | `strict-origin-when-cross-origin` | 🟢 |
 | `Content-Security-Policy` | `default-src 'self'; frame-ancestors 'none'` | 🟢 (⚠️ omitida en `/docs`) |
 | `Strict-Transport-Security` | `max-age=63072000; includeSubDomains` si `Secure` | 🟢 2 años |
-| `Permissions-Policy` | ❌ Ausente | 🟡 |
-| `Cross-Origin-Opener-Policy` | ❌ Ausente | 🟡 |
-| `Cross-Origin-Resource-Policy` | ❌ Ausente | 🟡 |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=(), payment=(), usb=()` | 🟢 |
+| `Cross-Origin-Opener-Policy` | `same-origin` | 🟢 |
+| `Cross-Origin-Resource-Policy` | `same-origin` | 🟢 |
 
 **CORS:** `allow_origins` desde env (no `*`), `allow_credentials=True`, `allow_methods=["*"]`,
 `allow_headers=["*"]`.
@@ -514,7 +512,7 @@ por separado — excelente para depurar.
 
 | ID | Hallazgo | Severidad | Probabilidad | Impacto | Esfuerzo | Prioridad |
 |---|---|---|---|---|---|---|
-| <a id="R-S-04"></a>**R-S-04** | `FORWARDED_ALLOW_IPS` no documentada → rate limiting por IP inefectivo en producción | 🔴 Alta | Alta | Alto | 1 h | **P0** |
+| <a id="R-S-04"></a>~~**R-S-04**~~ | ✅ **Resuelto** — `--forwarded-allow-ips '*'` en `render.yaml:24` | — | — | — | — | — |
 | <a id="R-S-01"></a>**R-S-01** | `is_admin` del claim en 6 endpoints no-admin | 🟠 Media | Baja | Medio | 3 h | **P1** |
 | <a id="R-S-05"></a>**R-S-05** | `/docs` y `/openapi.json` públicos en producción | 🟠 Media | Alta | Bajo | 30 min | **P1** |
 | <a id="R-S-02"></a>**R-S-02** | `pbkdf2_sha256` en lugar de Argon2id/bcrypt | 🟠 Media | Baja | Alto | 2 h | **P1** |
@@ -527,7 +525,7 @@ por separado — excelente para depurar.
 | <a id="R-S-12"></a>**R-S-12** | Política de password débil (sin dígitos ni mayúsculas) | 🟡 Baja | Media | Medio | 1 h | **P3** |
 | <a id="R-S-08"></a>**R-S-08** | `img_url` sin validación de esquema | 🟢 Info | Baja | Bajo | 30 min | **P3** |
 | <a id="R-S-13"></a>**R-S-13** | Emails en claro en los logs | 🟢 Info | Alta | Bajo | 1 h | **P3** |
-| <a id="R-S-14"></a>**R-S-14** | Sin `Permissions-Policy`, `COOP`, `CORP` | 🟢 Info | — | Bajo | 30 min | **P3** |
+| <a id="R-S-14"></a>~~**R-S-14**~~ | ✅ **Resuelto** — `Permissions-Policy`, `COOP` y `CORP` en `security_headers_d.py` | — | — | — | — | — |
 | <a id="R-S-15"></a>**R-S-15** | Lock de mantenimiento solo de proceso | 🟢 Info | Baja | Bajo | 1 día | **P3** |
 
 ### Plan de acción sugerido
@@ -538,7 +536,7 @@ gantt
     dateFormat X
     axisFormat %s
     section P0 — inmediato
-    R-S-04 FORWARDED_ALLOW_IPS        :0, 1
+    R-S-04 FORWARDED_ALLOW_IPS        :done, 0, 1
     section P1 — este sprint
     R-S-05 desactivar /docs en prod   :1, 1
     R-S-10 pip-audit + npm audit      :2, 1
@@ -553,7 +551,7 @@ gantt
     R-S-12 política de password       :38, 1
     R-S-08 validar img_url            :39, 1
     R-S-13 logs sin PII               :40, 1
-    R-S-14 cabeceras extra            :41, 1
+    R-S-14 cabeceras extra            :done, 41, 1
 ```
 
 ---

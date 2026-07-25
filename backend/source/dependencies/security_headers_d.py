@@ -16,6 +16,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        # Disable browser capabilities the app never uses (least privilege).
+        response.headers.setdefault(
+            "Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+        )
+        # Isolate this tab from cross-origin windows (blocks window.opener / Spectre-style leaks).
+        response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        # Refuse cross-origin embedding of our responses (XS-Leaks defense).
+        # CORS-mode fetches from the SPA are governed by CORS, not CORP, so this does not break them.
+        response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
         if request.url.path not in DOC_PATHS:
             response.headers.setdefault(
                 "Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'"
