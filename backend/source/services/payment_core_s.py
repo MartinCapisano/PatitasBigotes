@@ -36,9 +36,37 @@ ALLOWED_PAYMENT_TRANSITIONS = {
 }
 
 
-def payment_to_dict(payment: Payment) -> dict:
-    parsed_provider_payload = deserialize_provider_payload(payment.provider_payload)
+# Claves del provider_payload parseado que el frontend sí consume: `checkout` lleva la
+# URL de redirección de Mercado Pago e `instructions` los datos de la transferencia
+# bancaria. Todo lo demás que el payload va acumulando durante su vida -- el cuerpo
+# crudo del webhook del proveedor (payer, fragmentos de tarjeta, IP del cliente), el
+# payload de la preferencia y la reconciliación -- es interno y no debe salir en una
+# respuesta destinada al usuario final.
+_CLIENT_VISIBLE_PROVIDER_PAYLOAD_KEYS = ("checkout", "instructions")
+
+
+def _client_visible_provider_payload(parsed: dict | None) -> dict | None:
+    if parsed is None:
+        return None
     return {
+        key: parsed[key]
+        for key in _CLIENT_VISIBLE_PROVIDER_PAYLOAD_KEYS
+        if key in parsed
+    }
+
+
+def payment_to_dict(payment: Payment, *, include_provider_payload: bool = False) -> dict:
+    """Serializa un pago para una respuesta HTTP.
+
+    Por defecto el provider_payload parseado se recorta a las claves que el frontend
+    realmente usa (`checkout`, `instructions`) y la cadena cruda `provider_payload` se
+    omite por completo, de modo que el cuerpo crudo del webhook de Mercado Pago -- datos
+    del pagador, fragmentos de tarjeta, IP del cliente -- nunca llega al usuario final.
+    Los llamadores de admin pasan `include_provider_payload=True` para obtener el payload
+    completo con fines de depuración.
+    """
+    parsed_provider_payload = deserialize_provider_payload(payment.provider_payload)
+    result = {
         "id": payment.id,
         "order_id": payment.order_id,
         "method": payment.method,
@@ -51,13 +79,19 @@ def payment_to_dict(payment: Payment) -> dict:
         "preference_id": payment.preference_id,
         "public_status_token": payment.public_status_token,
         "provider_status": payment.provider_status,
-        "provider_payload": payment.provider_payload,
-        "provider_payload_data": parsed_provider_payload,
+        "provider_payload_data": (
+            parsed_provider_payload
+            if include_provider_payload
+            else _client_visible_provider_payload(parsed_provider_payload)
+        ),
         "expires_at": payment.expires_at,
         "paid_at": payment.paid_at,
         "created_at": payment.created_at,
         "updated_at": payment.updated_at,
     }
+    if include_provider_payload:
+        result["provider_payload"] = payment.provider_payload
+    return result
 
 
 def serialize_provider_payload(payload: dict | None) -> str | None:
