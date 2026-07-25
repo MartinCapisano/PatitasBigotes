@@ -20,7 +20,7 @@ Elementos donde el comportamiento actual **es incorrecto o probablemente lo sea*
 | ID | Problema | Evidencia | Impacto | Costo | Prioridad |
 |---|---|---|---|---|---|
 | <a id="B-01"></a>**B-01** | `alembic` no está en `requirements.txt` pero `render.yaml` lo ejecuta en el `buildCommand` | `render.yaml:18` vs `requirements.txt` | 🔴 El deploy podría fallar | 0,1 d | **P0** |
-| <a id="B-02"></a>**B-02** | `FORWARDED_ALLOW_IPS` no configurada → el rate limiting por IP usa la IP del proxy de Render para todos | `auth_r.py:64-69` + ausencia en `render.yaml` y `.env.production.example` | 🔴 Anti-abuso inefectivo en producción | 0,2 d | **P0** |
+| <a id="B-02"></a>**B-02** | ✅ ~~`FORWARDED_ALLOW_IPS` no configurada → el rate limiting por IP usa la IP del proxy de Render para todos~~ — **resuelto**: `--forwarded-allow-ips '*'` en el `startCommand` | `render.yaml:24` | 🔴 Anti-abuso inefectivo en producción | 0,2 d | — |
 | <a id="B-03"></a>**B-03** | Engine sin `pool_pre_ping` → `OperationalError` en la primera request tras el idle | `db/session.py:12` | 🔴 500 esporádicos tras cada cold start | 0,1 d | **P0** |
 | <a id="B-04"></a>**B-04** | ✅ ~~El default de `sort_by` del storefront es `price`, que activa el camino sin paginación en SQL~~ — **resuelto**: el default es `name` | `useStorefrontPage.ts:13` + `products_storefront_s::list_storefront_products` | 🟠 O(catálogo) en la vista más visitada | 0,1 d | — |
 | <a id="B-05"></a>**B-05** | Defaults de `MERCADOPAGO_SUCCESS/FAILURE/PENDING_URL` apuntan al puerto 8000 (backend) en vez del 5173 (frontend) | `db/config.py:53-71` vs `.env.example:47-49` | 🟠 404 al volver de MP si falta la variable | 0,1 d | **P1** |
@@ -42,7 +42,7 @@ Detalle completo en [11_Seguridad.md](11_Seguridad.md#17-informe-de-riesgos).
 
 | ID | Acción | Impacto | Costo | Prioridad |
 |---|---|---|---|---|
-| <a id="R-S-04"></a>**R-S-04** | Configurar y documentar `FORWARDED_ALLOW_IPS` *(= B-02)* | 🔴 | 0,2 d | **P0** |
+| <a id="R-S-04"></a>~~**R-S-04**~~ | ✅ **Resuelto** — `--forwarded-allow-ips '*'` en `render.yaml:24` *(= B-02)* | 🔴 | 0,2 d | — |
 | <a id="R-S-05"></a>**R-S-05** | Desactivar `/docs`, `/redoc` y `/openapi.json` en producción | 🟠 | 0,1 d | **P1** |
 | <a id="R-S-10"></a>**R-S-10** | `pip-audit` + `npm audit` en CI | 🟠 | 0,2 d | **P1** |
 | <a id="R-S-02"></a>**R-S-02** | Migrar el hash de password a Argon2id con `deprecated="auto"` | 🟠 | 0,3 d | **P1** |
@@ -195,7 +195,7 @@ gantt
     axisFormat %s
     section Bloqueantes
     B-01 alembic en requirements       :0, 1
-    B-02 FORWARDED_ALLOW_IPS           :0, 1
+    B-02 FORWARDED_ALLOW_IPS           :done, 0, 1
     B-03 pool_pre_ping                 :1, 1
     B-04 sort_by default name          :1, 1
     P-11 lru_cache config JWT          :1, 1
@@ -255,7 +255,7 @@ quadrantChart
     quadrant-2 "Quick wins: hacer YA"
     quadrant-3 "Rellenos: cuando sobre tiempo"
     quadrant-4 "Reconsiderar"
-    "B-02 FORWARDED_ALLOW_IPS": [0.05, 0.95]
+    "B-02 FWD_ALLOW_IPS (hecho)": [0.05, 0.95]
     "B-03 pool_pre_ping": [0.05, 0.90]
     "B-01 alembic": [0.05, 0.85]
     "B-04 sort_by name": [0.05, 0.75]
@@ -317,7 +317,7 @@ quadrantChart
 
 | Si no se hace | Qué pasa | Probabilidad |
 |---|---|---|
-| B-02 (`FORWARDED_ALLOW_IPS`) | Un solo bot agota el límite de todos los usuarios legítimos | Alta |
+| ~~B-02 (`FORWARDED_ALLOW_IPS`)~~ ✅ resuelto | Un solo bot agota el límite de todos los usuarios legítimos | — |
 | B-03 (`pool_pre_ping`) | 500 esporádicos tras cada cold start, sin explicación aparente | **Muy alta** |
 | PR-01 (alerta del cron) | El mantenimiento se cae y **nadie se entera**: pagos sin confirmar, stock reservado eternamente | Media |
 | PR-02 (probar backup) | Se descubre que el backup no restaura **justo cuando hace falta** | Baja, impacto catastrófico |

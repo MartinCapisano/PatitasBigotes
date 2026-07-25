@@ -134,19 +134,16 @@ con ServiceAccount y gestión de secretos por External Secrets Operator.
 > ⚠️ Las variables del sweeper de idempotencia **no aparecen en `.env.example`** — se leen con `os.getenv` y
 > default en `idempotency_sweeper_job.py:71-73` y `maintenance_s.py:58-65`. Conviene documentarlas.
 
-### 2.7 🔴 Variable crítica **no documentada**: `FORWARDED_ALLOW_IPS`
-
-No aparece en ningún `.env.example`, ni en `render.yaml`, ni en `DEPLOYMENT.md`. **Pero es imprescindible en
-producción.**
+### 2.7 ✅ Resuelto: la IP real detrás del proxy (`FORWARDED_ALLOW_IPS`)
 
 Uvicorn solo reescribe `request.client.host` desde `X-Forwarded-For` si la conexión viene de una IP listada en
-`FORWARDED_ALLOW_IPS` (default: `127.0.0.1`). El código lo documenta en `auth_r.py:64-69`, pero la variable
-nunca se configura.
+`FORWARDED_ALLOW_IPS` (default: `127.0.0.1`). Con el default, en Render el header se descartaba y todo el rate
+limiting por IP usaba una sola IP (la del proxy) para todos los usuarios.
 
-**Consecuencia:** todo el rate limiting por IP en producción usa la IP del proxy de Render → una sola IP para
-todos los usuarios → el límite de 20 requests / 5 min se agota globalmente.
+**Resuelto** sin usar la variable de entorno: el `startCommand` de `render.yaml:24` pasa
+`--forwarded-allow-ips '*'`, que habilita el mismo `ProxyHeadersMiddleware` y queda versionado en el repo.
 
-> 🔴 Ver [11_Seguridad.md](11_Seguridad.md#R-S-04). **Prioridad P0.**
+> ✅ Ver [11_Seguridad.md](11_Seguridad.md#R-S-04) y [17_ProductionReadiness.md §11.1](17_ProductionReadiness.md#111-resuelto-ip-real-detrás-del-proxy-de-render).
 
 ---
 
@@ -308,7 +305,7 @@ services:
 | Comentarios explicando el free tier | 🟢 12 líneas de contexto |
 | ⚠️ `alembic` no está en `requirements.txt` | 🔴 Ver [14_Dependencias.md](14_Dependencias.md#D-01) |
 | ⚠️ Migraciones en el `buildCommand` | 🟠 Un fallo de migración rompe el deploy; exige Supabase despausado |
-| ⚠️ Sin `FORWARDED_ALLOW_IPS` | 🔴 Ver §2.7 |
+| `--forwarded-allow-ips '*'` en el `startCommand` | 🟢 Resuelto — ver §2.7 |
 | ⚠️ Sin `numInstances` ni autoscaling | 🟢 Correcto en free tier |
 
 ### `frontend/vercel.json`
@@ -432,7 +429,7 @@ backend/tmp/{logs,tests,migrations}/*
 
 | ID | Recomendación | Beneficio | Esfuerzo | Prioridad |
 |---|---|---|---|---|
-| <a id="C-00"></a>**C-00** | Documentar y setear `FORWARDED_ALLOW_IPS` | Arregla el rate limiting en producción | 1 h | **P0** |
+| <a id="C-00"></a>~~**C-00**~~ | ✅ **Resuelto** — `--forwarded-allow-ips '*'` en `render.yaml:24` (ver §2.7) | — | — | — |
 | <a id="C-01"></a>**C-01** | `docker-compose.yml` (postgres + backend + frontend) | Onboarding multiplataforma en un comando | 1 día | **P1** |
 | <a id="C-02"></a>**C-02** | Mover `alembic` a `requirements.txt` | Evita que falle el deploy | 15 min | **P1** |
 | <a id="C-03"></a>**C-03** | Prettier + `ruff format` | Consistencia de estilo | 2 h | **P1** |
@@ -475,7 +472,7 @@ Extraído de `DEPLOYMENT.md`, `render.yaml` y los `.env.production.example`:
 - [ ] `MERCADOPAGO_WEBHOOK_SECRET`
 - [ ] `MAINTENANCE_RUN_TOKEN`
 - [ ] SMTP si se quieren emails
-- [ ] 🔴 **`FORWARDED_ALLOW_IPS`** con el rango del proxy de Render
+- [x] ✅ IP real detrás del proxy — resuelto vía `--forwarded-allow-ips '*'` en el `startCommand` (no requiere setear la variable)
 
 ### Vercel / Cloudflare (frontend)
 - [ ] Root directory `frontend`
