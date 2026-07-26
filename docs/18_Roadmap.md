@@ -65,7 +65,7 @@ Detalle completo en [11_Seguridad.md](11_Seguridad.md#17-informe-de-riesgos).
 |---|---|---|---|---|---|
 | <a id="R-01"></a>**R-01** | ✅ ~~**Extraer la idempotencia HTTP a un decorador/dependencia reutilizable**~~ — **hecho**: CM `idempotent()` + `resolve_idempotency()` en `idempotency_s.py`; ambos endpoints migrados (`orders_r.py`), ADR 0002 y matriz de tests de los 4 caminos | Hoy son ~60 líneas repetidas inline en 2 endpoints, con 4 caminos distintos | 🔴 | 1 d | — |
 | <a id="R-02"></a>**R-02** | **Dividir `payment_s.py`** — 🟡 *parcial*: ya se extrajeron `payment_core_s`, `payment_provider_s`, `payment_admin_queries_s`, `payment_errors`, `mercadopago_normalization_s` y `webhook_events_s` (1135→723 líneas, docstring ya no reconoce nada "a medias"). **Pendiente**: separar creación/reintentos/confirmación manual (siguen conviviendo en `payment_s.py`) y mover los queries (`list_payments_for_order`, `get_payment_for_user`, `get_payment_public_status`) a `payment_admin_queries_s` | Terminar de descomponer el núcleo del ciclo de vida del pago | 🟠 | 1 d | **P2** |
-| <a id="R-03"></a>**R-03** | **Fusionar el checkout autenticado en un solo endpoint** `POST /checkout` | Hoy son 3 requests sin idempotencia entre ellas; un fallo intermedio deja estado parcial | 🔴 | 2 d | **P1** |
+| <a id="R-03"></a>**R-03** | ✅ ~~**Fusionar el checkout autenticado en un solo endpoint** `POST /checkout`~~ — **hecho**: `POST /checkout` unificado, espeja el guest, ADR 0002 (PERSIST + recuperación de MP); frontend colapsado a una sola request y endpoint tipado (`AuthenticatedCheckoutRequest`→`CheckoutResponse`) | Hoy son 3 requests sin idempotencia entre ellas; un fallo intermedio deja estado parcial | 🔴 | 2 d | — |
 | <a id="R-04"></a>**R-04** | **Enviar los emails de auth con `post_commit_actions`** | `register` y `update_user_profile` mandan SMTP dentro de la transacción | 🟠 | 0,5 d | **P1** |
 | <a id="R-05"></a>**R-05** | **Códigos de error estables en la respuesta** en lugar de comparar `detail` literal | `http-errors.ts` compara strings exactos con `payment_s.py`; un cambio de coma rompe la UI sin test que lo detecte | 🔴 | 2 d | **P1** |
 | <a id="R-06"></a>**R-06** | **Declarar `response_model` en los endpoints** — 📋 *en tickets* (Notion 🧩 Refactor → `declaracion resp-model`, RM-1…RM-6): implementación **híbrida** enfocada en la superficie crítica de plata/estado (~8 endpoints), no los 76 | `api.generated.ts` (3.992 líneas) se genera, se valida en CI y **no se usa**, porque el OpenAPI describe las respuestas como objetos genéricos | 🔴 | 3 d | **P1** |
@@ -228,7 +228,7 @@ gantt
 
 | Bloque | Ítems |
 |---|---|
-| Refactors | ~~R-01 (idempotencia)~~ ✅, R-02 (dividir `payment_s`, 🟡 parcial), R-03 (checkout unificado), R-04 (emails post-commit) |
+| Refactors | ~~R-01 (idempotencia)~~ ✅, R-02 (dividir `payment_s`, 🟡 parcial), ~~R-03 (checkout unificado)~~ ✅, R-04 (emails post-commit) |
 | Performance | P-12, I-01..06, P-05, P-13, F-01 |
 | Tests | T-05, T-06, T-08, T-09 |
 | Bugs | B-07, B-10 |
@@ -271,7 +271,7 @@ quadrantChart
     "R-06 response_model": [0.60, 0.80]
     "R-05 códigos de error": [0.45, 0.75]
     "R-02 dividir payment_s (parcial)": [0.35, 0.55]
-    "R-03 checkout unificado": [0.55, 0.72]
+    "R-03 checkout unificado (hecho)": [0.55, 0.72]
     "T-02 CI PostgreSQL": [0.38, 0.90]
     "R-10 dividir CatalogSection": [0.75, 0.48]
     "PR-08 lock distribuido": [0.25, 0.58]
