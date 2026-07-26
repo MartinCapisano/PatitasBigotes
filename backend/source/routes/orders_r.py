@@ -8,6 +8,7 @@ from source.errors import raise_http_error_from_exception
 from source.schemas import (
     AdminRegisterPaymentRequest,
     CreateAdminSaleRequest,
+    CreateAdminSaleResponse,
     CreateOrderPaymentRequest,
     PublicOrderSnapshotResponse,
     PublicGuestCheckoutRequest,
@@ -303,7 +304,7 @@ def create_guest_checkout_order(
         return {"data": result}
 
 
-@router.post("/admin/sales")
+@router.post("/admin/sales", response_model=dict[str, CreateAdminSaleResponse])
 def create_admin_sale_endpoint(
     payload: CreateAdminSaleRequest,
     admin_user: dict = Depends(require_admin),

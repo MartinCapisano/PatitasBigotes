@@ -1,5 +1,6 @@
 import { http } from "./http";
-import type { AdminOrder, AdminPayment, ManualOrderItem } from "./admin-orders-api";
+import type { ManualOrderItem } from "./admin-orders-api";
+import type { components } from "../types/api.generated";
 
 export type AdminSearchUser = {
   id: number;
@@ -39,15 +40,10 @@ export type CreateAdminSalePayload = {
   payment?: AdminSalesPaymentPayload | null;
 };
 
-export type CreateAdminSaleResponse = {
-  customer: AdminSearchUser;
-  order: AdminOrder;
-  payment: AdminPayment | null;
-  meta: {
-    customer_created: boolean;
-    payment_registered: boolean;
-  };
-};
+// RM-1: la forma de la respuesta la fija el backend (response_model en
+// POST /admin/sales). Consumimos el tipo generado desde el OpenAPI en vez de
+// mantener una copia a mano que podía driftear en silencio.
+export type CreateAdminSaleResponse = components["schemas"]["CreateAdminSaleResponse"];
 
 export async function searchAdminUsers(params: {
   email?: string;

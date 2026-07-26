@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -121,3 +122,117 @@ class PublicOrderSnapshotResponse(BaseModel):
         "stock_reservation_expired",
         "checkout_unavailable",
     ] | None = None
+
+
+# --- Convención de DTOs de salida (`*Response`) -------------------------------
+#
+# R-06 / RM-1: espejo de salida de los `*Request`. Cada `*Response` describe la
+# forma EXACTA del dict que un serializer del service devuelve, de modo que al
+# declararlo como `response_model` el OpenAPI (y `api.generated.ts`) tipen la
+# respuesta con su forma real en vez de `unknown`.
+#
+# Reglas de la convención:
+#   - `extra="forbid"`: el DTO es un espejo fiel. Bajo `response_model` FastAPI
+#     construye el modelo desde el dict devuelto; si sobra o falta una clave,
+#     falla en serialización. Eso obliga a que schema y serializer no driftéen.
+#   - Los DTO de orden/pago/cliente de abajo son COMPARTIDOS: los reutilizan los
+#     tickets siguientes (RM-2 checkout guest, RM-3 mutaciones de pago) en lugar
+#     de que cada endpoint invente el suyo. Antes de reusarlos, verificar que el
+#     serializer del endpoint produce exactamente estas claves.
+#   - Envoltura `{"data": ...}`: se declara como `dict[str, <DTO>]` en el
+#     endpoint (mismo patrón que `GET /public/orders/by-payment-token`).
+
+
+class UserBasicResponse(BaseModel):
+    """Espejo de `serialize_user_basic` (services/users_s.py)."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: int
+    first_name: str
+    last_name: str
+    email: str
+    dni: str | None
+    phone: str | None
+    has_account: bool
+
+
+class OrderItemResponse(BaseModel):
+    """Un renglón de orden tal como lo emite `_order_to_dict` (services/orders_s.py)."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: int
+    product_id: int
+    variant_id: int
+    product_name: str | None
+    variant_label: str
+    quantity: int
+    unit_price: int
+    discount_id: int | None
+    discount_amount: int
+    final_unit_price: int
+    line_total: int
+
+
+class OrderResponse(BaseModel):
+    """Espejo de `_order_to_dict` (services/orders_s.py). DTO de orden compartido."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: int
+    user_id: int
+    customer: UserBasicResponse | None
+    status: Literal["draft", "submitted", "paid", "cancelled"]
+    currency: str
+    items: list[OrderItemResponse]
+    subtotal: int
+    discount_total: int
+    total_amount: int
+    pricing_frozen: bool
+    pricing_frozen_at: datetime | None
+    submitted_at: datetime | None
+    paid_at: datetime | None
+    cancelled_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PaymentResponse(BaseModel):
+    """Espejo de `payment_to_dict` (services/payment_core_s.py) con
+    `include_provider_payload=False` (el crudo del webhook nunca llega al cliente).
+    DTO de pago compartido."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: int
+    order_id: int
+    method: Literal["bank_transfer", "mercadopago", "cash"]
+    status: Literal["pending", "paid", "cancelled", "expired"]
+    amount: int
+    change_amount: int | None
+    currency: str
+    idempotency_key: str | None
+    external_ref: str | None
+    preference_id: str | None
+    public_status_token: str | None
+    provider_status: str | None
+    provider_payload_data: dict | None
+    expires_at: datetime | None
+    paid_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminSaleMetaResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    customer_created: bool
+    payment_registered: bool
+    order_paid_email_suppressed: bool
+
+
+class CreateAdminSaleResponse(BaseModel):
+    """Salida de `POST /admin/sales` (create_admin_sale). Compone los DTO
+    compartidos de cliente/orden/pago."""
+
+    model_config = ConfigDict(extra="forbid")
+    customer: UserBasicResponse
+    order: OrderResponse
+    payment: PaymentResponse | None
+    meta: AdminSaleMetaResponse

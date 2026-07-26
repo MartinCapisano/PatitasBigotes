@@ -1108,6 +1108,15 @@ export interface components {
             /** Payment Ref */
             payment_ref?: string | null;
         };
+        /** AdminSaleMetaResponse */
+        AdminSaleMetaResponse: {
+            /** Customer Created */
+            customer_created: boolean;
+            /** Payment Registered */
+            payment_registered: boolean;
+            /** Order Paid Email Suppressed */
+            order_paid_email_suppressed: boolean;
+        };
         /** AdminSalesCustomerRequest */
         AdminSalesCustomerRequest: {
             /**
@@ -1158,6 +1167,17 @@ export interface components {
              */
             register_payment: boolean;
             payment?: components["schemas"]["AdminSalesPaymentRequest"] | null;
+        };
+        /**
+         * CreateAdminSaleResponse
+         * @description Salida de `POST /admin/sales` (create_admin_sale). Compone los DTO
+         *     compartidos de cliente/orden/pago.
+         */
+        CreateAdminSaleResponse: {
+            customer: components["schemas"]["UserBasicResponse"];
+            order: components["schemas"]["OrderResponse"];
+            payment: components["schemas"]["PaymentResponse"] | null;
+            meta: components["schemas"]["AdminSaleMetaResponse"];
         };
         /** CreateAdminUserRequest */
         CreateAdminUserRequest: {
@@ -1319,6 +1339,80 @@ export interface components {
             /** Quantity */
             quantity: number;
         };
+        /**
+         * OrderItemResponse
+         * @description Un renglón de orden tal como lo emite `_order_to_dict` (services/orders_s.py).
+         */
+        OrderItemResponse: {
+            /** Id */
+            id: number;
+            /** Product Id */
+            product_id: number;
+            /** Variant Id */
+            variant_id: number;
+            /** Product Name */
+            product_name: string | null;
+            /** Variant Label */
+            variant_label: string;
+            /** Quantity */
+            quantity: number;
+            /** Unit Price */
+            unit_price: number;
+            /** Discount Id */
+            discount_id: number | null;
+            /** Discount Amount */
+            discount_amount: number;
+            /** Final Unit Price */
+            final_unit_price: number;
+            /** Line Total */
+            line_total: number;
+        };
+        /**
+         * OrderResponse
+         * @description Espejo de `_order_to_dict` (services/orders_s.py). DTO de orden compartido.
+         */
+        OrderResponse: {
+            /** Id */
+            id: number;
+            /** User Id */
+            user_id: number;
+            customer: components["schemas"]["UserBasicResponse"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "submitted" | "paid" | "cancelled";
+            /** Currency */
+            currency: string;
+            /** Items */
+            items: components["schemas"]["OrderItemResponse"][];
+            /** Subtotal */
+            subtotal: number;
+            /** Discount Total */
+            discount_total: number;
+            /** Total Amount */
+            total_amount: number;
+            /** Pricing Frozen */
+            pricing_frozen: boolean;
+            /** Pricing Frozen At */
+            pricing_frozen_at: string | null;
+            /** Submitted At */
+            submitted_at: string | null;
+            /** Paid At */
+            paid_at: string | null;
+            /** Cancelled At */
+            cancelled_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
         /** PasswordChangeRequest */
         PasswordChangeRequest: {
             /** Current Password */
@@ -1381,6 +1475,62 @@ export interface components {
             amount?: number | null;
             /** Reason */
             reason: string;
+        };
+        /**
+         * PaymentResponse
+         * @description Espejo de `payment_to_dict` (services/payment_core_s.py) con
+         *     `include_provider_payload=False` (el crudo del webhook nunca llega al cliente).
+         *     DTO de pago compartido.
+         */
+        PaymentResponse: {
+            /** Id */
+            id: number;
+            /** Order Id */
+            order_id: number;
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "bank_transfer" | "mercadopago" | "cash";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "paid" | "cancelled" | "expired";
+            /** Amount */
+            amount: number;
+            /** Change Amount */
+            change_amount: number | null;
+            /** Currency */
+            currency: string;
+            /** Idempotency Key */
+            idempotency_key: string | null;
+            /** External Ref */
+            external_ref: string | null;
+            /** Preference Id */
+            preference_id: string | null;
+            /** Public Status Token */
+            public_status_token: string | null;
+            /** Provider Status */
+            provider_status: string | null;
+            /** Provider Payload Data */
+            provider_payload_data: {
+                [key: string]: unknown;
+            } | null;
+            /** Expires At */
+            expires_at: string | null;
+            /** Paid At */
+            paid_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** PublicGuestCheckoutItemRequest */
         PublicGuestCheckoutItemRequest: {
@@ -1592,6 +1742,26 @@ export interface components {
             /** Active */
             active: boolean;
         };
+        /**
+         * UserBasicResponse
+         * @description Espejo de `serialize_user_basic` (services/users_s.py).
+         */
+        UserBasicResponse: {
+            /** Id */
+            id: number;
+            /** First Name */
+            first_name: string;
+            /** Last Name */
+            last_name: string;
+            /** Email */
+            email: string;
+            /** Dni */
+            dni: string | null;
+            /** Phone */
+            phone: string | null;
+            /** Has Account */
+            has_account: boolean;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -1600,10 +1770,6 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
-            /** Input */
-            input?: unknown;
-            /** Context */
-            ctx?: Record<string, never>;
         };
     };
     responses: never;
@@ -2326,7 +2492,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": {
+                        [key: string]: components["schemas"]["CreateAdminSaleResponse"];
+                    };
                 };
             };
             /** @description Validation Error */
