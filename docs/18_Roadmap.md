@@ -63,8 +63,8 @@ Detalle completo en [11_Seguridad.md](11_Seguridad.md#17-informe-de-riesgos).
 
 | ID | Refactor | Por qué | Impacto | Costo | Prioridad |
 |---|---|---|---|---|---|
-| <a id="R-01"></a>**R-01** | **Extraer la idempotencia HTTP a un decorador/dependencia reutilizable** | Hoy son ~60 líneas repetidas inline en 2 endpoints, con 4 caminos distintos | 🔴 | 1 d | **P1** |
-| <a id="R-02"></a>**R-02** | **Dividir `payment_s.py` (1135 líneas)** en `payment_creation_s`, `payment_transitions_s`, `payment_manual_s` | Terminar la refactorización que el propio docstring reconoce a medias | 🔴 | 3 d | **P1** |
+| <a id="R-01"></a>**R-01** | ✅ ~~**Extraer la idempotencia HTTP a un decorador/dependencia reutilizable**~~ — **hecho**: CM `idempotent()` + `resolve_idempotency()` en `idempotency_s.py`; ambos endpoints migrados (`orders_r.py`), ADR 0002 y matriz de tests de los 4 caminos | Hoy son ~60 líneas repetidas inline en 2 endpoints, con 4 caminos distintos | 🔴 | 1 d | — |
+| <a id="R-02"></a>**R-02** | **Dividir `payment_s.py`** — 🟡 *parcial*: ya se extrajeron `payment_core_s`, `payment_provider_s`, `payment_admin_queries_s`, `payment_errors`, `mercadopago_normalization_s` y `webhook_events_s` (1135→723 líneas, docstring ya no reconoce nada "a medias"). **Pendiente**: separar creación/reintentos/confirmación manual (siguen conviviendo en `payment_s.py`) y mover los queries (`list_payments_for_order`, `get_payment_for_user`, `get_payment_public_status`) a `payment_admin_queries_s` | Terminar de descomponer el núcleo del ciclo de vida del pago | 🟠 | 1 d | **P2** |
 | <a id="R-03"></a>**R-03** | **Fusionar el checkout autenticado en un solo endpoint** `POST /checkout` | Hoy son 3 requests sin idempotencia entre ellas; un fallo intermedio deja estado parcial | 🔴 | 2 d | **P1** |
 | <a id="R-04"></a>**R-04** | **Enviar los emails de auth con `post_commit_actions`** | `register` y `update_user_profile` mandan SMTP dentro de la transacción | 🟠 | 0,5 d | **P1** |
 | <a id="R-05"></a>**R-05** | **Códigos de error estables en la respuesta** en lugar de comparar `detail` literal | `http-errors.ts` compara strings exactos con `payment_s.py`; un cambio de coma rompe la UI sin test que lo detecte | 🔴 | 2 d | **P1** |
@@ -228,7 +228,7 @@ gantt
 
 | Bloque | Ítems |
 |---|---|
-| Refactors | R-01 (idempotencia), R-02 (dividir `payment_s`), R-03 (checkout unificado), R-04 (emails post-commit) |
+| Refactors | ~~R-01 (idempotencia)~~ ✅, R-02 (dividir `payment_s`, 🟡 parcial), R-03 (checkout unificado), R-04 (emails post-commit) |
 | Performance | P-12, I-01..06, P-05, P-13, F-01 |
 | Tests | T-05, T-06, T-08, T-09 |
 | Bugs | B-07, B-10 |
@@ -267,10 +267,10 @@ quadrantChart
     "PR-02 probar backup": [0.18, 0.92]
     "PR-05 Sentry": [0.18, 0.82]
     "R-S-10 audit CI": [0.10, 0.60]
-    "R-01 idempotencia": [0.38, 0.78]
+    "R-01 idempotencia (hecho)": [0.38, 0.78]
     "R-06 response_model": [0.60, 0.80]
     "R-05 códigos de error": [0.45, 0.75]
-    "R-02 dividir payment_s": [0.72, 0.70]
+    "R-02 dividir payment_s (parcial)": [0.35, 0.55]
     "R-03 checkout unificado": [0.55, 0.72]
     "T-02 CI PostgreSQL": [0.38, 0.90]
     "R-10 dividir CatalogSection": [0.75, 0.48]
