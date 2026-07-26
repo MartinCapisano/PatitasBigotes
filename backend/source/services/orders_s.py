@@ -629,6 +629,38 @@ def create_manual_submitted_order(
     }
 
 
+def create_authenticated_checkout_order(
+    *,
+    user_id: int,
+    items: list[dict],
+    db: Session,
+) -> dict:
+    """Wrapper público del checkout autenticado unificado (R-03).
+
+    Envuelve `_create_submitted_order_for_user` para un usuario ya autenticado (el
+    id viene del token, no del body) y devuelve el mismo envelope `{order, customer}`
+    que el checkout de invitado, para que el frontend consuma una respuesta idéntica.
+    No hay `meta.user_created`: el usuario ya existe.
+    """
+    if not items:
+        raise ValueError("items are required")
+
+    user = db.query(User).filter(User.id == int(user_id)).first()
+    if user is None:
+        raise LookupError("user not found")
+
+    order_payload = _create_submitted_order_for_user(
+        user_id=int(user.id),
+        items=items,
+        db=db,
+    )
+
+    return {
+        "order": order_payload,
+        "customer": serialize_user_basic(user),
+    }
+
+
 def create_admin_sale(
     *,
     admin_user_id: int,
