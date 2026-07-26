@@ -5,6 +5,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from source.dependencies.auth_d import get_current_user, get_current_user_id, require_admin
+from source.db.models import IdempotencyRecord
 from source.db.session import get_db, get_db_transactional
 from source.errors import raise_http_error_from_exception
 from source.schemas import (
@@ -158,6 +159,59 @@ def _build_guest_checkout_recovery_payload(
     }
 
 
+def _recover_guest_checkout(*, record: IdempotencyRecord, db: Session) -> dict:
+    """Camino 'failed' del checkout de invitado: un intento previo dejo el record
+    marcado como fallido; se reintenta inicializar el checkout de Mercado Pago para
+    ese pago y, si sale, se completa el record y se devuelve el snapshot.
+
+    Extraido de create_guest_checkout_order sin cambio de comportamiento (R01-6).
+    Sigue lanzando HTTPException y commiteando de forma explicita; R01-7 lo adaptara
+    al context manager (ctx.complete / ctx.fail).
+    """
+    failed_payload = load_replay_payload(record)
+    payment_id = failed_payload.get("payment_id")
+    order_id = failed_payload.get("order_id")
+    if payment_id is None or order_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(
+                failed_payload.get("detail") or MERCADOPAGO_CHECKOUT_SETUP_ERROR_DETAIL
+            ),
+        )
+    try:
+        recovered_payment = _initialize_mercadopago_payment_or_raise(
+            payment={"id": int(payment_id), "method": "mercadopago"},
+            db=db,
+        )
+        result = _build_guest_checkout_recovery_payload(
+            order_id=int(order_id),
+            payment_id=int(recovered_payment["id"]),
+            db=db,
+        )
+        mark_record_completed(
+            record=record,
+            response_payload=result,
+            db=db,
+        )
+        db.commit()
+        return result
+    except PaymentCheckoutInitializationError as exc:
+        mark_record_failed(
+            record=record,
+            response_payload={
+                "detail": str(exc),
+                "order_id": int(order_id),
+                "payment_id": int(payment_id),
+            },
+            db=db,
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        )
+
+
 @router.post("/checkout/guest", status_code=status.HTTP_201_CREATED)
 def create_guest_checkout_order(
     payload: PublicGuestCheckoutRequest,
@@ -191,49 +245,7 @@ def create_guest_checkout_order(
             if claimed_record.status == "completed":
                 return {"data": load_replay_payload(claimed_record)}
             if claimed_record.status == "failed":
-                failed_payload = load_replay_payload(claimed_record)
-                payment_id = failed_payload.get("payment_id")
-                order_id = failed_payload.get("order_id")
-                if payment_id is None or order_id is None:
-                    raise HTTPException(
-                        status_code=status.HTTP_502_BAD_GATEWAY,
-                        detail=str(
-                            failed_payload.get("detail")
-                            or MERCADOPAGO_CHECKOUT_SETUP_ERROR_DETAIL
-                        ),
-                    )
-                try:
-                    recovered_payment = _initialize_mercadopago_payment_or_raise(
-                        payment={"id": int(payment_id), "method": "mercadopago"},
-                        db=db,
-                    )
-                    result = _build_guest_checkout_recovery_payload(
-                        order_id=int(order_id),
-                        payment_id=int(recovered_payment["id"]),
-                        db=db,
-                    )
-                    mark_record_completed(
-                        record=claimed_record,
-                        response_payload=result,
-                        db=db,
-                    )
-                    db.commit()
-                    return {"data": result}
-                except PaymentCheckoutInitializationError as exc:
-                    mark_record_failed(
-                        record=claimed_record,
-                        response_payload={
-                            "detail": str(exc),
-                            "order_id": int(order_id),
-                            "payment_id": int(payment_id),
-                        },
-                        db=db,
-                    )
-                    db.commit()
-                    raise HTTPException(
-                        status_code=status.HTTP_502_BAD_GATEWAY,
-                        detail=str(exc),
-                    )
+                return {"data": _recover_guest_checkout(record=claimed_record, db=db)}
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="idempotent request already in progress",
