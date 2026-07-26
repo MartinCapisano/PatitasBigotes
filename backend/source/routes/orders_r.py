@@ -212,6 +212,10 @@ def create_guest_checkout_order(
     # Los conflictos (clave reusada / en curso) se lanzan al ENTRAR al with y quedan
     # fuera del try de abajo, para que suban al handler central (R01-3) -> 409, en vez
     # de pasar por raise_http_error_from_exception (que no los conoce -> 500).
+    # PERSIST va de la mano de get_db + commit manual: este endpoint hace trabajo
+    # post-commit (mails + init de MP), así que el árbol de decisión transaccional lo
+    # manda a get_db, y ese commit manual es lo que deja un record 'failed' recuperable
+    # (ADR 0002 / docs/diagrams/decision-sesion-transaccional.mmd).
     with idempotent(
         scope=scope,
         key=idempotency_key,
@@ -312,6 +316,10 @@ def create_admin_sale_endpoint(
     # Los conflictos de idempotencia (clave reusada / en curso) se lanzan al ENTRAR
     # al with y quedan fuera del try de abajo, para que suban al handler central
     # (R01-3) en vez de pasar por raise_http_error_from_exception, que no los conoce.
+    # DISCARD va de la mano del default get_db_transactional: no hay trabajo
+    # post-commit ni recuperación, así que un fallo revierte toda la transacción
+    # (incluido el acquire) y la clave queda libre para reintentar de cero
+    # (ADR 0002 / docs/diagrams/decision-sesion-transaccional.mmd).
     with idempotent(
         scope=scope,
         key=idempotency_key,

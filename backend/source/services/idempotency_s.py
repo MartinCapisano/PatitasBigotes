@@ -80,13 +80,22 @@ class IdempotencyResolution:
 class FailurePolicy(enum.Enum):
     """Qué hacer con el record si el handler falla.
 
-    PERSIST: commitea un record 'failed' que sobrevive al rollback del trabajo de
-        negocio, para que un retry pueda recuperar (checkout de invitado, bajo
-        `get_db` con commit/rollback manual).
-    DISCARD: no hace bookkeeping de fallo; deja que la transacción revierta el
-        `acquire` (venta admin, bajo `get_db_transactional`). Un retry arranca de
+    El invariante (ADR 0002): la policy NO es un eje independiente — correlaciona
+    con la dependencia de sesión que exige el árbol de decisión transaccional
+    (`docs/diagrams/decision-sesion-transaccional.mmd`). Un endpoint que hace
+    trabajo post-commit (mails, llamadas a MP) va por `get_db` + commit manual, y
+    ese commit manual es lo que hace posible PERSIST; uno que no, cae en el default
+    `get_db_transactional`, y su rollback automático es lo que hace correcto DISCARD.
+
+    PERSIST ⇔ `get_db` + commit manual + trabajo post-commit (checkout de invitado):
+        commitea un record 'failed' que sobrevive al rollback del trabajo de
+        negocio, para que un retry pueda recuperar re-inicializando Mercado Pago en
+        vez de rehacer todo.
+    DISCARD ⇔ `get_db_transactional`, default (venta admin): no hace bookkeeping de
+        fallo; deja que la transacción revierta el `acquire`. Un retry arranca de
         cero. Ver el caveat de SAVEPOINT en pysqlite/SQLite documentado en
-        `create_admin_sale_endpoint` (orders_r.py).
+        `create_admin_sale_endpoint` (orders_r.py): es propio del driver, no del
+        patrón, y no lo sufre PERSIST porque commitea explícitamente.
     """
 
     PERSIST = "persist"
@@ -397,6 +406,14 @@ def idempotent(
 ) -> Iterator[IdempotencyContext]:
     """Envuelve un handler idempotente: resuelve la clave y garantiza que un fallo
     inesperado no deje el record atascado en 'processing'.
+
+    El CM es dueño del bookkeeping del record (complete/fail + la red de seguridad),
+    NO de la transacción de negocio: el commit/rollback lo maneja el handler o la
+    dependencia de DB. Por eso sirve tanto bajo `get_db` como bajo
+    `get_db_transactional` sin cambiar. `failure` no se elige libre: debe seguir a la
+    dependencia de sesión según el árbol de decisión transaccional (ADR 0002 /
+    `docs/diagrams/decision-sesion-transaccional.mmd`) — PERSIST con `get_db` +
+    commit manual, DISCARD con `get_db_transactional`.
 
     El handler inspecciona `ctx.replay` / `ctx.recover_from`; en el camino de
     ejecución llama `ctx.complete(result)` (o `ctx.fail(payload)` ante un fallo de
