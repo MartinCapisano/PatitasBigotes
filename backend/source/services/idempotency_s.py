@@ -347,6 +347,16 @@ class IdempotencyContext:
             return self._resolution.stored_payload
         return None
 
+    @property
+    def settled(self) -> bool:
+        """True si el handler ya marcó el record (complete/fail).
+
+        Equivale al viejo chequeo `status == 'processing'` invertido: un handler que
+        maneja su propio bookkeeping de fallo puede preguntar `if not ctx.settled`
+        antes de marcarlo, sin tocar el estado del record.
+        """
+        return self._settled
+
     def complete(self, response_payload: dict) -> None:
         """Marca el record como completado. No commitea.
 
@@ -404,12 +414,15 @@ def idempotent(
         # si el handler no saldó el record, evita dejarlo en 'processing'
         # commiteando un fallo genérico que sobreviva al rollback del negocio.
         # Bajo DISCARD no hace nada: la dependencia transaccional revierte el acquire.
+        # `not ctx._settled` se evalúa antes que `record.status` a propósito: si el
+        # handler ya saldó el record y luego hizo rollback, el objeto puede estar
+        # expirado y leer `.status` dispararía una query sobre una fila revertida.
         record = resolution.record
         if (
             failure is FailurePolicy.PERSIST
             and record is not None
-            and record.status == "processing"
             and not ctx._settled
+            and record.status == "processing"
         ):
             try:
                 mark_record_failed(

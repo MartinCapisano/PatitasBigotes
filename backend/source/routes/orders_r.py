@@ -1,11 +1,8 @@
-﻿from datetime import datetime, timedelta, UTC
-
-from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request, Response, status
+﻿from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request, Response, status
 import logging
 from sqlalchemy.orm import Session
 
 from source.dependencies.auth_d import get_current_user, get_current_user_id, require_admin
-from source.db.models import IdempotencyRecord
 from source.db.session import get_db, get_db_transactional
 from source.errors import raise_http_error_from_exception
 from source.schemas import (
@@ -34,18 +31,11 @@ from source.services.orders_s import (
 from source.services.orders_public_s import get_public_order_snapshot_by_payment_token
 from source.services.anti_abuse_s import enforce_public_guest_checkout_limits
 from source.services.idempotency_s import (
-    IDEMPOTENCY_TTL_HOURS,
     FailurePolicy,
-    acquire_record,
+    IdempotencyContext,
     build_guest_checkout_scope,
-    canonicalize_payload,
-    hash_payload,
     idempotent,
-    load_replay_payload,
-    mark_record_completed,
-    mark_record_failed,
     normalize_idempotency_key,
-    prune_expired_records,
 )
 from source.services.payment_errors import PaymentCheckoutInitializationError
 from source.services.payment_admin_queries_s import list_payments_for_order_admin
@@ -159,16 +149,18 @@ def _build_guest_checkout_recovery_payload(
     }
 
 
-def _recover_guest_checkout(*, record: IdempotencyRecord, db: Session) -> dict:
+def _recover_guest_checkout(
+    *, ctx: IdempotencyContext, failed_payload: dict, db: Session
+) -> dict:
     """Camino 'failed' del checkout de invitado: un intento previo dejo el record
     marcado como fallido; se reintenta inicializar el checkout de Mercado Pago para
     ese pago y, si sale, se completa el record y se devuelve el snapshot.
 
-    Extraido de create_guest_checkout_order sin cambio de comportamiento (R01-6).
-    Sigue lanzando HTTPException y commiteando de forma explicita; R01-7 lo adaptara
-    al context manager (ctx.complete / ctx.fail).
+    El bookkeeping del record va por el context manager (ctx.complete / ctx.fail),
+    pero se sigue lanzando HTTPException(502) para el mapeo de transporte: el helper
+    se llama fuera del try que usa raise_http_error_from_exception, asi que una
+    excepcion de dominio terminaria en 500.
     """
-    failed_payload = load_replay_payload(record)
     payment_id = failed_payload.get("payment_id")
     order_id = failed_payload.get("order_id")
     if payment_id is None or order_id is None:
@@ -188,22 +180,16 @@ def _recover_guest_checkout(*, record: IdempotencyRecord, db: Session) -> dict:
             payment_id=int(recovered_payment["id"]),
             db=db,
         )
-        mark_record_completed(
-            record=record,
-            response_payload=result,
-            db=db,
-        )
+        ctx.complete(result)
         db.commit()
         return result
     except PaymentCheckoutInitializationError as exc:
-        mark_record_failed(
-            record=record,
-            response_payload={
+        ctx.fail(
+            {
                 "detail": str(exc),
                 "order_id": int(order_id),
                 "payment_id": int(payment_id),
-            },
-            db=db,
+            }
         )
         db.commit()
         raise HTTPException(
@@ -219,118 +205,98 @@ def create_guest_checkout_order(
     idempotency_key: str = Header(..., alias="Idempotency-Key"),
     db: Session = Depends(get_db),
 ):
-    record_created = False
-    claimed_record = None
-    try:
-        now = datetime.now(UTC)
-        prune_expired_records(now=now, db=db)
-
-        normalized_key = normalize_idempotency_key(idempotency_key)
-        scope = build_guest_checkout_scope(payload.customer.email)
-        canonical_payload = canonicalize_payload(payload.model_dump())
-        request_hash = hash_payload(canonical_payload)
-        claimed_record, record_created = acquire_record(
-            scope=scope,
-            idempotency_key=normalized_key,
-            request_hash=request_hash,
-            expires_at=now + timedelta(hours=IDEMPOTENCY_TTL_HOURS),
-            db=db,
-        )
-        if not record_created:
-            if claimed_record.request_hash != request_hash:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="idempotency key already used with a different payload",
+    scope = build_guest_checkout_scope(payload.customer.email)
+    # normalize_idempotency_key se computa aca (ademas de adentro del CM) porque la
+    # clave del sub-pago de abajo la incorpora en su propio idempotency_key.
+    normalized_key = normalize_idempotency_key(idempotency_key)
+    # Los conflictos (clave reusada / en curso) se lanzan al ENTRAR al with y quedan
+    # fuera del try de abajo, para que suban al handler central (R01-3) -> 409, en vez
+    # de pasar por raise_http_error_from_exception (que no los conoce -> 500).
+    with idempotent(
+        scope=scope,
+        key=idempotency_key,
+        payload=payload.model_dump(),
+        db=db,
+        failure=FailurePolicy.PERSIST,
+    ) as ctx:
+        if ctx.replay is not None:
+            return {"data": ctx.replay}
+        if ctx.recover_from is not None:
+            return {
+                "data": _recover_guest_checkout(
+                    ctx=ctx, failed_payload=ctx.recover_from, db=db
                 )
-            if claimed_record.status == "completed":
-                return {"data": load_replay_payload(claimed_record)}
-            if claimed_record.status == "failed":
-                return {"data": _recover_guest_checkout(record=claimed_record, db=db)}
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="idempotent request already in progress",
-            )
+            }
 
-        enforce_public_guest_checkout_limits(
-            client_ip=_client_ip_from_request(request),
-            email=payload.customer.email,
-            website=payload.website,
-            db=db,
-        )
-        result = create_manual_submitted_order(
-            email=payload.customer.email,
-            first_name=payload.customer.first_name,
-            last_name=payload.customer.last_name,
-            phone=payload.customer.phone,
-            items=[item.model_dump() for item in payload.items],
-            db=db,
-        )
-        if payload.payment_method is not None:
-            order_payload = result.get("order") if isinstance(result, dict) else None
-            order_id = int(order_payload.get("id")) if isinstance(order_payload, dict) and order_payload.get("id") is not None else None
-            if order_id is None:
-                raise ValueError("invalid guest checkout response: missing order id")
-            payment = create_payment_for_order(
-                order_id=order_id,
-                method=payload.payment_method,
+        try:
+            enforce_public_guest_checkout_limits(
+                client_ip=_client_ip_from_request(request),
+                email=payload.customer.email,
+                website=payload.website,
                 db=db,
-                user_id=None,
-                idempotency_key=f"guest-payment-{order_id}-{normalized_key}",
-                currency="ARS",
-                expires_in_minutes=60,
-                initialize_provider=False,
             )
-            result["payment"] = payment
-            if payment["method"] == "mercadopago":
-                db.flush()
-                payment = _initialize_mercadopago_payment_or_raise(payment=payment, db=db)
-                result["payment"] = payment
-                mark_record_completed(
-                    record=claimed_record,
-                    response_payload=result,
+            result = create_manual_submitted_order(
+                email=payload.customer.email,
+                first_name=payload.customer.first_name,
+                last_name=payload.customer.last_name,
+                phone=payload.customer.phone,
+                items=[item.model_dump() for item in payload.items],
+                db=db,
+            )
+            if payload.payment_method is not None:
+                order_payload = result.get("order") if isinstance(result, dict) else None
+                order_id = int(order_payload.get("id")) if isinstance(order_payload, dict) and order_payload.get("id") is not None else None
+                if order_id is None:
+                    raise ValueError("invalid guest checkout response: missing order id")
+                payment = create_payment_for_order(
+                    order_id=order_id,
+                    method=payload.payment_method,
                     db=db,
+                    user_id=None,
+                    idempotency_key=f"guest-payment-{order_id}-{normalized_key}",
+                    currency="ARS",
+                    expires_in_minutes=60,
+                    initialize_provider=False,
                 )
-                db.commit()
-                dispatch_post_commit_actions(db=db, source="guest_checkout")
-                return {"data": result}
-        mark_record_completed(
-            record=claimed_record,
-            response_payload=result,
-            db=db,
-        )
-        db.commit()
-    except PaymentCheckoutInitializationError as exc:
-        if record_created and claimed_record is not None and claimed_record.status == "processing":
-            mark_record_failed(
-                record=claimed_record,
-                response_payload={
+                result["payment"] = payment
+                if payment["method"] == "mercadopago":
+                    db.flush()
+                    payment = _initialize_mercadopago_payment_or_raise(payment=payment, db=db)
+                    result["payment"] = payment
+                    ctx.complete(result)
+                    db.commit()
+                    dispatch_post_commit_actions(db=db, source="guest_checkout")
+                    return {"data": result}
+            ctx.complete(result)
+            db.commit()
+        except PaymentCheckoutInitializationError as exc:
+            ctx.fail(
+                {
                     "detail": str(exc),
                     "order_id": int(result["order"]["id"]),
                     "payment_id": int(result["payment"]["id"]),
-                },
-                db=db,
+                }
             )
             db.commit()
-        raise_http_error_from_exception(exc, db=db)
-    except Exception as exc:
-        # Ensure idempotency records created by this request don't remain stuck in 'processing'.
-        if record_created and claimed_record is not None and getattr(claimed_record, "status", None) == "processing":
-            try:
-                mark_record_failed(
-                    record=claimed_record,
-                    response_payload={"detail": str(exc)},
-                    db=db,
-                )
-                db.commit()
-            except Exception:
-                # If marking failed itself errors, rollback to avoid partial state.
+            raise_http_error_from_exception(exc, db=db)
+        except Exception as exc:
+            # Bookkeeping del record equivalente al original: se marca failed solo si el
+            # handler no lo saldo (viejo status == 'processing'), con el mensaje de la
+            # excepcion ORIGINAL (no el HTTPException mapeado). El CM tiene ademas su
+            # backstop bajo PERSIST por si algo escapa antes de este except.
+            if not ctx.settled:
+                try:
+                    ctx.fail({"detail": str(exc)})
+                    db.commit()
+                except Exception:
+                    # Si marcar failed falla, rollback para no dejar estado parcial.
+                    db.rollback()
+            else:
                 db.rollback()
-        else:
-            db.rollback()
-        clear_post_commit_actions(db=db)
-        raise_http_error_from_exception(exc, db=db)
-    dispatch_post_commit_actions(db=db, source="guest_checkout")
-    return {"data": result}
+            clear_post_commit_actions(db=db)
+            raise_http_error_from_exception(exc, db=db)
+        dispatch_post_commit_actions(db=db, source="guest_checkout")
+        return {"data": result}
 
 
 @router.post("/admin/sales")
