@@ -74,7 +74,7 @@ Detalle completo en [11_Seguridad.md](11_Seguridad.md#17-informe-de-riesgos).
 | <a id="R-09"></a>**R-09** | **Eliminar `HTTPException` de los servicios** | `users_s` (5 sitios) y `auth_s` (1) rompen la separación de capas e impiden reutilizarlos desde jobs | 🟠 | 0,5 d | **P2** |
 | <a id="R-10"></a>**R-10** | **Dividir `CatalogSection.tsx` (821 líneas) y reducir el prop drilling** | ~95 props; imposible de testear; cualquier cambio re-renderiza todo | 🟠 | 3 d | **P2** |
 | <a id="R-11"></a>**R-11** | **Unificar la estrategia transaccional** | 3 patrones conviviendo en `orders_r.py` | 🟠 | 2 d | **P2** |
-| <a id="R-12"></a>**R-12** | **Descomponer `get_public_order_snapshot_by_payment_token`** (140 líneas) | Mezcla expiración de reservas, selección de pago, validación de URL y cálculo de flags | 🟠 | 1 d | **P2** |
+| <a id="R-12"></a>**R-12** | ✅ ~~**Descomponer `get_public_order_snapshot_by_payment_token`** (140 líneas)~~ — **hecho**: núcleo de decisión puro `_evaluate_public_snapshot` (sin `db`) + `_select_relevant_payment` + `_serialize_public_snapshot`; el orquestador queda como I/O delgado y la matriz de flags (T-08) pasa a tests unitarios (`test_public_snapshot_decision.py`) | Mezclaba expiración de reservas, selección de pago, validación de URL y cálculo de flags | 🟠 | 1 d | — |
 | <a id="R-13"></a>**R-13** | **Reemplazar los estados `str` por `Enum` de PostgreSQL** | Elimina typos silenciosos y da autocompletado | 🟠 | 1 d | **P3** |
 | <a id="R-14"></a>**R-14** | **Registro de handlers en `domain_events_s`** en lugar de `if/elif` | Abierto a extensión | 🟡 | 0,5 d | **P3** |
 | <a id="R-15"></a>**R-15** | **Consolidar los 5 serializadores de producto** | `products_s` + `products_storefront_s` | 🟡 | 1 d | **P3** |
@@ -131,7 +131,7 @@ Detalle en [16_Testing.md](16_Testing.md#6-prioridades).
 | <a id="T-05"></a>**T-05** | `useAdminSales.onSubmit` | 🔴 Venta presencial mal registrada | 1 d | **P1** |
 | <a id="T-06"></a>**T-06** | `useAdminPaymentIncidents.resolveWithRefund` | 🔴 Reembolso incorrecto | 0,5 d | **P1** |
 | <a id="T-07"></a>**T-07** | Cobertura en CI con umbral | 🟠 Visibilidad | 0,2 d | **P1** |
-| <a id="T-08"></a>**T-08** | Matriz de flags del snapshot público | 🟠 Botón equivocado en la UI | 1 d | **P1** |
+| <a id="T-08"></a>**T-08** | ✅ ~~Matriz de flags del snapshot público~~ — **hecho** junto con R-12: `test_public_snapshot_decision.py` cubre las 7 ramas de `blocking_reason` + flags de acción sobre el núcleo puro | 🟠 Botón equivocado en la UI | 1 d | — |
 | <a id="T-09"></a>**T-09** | `create_mercadopago_refund` camino de fallo | 🟠 | 0,5 d | **P1** |
 | <a id="T-10"></a>**T-10** | Reintentos de `mercadopago_client` | 🟠 | 1 d | **P2** |
 | <a id="T-13"></a>**T-13** | E2E con Playwright del checkout | 🟠 | 3 d | **P2** |

@@ -13,6 +13,7 @@ El import hacia `orders_s` es de una sola vía (público -> core, nunca al revé
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session, joinedload
@@ -58,6 +59,142 @@ def _extract_public_checkout_url(payment: Payment) -> str | None:
     if hostname not in MERCADOPAGO_ALLOWED_CHECKOUT_HOSTS:
         return None
     return checkout_url
+
+
+@dataclass(frozen=True)
+class PublicSnapshotDecision:
+    """Qué puede hacer el visitante anónimo y por qué, si no puede."""
+
+    can_continue_payment: bool
+    can_retry_payment: bool
+    is_order_open: bool
+    is_payment_terminal: bool
+    blocking_reason: str | None
+
+
+def _select_relevant_payment(
+    mercadopago_payments: list[Payment], *, token_payment: Payment
+) -> Payment:
+    """El pago que la vista pública debe mostrar: el intento pendiente vivo,
+    si no el propio intento del token, si no el más reciente.
+
+    Asume `mercadopago_payments` no vacío (el llamador ya lo garantiza).
+    """
+    return (
+        next(
+            (payment for payment in mercadopago_payments if str(payment.status) == "pending"),
+            None,
+        )
+        or next(
+            (
+                payment
+                for payment in mercadopago_payments
+                if int(payment.id) == int(token_payment.id)
+            ),
+            None,
+        )
+        or mercadopago_payments[0]
+    )
+
+
+def _evaluate_public_snapshot(
+    *,
+    order_status: str,
+    token_payment_status: str,
+    relevant_payment: Payment,
+    relevant_checkout_url: str | None,
+    mercadopago_payments: list[Payment],
+    has_stock_reservation_expired: bool,
+) -> PublicSnapshotDecision:
+    """Núcleo de decisión puro: dado el grafo de pagos ya cargado, resuelve
+    los flags de acción y el motivo de bloqueo.
+
+    No recibe `db` a propósito — esta es la matriz que ejercita T-08 sin HTTP
+    ni sesión. El único hecho de base que necesita (¿expiró una reserva?) entra
+    ya resuelto como `has_stock_reservation_expired`.
+    """
+    relevant_payment_status = str(relevant_payment.status)
+    has_pending_continuable_payment = any(
+        str(payment.status) == "pending" and _extract_public_checkout_url(payment) is not None
+        for payment in mercadopago_payments
+    )
+    is_order_open = order_status == "submitted"
+    can_continue_payment = (
+        is_order_open
+        and relevant_payment_status == "pending"
+        and str(relevant_payment.method) == "mercadopago"
+        and relevant_checkout_url is not None
+    )
+    can_retry_payment = (
+        token_payment_status in {"cancelled", "expired"}
+        and is_order_open
+        and not has_pending_continuable_payment
+    )
+    is_payment_terminal = relevant_payment_status in {"paid", "cancelled", "expired"}
+
+    blocking_reason = None
+    if not can_continue_payment and not can_retry_payment:
+        if order_status == "paid":
+            blocking_reason = "order_paid"
+        elif order_status == "cancelled":
+            blocking_reason = (
+                "stock_reservation_expired"
+                if has_stock_reservation_expired
+                else "order_cancelled"
+            )
+        elif relevant_payment_status == "pending":
+            blocking_reason = (
+                "checkout_unavailable" if relevant_checkout_url is None else "payment_pending"
+            )
+        else:
+            blocking_reason = "payment_not_retryable"
+
+    return PublicSnapshotDecision(
+        can_continue_payment=bool(can_continue_payment),
+        can_retry_payment=bool(can_retry_payment),
+        is_order_open=bool(is_order_open),
+        is_payment_terminal=bool(is_payment_terminal),
+        blocking_reason=blocking_reason,
+    )
+
+
+def _serialize_public_snapshot(
+    *,
+    order: Order,
+    relevant_payment: Payment,
+    checkout_url: str | None,
+    decision: PublicSnapshotDecision,
+) -> dict:
+    return {
+        "order": {
+            "status": str(order.status),
+            "total_amount": int(order.total_amount or 0),
+            "currency": str(order.currency or "ARS"),
+            "items": [
+                {
+                    "product_name": item.product.name if item.product is not None else None,
+                    "variant_label": variant_label(item.variant),
+                    "quantity": int(item.quantity),
+                    "line_total": int(item.line_total or 0),
+                }
+                for item in sorted(order.items, key=lambda row: row.id)
+            ],
+        },
+        "payment": {
+            "method": str(relevant_payment.method),
+            "status": str(relevant_payment.status),
+            "amount": int(relevant_payment.amount or 0),
+            "currency": str(relevant_payment.currency or "ARS"),
+            "checkout_url": checkout_url,
+        },
+        "flags": {
+            "can_continue_payment": decision.can_continue_payment,
+            "can_retry_payment": decision.can_retry_payment,
+            "is_order_open": decision.is_order_open,
+            "is_payment_terminal": decision.is_payment_terminal,
+        },
+        "blocking_reason": decision.blocking_reason,
+    }
 
 
 def get_public_order_snapshot_by_payment_token(
@@ -110,39 +247,10 @@ def get_public_order_snapshot_by_payment_token(
     if not mercadopago_payments:
         raise LookupError("payment not found")
 
-    relevant_payment = next(
-        (payment for payment in mercadopago_payments if str(payment.status) == "pending"),
-        None,
+    relevant_payment = _select_relevant_payment(
+        mercadopago_payments, token_payment=token_payment
     )
-    if relevant_payment is None:
-        relevant_payment = next(
-            (payment for payment in mercadopago_payments if int(payment.id) == int(token_payment.id)),
-            None,
-        )
-    if relevant_payment is None:
-        relevant_payment = mercadopago_payments[0]
-
     checkout_url = _extract_public_checkout_url(relevant_payment)
-    order_status = str(order.status)
-    token_payment_status = str(token_payment.status)
-    relevant_payment_status = str(relevant_payment.status)
-    has_pending_continuable_payment = any(
-        str(payment.status) == "pending" and _extract_public_checkout_url(payment) is not None
-        for payment in mercadopago_payments
-    )
-    is_order_open = order_status == "submitted"
-    can_continue_payment = (
-        is_order_open
-        and relevant_payment_status == "pending"
-        and str(relevant_payment.method) == "mercadopago"
-        and checkout_url is not None
-    )
-    can_retry_payment = (
-        token_payment_status in {"cancelled", "expired"}
-        and is_order_open
-        and not has_pending_continuable_payment
-    )
-    is_payment_terminal = relevant_payment_status in {"paid", "cancelled", "expired"}
     has_stock_reservation_expired = (
         db.query(1)
         .filter(
@@ -153,50 +261,18 @@ def get_public_order_snapshot_by_payment_token(
         is not None
     )
 
-    blocking_reason = None
-    if not can_continue_payment and not can_retry_payment:
-        if order_status == "paid":
-            blocking_reason = "order_paid"
-        elif order_status == "cancelled":
-            blocking_reason = (
-                "stock_reservation_expired"
-                if has_stock_reservation_expired
-                else "order_cancelled"
-            )
-        elif relevant_payment_status == "pending":
-            blocking_reason = (
-                "checkout_unavailable" if checkout_url is None else "payment_pending"
-            )
-        else:
-            blocking_reason = "payment_not_retryable"
+    decision = _evaluate_public_snapshot(
+        order_status=str(order.status),
+        token_payment_status=str(token_payment.status),
+        relevant_payment=relevant_payment,
+        relevant_checkout_url=checkout_url,
+        mercadopago_payments=mercadopago_payments,
+        has_stock_reservation_expired=has_stock_reservation_expired,
+    )
 
-    return {
-        "order": {
-            "status": order_status,
-            "total_amount": int(order.total_amount or 0),
-            "currency": str(order.currency or "ARS"),
-            "items": [
-                {
-                    "product_name": item.product.name if item.product is not None else None,
-                    "variant_label": variant_label(item.variant),
-                    "quantity": int(item.quantity),
-                    "line_total": int(item.line_total or 0),
-                }
-                for item in sorted(order.items, key=lambda row: row.id)
-            ],
-        },
-        "payment": {
-            "method": str(relevant_payment.method),
-            "status": relevant_payment_status,
-            "amount": int(relevant_payment.amount or 0),
-            "currency": str(relevant_payment.currency or "ARS"),
-            "checkout_url": checkout_url,
-        },
-        "flags": {
-            "can_continue_payment": bool(can_continue_payment),
-            "can_retry_payment": bool(can_retry_payment),
-            "is_order_open": bool(is_order_open),
-            "is_payment_terminal": bool(is_payment_terminal),
-        },
-        "blocking_reason": blocking_reason,
-    }
+    return _serialize_public_snapshot(
+        order=order,
+        relevant_payment=relevant_payment,
+        checkout_url=checkout_url,
+        decision=decision,
+    )
