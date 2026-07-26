@@ -247,3 +247,57 @@ def prune_expired_records(
     db.flush()
     return int(deleted or 0)
 
+
+def resolve_idempotency(
+    *,
+    scope: str,
+    key: str | None,
+    payload: dict,
+    db: Session,
+    ttl_hours: int = IDEMPOTENCY_TTL_HOURS,
+    prune: bool = True,
+) -> IdempotencyResolution:
+    """Toma (o encuentra) el record de idempotencia y colapsa los cuatro caminos
+    en un unico Outcome.
+
+    Transport-agnostic: no lanza HTTPException y nunca commitea. El borde HTTP
+    mapea IdempotencyError (ver R01-3); la coordinacion transaccional queda en el
+    llamador o en el context manager de R01-4.
+
+    - clave vacia/None      -> EXECUTE sin record (idempotencia desactivada).
+    - record recien creado  -> EXECUTE con el record tomado.
+    - misma clave, hash !=  -> IdempotencyKeyReusedError (camino 1).
+    - status 'completed'    -> REPLAY con el payload guardado (camino 2).
+    - status 'failed'       -> RECOVER con el payload guardado (camino 3).
+    - status 'processing'   -> IdempotencyInProgressError (camino 4).
+    """
+    if key is None or not str(key).strip():
+        return IdempotencyResolution(Outcome.EXECUTE)
+
+    now = datetime.now(UTC)
+    if prune:
+        prune_expired_records(now=now, db=db)
+
+    normalized_key = normalize_idempotency_key(key)
+    request_hash = hash_payload(canonicalize_payload(payload))
+    record, created = acquire_record(
+        scope=scope,
+        idempotency_key=normalized_key,
+        request_hash=request_hash,
+        expires_at=now + timedelta(hours=ttl_hours),
+        db=db,
+    )
+    if created:
+        return IdempotencyResolution(Outcome.EXECUTE, record=record)
+    if record.request_hash != request_hash:
+        raise IdempotencyKeyReusedError(scope, normalized_key)
+    if record.status == "completed":
+        return IdempotencyResolution(
+            Outcome.REPLAY, record=record, stored_payload=load_replay_payload(record)
+        )
+    if record.status == "failed":
+        return IdempotencyResolution(
+            Outcome.RECOVER, record=record, stored_payload=load_replay_payload(record)
+        )
+    raise IdempotencyInProgressError(scope, normalized_key)
+
