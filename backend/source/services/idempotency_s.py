@@ -122,6 +122,16 @@ def build_guest_checkout_scope(email: str) -> str:
     return f"checkout_guest:{normalized_email}"
 
 
+def build_authenticated_checkout_scope(user_id: int) -> str:
+    """Scope del checkout autenticado unificado (R-03).
+
+    Aísla la idempotencia por usuario: dos usuarios distintos con la misma
+    `Idempotency-Key` no colisionan. Espeja `build_guest_checkout_scope`, que
+    aísla por email.
+    """
+    return f"checkout:{int(user_id)}"
+
+
 def canonicalize_payload(payload: dict) -> str:
     if not isinstance(payload, dict):
         raise ValueError("payload must be a dict")
