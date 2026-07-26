@@ -11,6 +11,7 @@ from source.schemas.discounts_s import CreateDiscountRequest, UpdateDiscountRequ
 from source.schemas.orders_s import (
     AdminRegisterPaymentRequest,
     AdminSaleMetaResponse,
+    AuthenticatedCheckoutRequest,
     CreateAdminSaleRequest,
     CreateAdminSaleResponse,
     OrderItemResponse,
@@ -51,6 +52,7 @@ from source.schemas.users_s import (
 
 __all__ = [
     "AdminRegisterPaymentRequest",
+    "AuthenticatedCheckoutRequest",
     "CreateAdminSaleRequest",
     "CreateAdminSaleResponse",
     "UserBasicResponse",

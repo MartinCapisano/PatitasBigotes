@@ -49,6 +49,21 @@ class PublicGuestCheckoutRequest(BaseModel):
     payment_method: Literal["bank_transfer", "mercadopago", "cash"] | None = None
 
 
+class AuthenticatedCheckoutRequest(BaseModel):
+    """Entrada del checkout autenticado unificado (R-03).
+
+    Espejo de `PublicGuestCheckoutRequest` sin el bloque `customer` ni el honeypot
+    `website`: el usuario viene del token, no del body. Reutiliza
+    `PublicGuestCheckoutItemRequest` para no duplicar la validación de items.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    items: list[PublicGuestCheckoutItemRequest] = Field(min_length=1, max_length=20)
+    payment_method: Literal["bank_transfer", "mercadopago", "cash"] | None = None
+    currency: str = "ARS"
+    expires_in_minutes: int = Field(default=60, gt=0)
+
+
 class AdminSalesCustomerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     mode: Literal["existing", "new"]
