@@ -1,5 +1,7 @@
 ﻿from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, UTC
 import enum
@@ -73,6 +75,22 @@ class IdempotencyResolution:
     outcome: Outcome
     record: IdempotencyRecord | None = None
     stored_payload: dict | None = None
+
+
+class FailurePolicy(enum.Enum):
+    """Qué hacer con el record si el handler falla.
+
+    PERSIST: commitea un record 'failed' que sobrevive al rollback del trabajo de
+        negocio, para que un retry pueda recuperar (checkout de invitado, bajo
+        `get_db` con commit/rollback manual).
+    DISCARD: no hace bookkeeping de fallo; deja que la transacción revierta el
+        `acquire` (venta admin, bajo `get_db_transactional`). Un retry arranca de
+        cero. Ver el caveat de SAVEPOINT en pysqlite/SQLite documentado en
+        `create_admin_sale_endpoint` (orders_r.py).
+    """
+
+    PERSIST = "persist"
+    DISCARD = "discard"
 
 
 def _json_default(value: object) -> str:
@@ -300,4 +318,105 @@ def resolve_idempotency(
             Outcome.RECOVER, record=record, stored_payload=load_replay_payload(record)
         )
     raise IdempotencyInProgressError(scope, normalized_key)
+
+
+class IdempotencyContext:
+    """Handle que el handler usa dentro de `with idempotent(...) as ctx:`.
+
+    Es dueño del bookkeeping del record (complete/fail), NO de la transacción: el
+    commit/rollback del trabajo de negocio queda en el handler o en la dependencia
+    de DB. Así el mismo CM sirve tanto bajo `get_db` como bajo `get_db_transactional`.
+    """
+
+    def __init__(self, resolution: IdempotencyResolution, db: Session) -> None:
+        self._resolution = resolution
+        self._db = db
+        self._settled = False
+
+    @property
+    def replay(self) -> dict | None:
+        """Response guardado a devolver tal cual, o None si no es un REPLAY."""
+        if self._resolution.outcome is Outcome.REPLAY:
+            return self._resolution.stored_payload
+        return None
+
+    @property
+    def recover_from(self) -> dict | None:
+        """Payload del intento fallido a recuperar, o None si no es un RECOVER."""
+        if self._resolution.outcome is Outcome.RECOVER:
+            return self._resolution.stored_payload
+        return None
+
+    def complete(self, response_payload: dict) -> None:
+        """Marca el record como completado. No commitea.
+
+        No-op si la clave está desactivada (sin record).
+        """
+        if self._resolution.record is not None:
+            mark_record_completed(
+                record=self._resolution.record,
+                response_payload=response_payload,
+                db=self._db,
+            )
+        self._settled = True
+
+    def fail(self, response_payload: dict) -> None:
+        """Marca el record como fallido con un payload de dominio. No commitea.
+
+        Al saldar el record (_settled), la red de seguridad de `idempotent()` no lo
+        pisa con un payload genérico. No-op si la clave está desactivada.
+        """
+        if self._resolution.record is not None:
+            mark_record_failed(
+                record=self._resolution.record,
+                response_payload=response_payload,
+                db=self._db,
+            )
+        self._settled = True
+
+
+@contextmanager
+def idempotent(
+    *,
+    scope: str,
+    key: str | None,
+    payload: dict,
+    db: Session,
+    failure: FailurePolicy = FailurePolicy.DISCARD,
+    ttl_hours: int = IDEMPOTENCY_TTL_HOURS,
+) -> Iterator[IdempotencyContext]:
+    """Envuelve un handler idempotente: resuelve la clave y garantiza que un fallo
+    inesperado no deje el record atascado en 'processing'.
+
+    El handler inspecciona `ctx.replay` / `ctx.recover_from`; en el camino de
+    ejecución llama `ctx.complete(result)` (o `ctx.fail(payload)` ante un fallo de
+    dominio) y maneja su propio commit. Los conflictos (clave reusada / en curso)
+    se propagan como `IdempotencyError` y los mapea el borde HTTP (R01-3).
+    """
+    resolution = resolve_idempotency(
+        scope=scope, key=key, payload=payload, db=db, ttl_hours=ttl_hours
+    )
+    ctx = IdempotencyContext(resolution, db)
+    try:
+        yield ctx
+    except Exception as exc:
+        # Red de seguridad: replica orders_r.py:301-317. Solo bajo PERSIST, y solo
+        # si el handler no saldó el record, evita dejarlo en 'processing'
+        # commiteando un fallo genérico que sobreviva al rollback del negocio.
+        # Bajo DISCARD no hace nada: la dependencia transaccional revierte el acquire.
+        record = resolution.record
+        if (
+            failure is FailurePolicy.PERSIST
+            and record is not None
+            and record.status == "processing"
+            and not ctx._settled
+        ):
+            try:
+                mark_record_failed(
+                    record=record, response_payload={"detail": str(exc)}, db=db
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
+        raise
 
