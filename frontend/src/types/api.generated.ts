@@ -185,6 +185,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/checkout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Authenticated Checkout
+         * @description Checkout autenticado unificado (R-03): colapsa los 3 requests encadenados
+         *     (PUT items -> PATCH status -> POST payment) en una sola transacción idempotente.
+         *
+         *     Se espeja EXACTAMENTE la estructura del checkout de invitado (arriba) para no
+         *     introducir un 4º patrón transaccional (R-11): PERSIST va de la mano de `get_db` +
+         *     commit manual porque el endpoint hace trabajo post-commit (mails + init de MP), y
+         *     ese commit manual es lo que deja un record 'failed' recuperable ante un fallo de
+         *     MP (ADR 0002 / docs/diagrams/decision-sesion-transaccional.mmd). La única
+         *     diferencia con el guest: el usuario viene del token (no hay bloque `customer` ni
+         *     honeypot `website`), el scope es por user_id, y no corre el anti-abuse público.
+         */
+        post: operations["create_authenticated_checkout_checkout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/sales": {
         parameters: {
             query?: never;
@@ -1155,6 +1184,45 @@ export interface components {
         AdminWebhookReplayRequest: {
             /** Event Key */
             event_key: string;
+        };
+        /**
+         * AuthenticatedCheckoutRequest
+         * @description Entrada del checkout autenticado unificado (R-03).
+         *
+         *     Espejo de `PublicGuestCheckoutRequest` sin el bloque `customer` ni el honeypot
+         *     `website`: el usuario viene del token, no del body. Reutiliza
+         *     `PublicGuestCheckoutItemRequest` para no duplicar la validación de items.
+         */
+        AuthenticatedCheckoutRequest: {
+            /** Items */
+            items: components["schemas"]["PublicGuestCheckoutItemRequest"][];
+            /** Payment Method */
+            payment_method?: ("bank_transfer" | "mercadopago" | "cash") | null;
+            /**
+             * Currency
+             * @default ARS
+             */
+            currency: string;
+            /**
+             * Expires In Minutes
+             * @default 60
+             */
+            expires_in_minutes: number;
+        };
+        /**
+         * CheckoutResponse
+         * @description Salida de `POST /checkout` (checkout autenticado unificado, R-03).
+         *
+         *     Compone los DTO compartidos de orden/cliente/pago (RM-1). Espeja el envelope
+         *     del checkout de invitado: `customer` viene del wrapper del servicio y `payment`
+         *     sólo está presente cuando el request trajo `payment_method`. El pago se serializa
+         *     siempre por el camino client-safe (`payment_to_dict` sin `provider_payload`), que
+         *     es lo que hace válido el `extra="forbid"` incluso en el camino de recuperación.
+         */
+        CheckoutResponse: {
+            order: components["schemas"]["OrderResponse"];
+            customer: components["schemas"]["UserBasicResponse"];
+            payment?: components["schemas"]["PaymentResponse"] | null;
         };
         /** CreateAdminSaleRequest */
         CreateAdminSaleRequest: {
@@ -2458,6 +2526,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_authenticated_checkout_checkout_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthenticatedCheckoutRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: components["schemas"]["CheckoutResponse"];
+                    };
                 };
             };
             /** @description Validation Error */

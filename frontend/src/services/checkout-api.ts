@@ -47,19 +47,7 @@ type PaymentData = {
   };
 };
 
-type OrderEnvelope = {
-  data: {
-    id: number;
-    status: string;
-    total_amount: number;
-    items: Array<{ id: number }>;
-  };
-  meta?: {
-    created?: boolean;
-  };
-};
-
-type GuestCheckoutEnvelope = {
+type CheckoutEnvelope = {
   data: {
     order: OrderData;
     payment?: PaymentData;
@@ -128,7 +116,7 @@ export async function submitGuestCheckoutFromCart(
     website: "",
     payment_method: paymentMethod
   };
-  const response = await http.post<GuestCheckoutEnvelope>("/checkout/guest", payload, {
+  const response = await http.post<CheckoutEnvelope>("/checkout/guest", payload, {
     headers: {
       "Idempotency-Key": buildIdempotencyKey("guest_checkout")
     }
@@ -139,38 +127,30 @@ export async function submitGuestCheckoutFromCart(
   };
 }
 
-async function replaceDraftItems(items: CartItem[]): Promise<OrderEnvelope["data"]> {
-  const response = await http.put<OrderEnvelope>("/orders/draft/items", {
-    items: toCheckoutItems(items)
-  });
-  return response.data.data;
-}
-
 export async function submitAuthenticatedCheckoutFromCart(
   items: CartItem[],
   paymentMethod: CheckoutPaymentMethod
 ): Promise<CheckoutSubmitResult> {
-  const draft = await replaceDraftItems(items);
-  const orderId = draft.id;
-
-  const submitted = await http.patch<OrderEnvelope>(`/orders/${orderId}/status`, {
-    status: "submitted"
-  });
-  const paymentResponse = await http.post<{ data: PaymentData }>(
-    `/orders/${orderId}/payments`,
+  // R-03: el checkout autenticado es una sola request idempotente. El backend
+  // (POST /checkout) colapsa lo que antes eran 3 llamadas encadenadas
+  // (PUT /orders/draft/items -> PATCH /orders/{id}/status -> POST /orders/{id}/payments)
+  // en una transacción, y devuelve el mismo envelope {order, payment} que el guest.
+  const response = await http.post<CheckoutEnvelope>(
+    "/checkout",
     {
-      method: paymentMethod,
+      items: toCheckoutItems(items),
+      payment_method: paymentMethod,
       currency: "ARS",
       expires_in_minutes: 60
     },
     {
       headers: {
-        "Idempotency-Key": buildIdempotencyKey(`checkout_payment_${orderId}_${paymentMethod}`)
+        "Idempotency-Key": buildIdempotencyKey("authenticated_checkout")
       }
     }
   );
   return {
-    order: submitted.data.data,
-    payment: paymentResponse.data.data
+    order: response.data.data.order,
+    payment: response.data.data.payment ?? null
   };
 }
