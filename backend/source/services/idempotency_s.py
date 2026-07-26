@@ -1,6 +1,8 @@
 ﻿from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, UTC
+import enum
 import hashlib
 import json
 
@@ -10,6 +12,67 @@ from sqlalchemy.orm import Session
 from source.db.models import IdempotencyRecord
 
 IDEMPOTENCY_TTL_HOURS = 24
+
+
+class IdempotencyError(Exception):
+    """Base para los conflictos de idempotencia.
+
+    Es transport-agnostic: el borde HTTP la mapea a una respuesta (ver R01-3).
+    Lleva scope + idempotency_key para logging y para el mapeo en la ruta.
+    """
+
+    def __init__(self, scope: str, idempotency_key: str, message: str) -> None:
+        self.scope = scope
+        self.idempotency_key = idempotency_key
+        super().__init__(message)
+
+
+class IdempotencyKeyReusedError(IdempotencyError):
+    """Misma clave, payload distinto. El borde la mapea a 409."""
+
+    def __init__(self, scope: str, idempotency_key: str) -> None:
+        super().__init__(
+            scope,
+            idempotency_key,
+            "idempotency key already used with a different payload",
+        )
+
+
+class IdempotencyInProgressError(IdempotencyError):
+    """Un request gemelo ya tiene la clave tomada. El borde la mapea a 409."""
+
+    def __init__(self, scope: str, idempotency_key: str) -> None:
+        super().__init__(
+            scope,
+            idempotency_key,
+            "idempotent request already in progress",
+        )
+
+
+class Outcome(enum.Enum):
+    """Desenlace de resolver una clave de idempotencia.
+
+    EXECUTE: correr la lógica de negocio (record nuevo, o clave desactivada).
+    REPLAY:  devolver el response guardado tal cual, sin re-ejecutar.
+    RECOVER: un intento previo falló; el handler decide cómo recuperar.
+    """
+
+    EXECUTE = "execute"
+    REPLAY = "replay"
+    RECOVER = "recover"
+
+
+@dataclass(frozen=True)
+class IdempotencyResolution:
+    """Resultado de resolver una clave: colapsa los 4 caminos en un outcome.
+
+    `record` es None cuando la clave está desactivada (sin Idempotency-Key).
+    `stored_payload` está presente en REPLAY y RECOVER.
+    """
+
+    outcome: Outcome
+    record: IdempotencyRecord | None = None
+    stored_payload: dict | None = None
 
 
 def _json_default(value: object) -> str:
