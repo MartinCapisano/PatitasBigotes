@@ -251,3 +251,18 @@ class CreateAdminSaleResponse(BaseModel):
     order: OrderResponse
     payment: PaymentResponse | None
     meta: AdminSaleMetaResponse
+
+
+class CheckoutResponse(BaseModel):
+    """Salida de `POST /checkout` (checkout autenticado unificado, R-03).
+
+    Compone los DTO compartidos de orden/cliente/pago (RM-1). Espeja el envelope
+    del checkout de invitado: `customer` viene del wrapper del servicio y `payment`
+    sólo está presente cuando el request trajo `payment_method`. El pago se serializa
+    siempre por el camino client-safe (`payment_to_dict` sin `provider_payload`), que
+    es lo que hace válido el `extra="forbid"` incluso en el camino de recuperación."""
+
+    model_config = ConfigDict(extra="forbid")
+    order: OrderResponse
+    customer: UserBasicResponse
+    payment: PaymentResponse | None = None

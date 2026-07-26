@@ -7,6 +7,8 @@ from source.db.session import get_db, get_db_transactional
 from source.errors import raise_http_error_from_exception
 from source.schemas import (
     AdminRegisterPaymentRequest,
+    AuthenticatedCheckoutRequest,
+    CheckoutResponse,
     CreateAdminSaleRequest,
     CreateAdminSaleResponse,
     CreateOrderPaymentRequest,
@@ -18,6 +20,7 @@ from source.schemas import (
 from source.services.orders_s import (
     change_order_status,
     create_admin_sale,
+    create_authenticated_checkout_order,
     create_manual_submitted_order,
     get_draft_order,
     get_order_for_admin,
@@ -34,6 +37,7 @@ from source.services.anti_abuse_s import enforce_public_guest_checkout_limits
 from source.services.idempotency_s import (
     FailurePolicy,
     IdempotencyContext,
+    build_authenticated_checkout_scope,
     build_guest_checkout_scope,
     idempotent,
     normalize_idempotency_key,
@@ -127,22 +131,23 @@ def _initialize_mercadopago_payment_or_raise(*, payment: dict, db: Session) -> d
         ) from exc
 
 
-def _build_guest_checkout_recovery_payload(
+def _build_checkout_recovery_payload(
     *,
     order_id: int,
-    payment_id: int,
+    payment: dict,
     db: Session,
 ) -> dict:
+    """Arma el snapshot de recuperación `{customer, order, payment}` del checkout.
+
+    `payment` ya viene serializado por el camino client-safe (`payment_to_dict` sin
+    `provider_payload`) desde `_initialize_mercadopago_payment_or_raise`. Se usa tal
+    cual — en vez de re-consultarlo con el serializer admin — para que el payload
+    matchee `CheckoutResponse` (`extra="forbid"`) y para no filtrar el crudo del
+    webhook de MP al usuario final. El `customer` sale del propio order
+    (`_order_to_dict`)."""
     order = get_order_for_admin(order_id=order_id, db=db)
     if order is None:
         raise LookupError("order not found")
-    payments = list_payments_for_order_admin(order_id=order_id, db=db)
-    payment = next(
-        (row for row in payments if int(row["id"]) == int(payment_id)),
-        None,
-    )
-    if payment is None:
-        raise LookupError("payment not found")
     return {
         "customer": order.get("customer"),
         "order": order,
@@ -150,12 +155,15 @@ def _build_guest_checkout_recovery_payload(
     }
 
 
-def _recover_guest_checkout(
+def _recover_checkout_mp(
     *, ctx: IdempotencyContext, failed_payload: dict, db: Session
 ) -> dict:
-    """Camino 'failed' del checkout de invitado: un intento previo dejo el record
-    marcado como fallido; se reintenta inicializar el checkout de Mercado Pago para
-    ese pago y, si sale, se completa el record y se devuelve el snapshot.
+    """Camino 'failed' del checkout (invitado y autenticado): un intento previo dejo
+    el record marcado como fallido; se reintenta inicializar el checkout de Mercado
+    Pago para ese pago y, si sale, se completa el record y se devuelve el snapshot.
+
+    Es genérico: ambos checkouts persisten el mismo payload de fallo
+    (`{detail, order_id, payment_id}`) y recuperan re-inicializando MP.
 
     El bookkeeping del record va por el context manager (ctx.complete / ctx.fail),
     pero se sigue lanzando HTTPException(502) para el mapeo de transporte: el helper
@@ -176,9 +184,9 @@ def _recover_guest_checkout(
             payment={"id": int(payment_id), "method": "mercadopago"},
             db=db,
         )
-        result = _build_guest_checkout_recovery_payload(
+        result = _build_checkout_recovery_payload(
             order_id=int(order_id),
-            payment_id=int(recovered_payment["id"]),
+            payment=recovered_payment,
             db=db,
         )
         ctx.complete(result)
@@ -228,7 +236,7 @@ def create_guest_checkout_order(
             return {"data": ctx.replay}
         if ctx.recover_from is not None:
             return {
-                "data": _recover_guest_checkout(
+                "data": _recover_checkout_mp(
                     ctx=ctx, failed_payload=ctx.recover_from, db=db
                 )
             }
@@ -301,6 +309,109 @@ def create_guest_checkout_order(
             clear_post_commit_actions(db=db)
             raise_http_error_from_exception(exc, db=db)
         dispatch_post_commit_actions(db=db, source="guest_checkout")
+        return {"data": result}
+
+
+@router.post(
+    "/checkout",
+    status_code=status.HTTP_201_CREATED,
+    response_model=dict[str, CheckoutResponse],
+)
+def create_authenticated_checkout(
+    payload: AuthenticatedCheckoutRequest,
+    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Checkout autenticado unificado (R-03): colapsa los 3 requests encadenados
+    (PUT items -> PATCH status -> POST payment) en una sola transacción idempotente.
+
+    Se espeja EXACTAMENTE la estructura del checkout de invitado (arriba) para no
+    introducir un 4º patrón transaccional (R-11): PERSIST va de la mano de `get_db` +
+    commit manual porque el endpoint hace trabajo post-commit (mails + init de MP), y
+    ese commit manual es lo que deja un record 'failed' recuperable ante un fallo de
+    MP (ADR 0002 / docs/diagrams/decision-sesion-transaccional.mmd). La única
+    diferencia con el guest: el usuario viene del token (no hay bloque `customer` ni
+    honeypot `website`), el scope es por user_id, y no corre el anti-abuse público.
+    """
+    user_id = get_current_user_id(current_user)
+    scope = build_authenticated_checkout_scope(user_id)
+    # normalize_idempotency_key se computa aca (ademas de adentro del CM) porque la
+    # clave del sub-pago de abajo la incorpora en su propio idempotency_key.
+    normalized_key = normalize_idempotency_key(idempotency_key)
+    # Los conflictos (clave reusada / en curso) se lanzan al ENTRAR al with y quedan
+    # fuera del try de abajo, para que suban al handler central (R01-3) -> 409, en vez
+    # de pasar por raise_http_error_from_exception (que no los conoce -> 500).
+    with idempotent(
+        scope=scope,
+        key=idempotency_key,
+        payload=payload.model_dump(),
+        db=db,
+        failure=FailurePolicy.PERSIST,
+    ) as ctx:
+        if ctx.replay is not None:
+            return {"data": ctx.replay}
+        if ctx.recover_from is not None:
+            return {
+                "data": _recover_checkout_mp(
+                    ctx=ctx, failed_payload=ctx.recover_from, db=db
+                )
+            }
+
+        try:
+            result = create_authenticated_checkout_order(
+                user_id=user_id,
+                items=[item.model_dump() for item in payload.items],
+                db=db,
+            )
+            if payload.payment_method is not None:
+                order_id = int(result["order"]["id"])
+                payment = create_payment_for_order(
+                    order_id=order_id,
+                    method=payload.payment_method,
+                    db=db,
+                    user_id=user_id,
+                    idempotency_key=f"auth-payment-{order_id}-{normalized_key}",
+                    currency=payload.currency,
+                    expires_in_minutes=payload.expires_in_minutes,
+                    initialize_provider=False,
+                )
+                result["payment"] = payment
+                if payment["method"] == "mercadopago":
+                    db.flush()
+                    payment = _initialize_mercadopago_payment_or_raise(payment=payment, db=db)
+                    result["payment"] = payment
+                    ctx.complete(result)
+                    db.commit()
+                    dispatch_post_commit_actions(db=db, source="authenticated_checkout")
+                    return {"data": result}
+            ctx.complete(result)
+            db.commit()
+        except PaymentCheckoutInitializationError as exc:
+            ctx.fail(
+                {
+                    "detail": str(exc),
+                    "order_id": int(result["order"]["id"]),
+                    "payment_id": int(result["payment"]["id"]),
+                }
+            )
+            db.commit()
+            raise_http_error_from_exception(exc, db=db)
+        except Exception as exc:
+            # Mismo bookkeeping que el guest: se marca failed solo si el handler no lo
+            # saldo, con el mensaje de la excepcion ORIGINAL (no el HTTPException
+            # mapeado). El CM tiene ademas su backstop bajo PERSIST.
+            if not ctx.settled:
+                try:
+                    ctx.fail({"detail": str(exc)})
+                    db.commit()
+                except Exception:
+                    db.rollback()
+            else:
+                db.rollback()
+            clear_post_commit_actions(db=db)
+            raise_http_error_from_exception(exc, db=db)
+        dispatch_post_commit_actions(db=db, source="authenticated_checkout")
         return {"data": result}
 
 
