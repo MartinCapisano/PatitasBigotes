@@ -43,8 +43,14 @@ producción después.
 2. Esperá ~2 min a que se cree.
 3. Andá a **Project Settings → Database → Connection string → URI**. Vas a ver algo así:
    `postgresql://postgres:[TU-PASSWORD]@db.xxxxx.supabase.co:5432/postgres`
-4. Copiá esa cadena (reemplazando `[TU-PASSWORD]` por tu contraseña) y agregale `?sslmode=require`
-   al final. **Guardala** — es tu `DATABASE_URL`.
+4. Hacéle **dos cambios** a esa cadena y guardala — es tu `DATABASE_URL`:
+   - Reemplazá `[TU-PASSWORD]` por tu contraseña de base.
+   - Cambiá el prefijo `postgresql://` por **`postgresql+psycopg://`**. Es obligatorio: sin el
+     `+psycopg`, SQLAlchemy busca psycopg2 (que este proyecto no instala) y el backend no arranca.
+   - Agregale `?sslmode=require` al final.
+
+   Queda así:
+   `postgresql+psycopg://postgres:TU-PASSWORD@db.xxxxx.supabase.co:5432/postgres?sslmode=require`
 
 > Si más adelante Render falla al conectar, volvé acá y probá la opción "Session pooler" que
 > Supabase también ofrece. Pero probá primero con esta.
