@@ -34,6 +34,18 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
+      # Config JWT no-secreta: valores estables versionados aca para que el
+      # Blueprint quede completo. ACCESS_TOKEN_EXPIRE_MINUTES no tiene default en
+      # el codigo (obtener_config_jwt la exige): sin declararla, el primer login
+      # responde 500. Los otros tres tienen default pero se declaran por claridad.
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: JWT_ISSUER
+        value: patitasbigotes-api
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "120"
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "30"
       - key: APP_BASE_URL
         sync: false
       - key: CORS_ALLOW_ORIGINS
