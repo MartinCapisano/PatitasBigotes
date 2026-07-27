@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 import hashlib
 import os
 import uuid
@@ -52,16 +53,20 @@ def ensure_password_policy(password: str) -> None:
         raise ValueError("password must include at least one special character")
 
 
-def obtener_config_jwt() -> dict:
-    secret_key = os.getenv("JWT_SECRET", "").strip()
-    algorithm = os.getenv("JWT_ALGORITHM", DEFAULT_ALGORITHM).strip()
-    issuer = os.getenv("JWT_ISSUER", DEFAULT_JWT_ISSUER).strip()
-    raw_access_minutes = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "").strip()
-    raw_refresh_days = os.getenv(
-        "REFRESH_TOKEN_EXPIRE_DAYS",
-        str(DEFAULT_REFRESH_TOKEN_EXPIRE_DAYS),
-    ).strip()
-
+@lru_cache(maxsize=8)
+def _parse_config_jwt(
+    secret_key: str,
+    algorithm: str,
+    issuer: str,
+    raw_access_minutes: str,
+    raw_refresh_days: str,
+) -> dict:
+    # Puro y cacheado: se lo llama varias veces por request (construir claims,
+    # firmar, decodificar) y el parseo/validacion no cambia mientras el entorno
+    # no cambie. La clave del cache son los valores crudos del entorno, asi que
+    # cualquier cambio de env (produccion nunca; los tests si) invalida la
+    # entrada por si sola, sin necesidad de un cache_clear explicito. lru_cache
+    # no cachea excepciones, de modo que los caminos de error siguen re-evaluando.
     if not secret_key:
         raise RuntimeError("JWT_SECRET is required")
     if not algorithm:
@@ -86,6 +91,19 @@ def obtener_config_jwt() -> dict:
         "access_token_expire_minutes": access_minutes,
         "refresh_token_expire_days": refresh_days,
     }
+
+
+def obtener_config_jwt() -> dict:
+    return _parse_config_jwt(
+        os.getenv("JWT_SECRET", "").strip(),
+        os.getenv("JWT_ALGORITHM", DEFAULT_ALGORITHM).strip(),
+        os.getenv("JWT_ISSUER", DEFAULT_JWT_ISSUER).strip(),
+        os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "").strip(),
+        os.getenv(
+            "REFRESH_TOKEN_EXPIRE_DAYS",
+            str(DEFAULT_REFRESH_TOKEN_EXPIRE_DAYS),
+        ).strip(),
+    )
 
 
 def _utc_now() -> datetime:

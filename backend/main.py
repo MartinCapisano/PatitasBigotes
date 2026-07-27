@@ -1,9 +1,12 @@
 import logging
 
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 from source.db.config import get_cors_allow_origins, validate_bank_transfer_config
+from source.db.session import get_db
 from source.services.idempotency_s import IdempotencyError
 from source.dependencies.csrf_d import CSRFMiddleware
 from source.dependencies.security_headers_d import SecurityHeadersMiddleware
@@ -73,6 +76,24 @@ async def handle_idempotency_error(request: Request, exc: IdempotencyError) -> J
 
 @app.get("/health")
 def health_check():
+    """Liveness: solo confirma que el proceso responde. No toca la base, asi que
+    un pico de latencia de Supabase no marca el servicio como caido."""
     return {"status": "ok"}
+
+
+@app.get("/health/ready")
+def readiness_check(db: Session = Depends(get_db)):
+    """Readiness: verifica que la base sea alcanzable. Devuelve 503 si no lo es,
+    para que un monitor externo (o el healthCheckPath de Render) distinga
+    "el proceso vive" de "el proceso puede atender pedidos"."""
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception:
+        logger.exception("event=readiness_check_failed component=database")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "unavailable", "db": "unreachable"},
+        )
+    return {"status": "ok", "db": "ok"}
 
 

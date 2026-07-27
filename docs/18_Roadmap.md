@@ -19,9 +19,9 @@ Elementos donde el comportamiento actual **es incorrecto o probablemente lo sea*
 
 | ID | Problema | Evidencia | Impacto | Costo | Prioridad |
 |---|---|---|---|---|---|
-| <a id="B-01"></a>**B-01** | `alembic` no está en `requirements.txt` pero `render.yaml` lo ejecuta en el `buildCommand` | `render.yaml:18` vs `requirements.txt` | 🔴 El deploy podría fallar | 0,1 d | **P0** |
+| <a id="B-01"></a>~~**B-01**~~ | ✅ ~~`alembic` no está en `requirements.txt` pero `render.yaml` lo ejecuta en el `buildCommand`~~ — **resuelto**: `alembic==1.18.4` agregado a `requirements.txt` | `render.yaml:18` vs `requirements.txt` | 🔴 El deploy podría fallar | 0,1 d | — |
 | <a id="B-02"></a>**B-02** | ✅ ~~`FORWARDED_ALLOW_IPS` no configurada → el rate limiting por IP usa la IP del proxy de Render para todos~~ — **resuelto**: `--forwarded-allow-ips '*'` en el `startCommand` | `render.yaml:24` | 🔴 Anti-abuso inefectivo en producción | 0,2 d | — |
-| <a id="B-03"></a>**B-03** | Engine sin `pool_pre_ping` → `OperationalError` en la primera request tras el idle | `db/session.py:12` | 🔴 500 esporádicos tras cada cold start | 0,1 d | **P0** |
+| <a id="B-03"></a>~~**B-03**~~ | ✅ ~~Engine sin `pool_pre_ping` → `OperationalError` en la primera request tras el idle~~ — **resuelto**: `pool_pre_ping=True` + `pool_recycle=300` | `db/session.py:31-35` | 🔴 500 esporádicos tras cada cold start | 0,1 d | — |
 | <a id="B-04"></a>**B-04** | ✅ ~~El default de `sort_by` del storefront es `price`, que activa el camino sin paginación en SQL~~ — **resuelto**: el default es `name` | `useStorefrontPage.ts:13` + `products_storefront_s::list_storefront_products` | 🟠 O(catálogo) en la vista más visitada | 0,1 d | — |
 | <a id="B-05"></a>**B-05** | Defaults de `MERCADOPAGO_SUCCESS/FAILURE/PENDING_URL` apuntan al puerto 8000 (backend) en vez del 5173 (frontend) | `db/config.py:53-71` vs `.env.example:47-49` | 🟠 404 al volver de MP si falta la variable | 0,1 d | **P1** |
 | <a id="B-06"></a>**B-06** | `create_product` acepta el campo `active` del DTO y lo ignora | `schemas/products_s.py:37` vs `products_s.py:390-419` | 🟡 El admin cree que crea un producto inactivo y no es así | 0,2 d | **P1** |
@@ -102,7 +102,7 @@ Detalle en [12_Performance.md](12_Performance.md#12-recomendaciones-priorizadas)
 |---|---|---|---|---|
 | <a id="P-08"></a>**P-08** | `pool_pre_ping=True` + `pool_recycle=1800` *(= B-03)* | Elimina errores de conexión | 0,1 d | **P0** |
 | <a id="P-04a"></a>**P-04a** | ✅ ~~Default `sort_by='name'` en el storefront~~ *(= B-04)* — **hecho** | Activa la paginación en SQL | 0,1 d | — |
-| <a id="P-11"></a>**P-11** | `@lru_cache` en `obtener_config_jwt()` | Varias llamadas menos por request | 0,1 d | **P0** |
+| <a id="P-11"></a>~~**P-11**~~ | ✅ ~~`@lru_cache` en `obtener_config_jwt()`~~ — **hecho**: núcleo puro `_parse_config_jwt` cacheado con clave en los valores crudos del entorno (un cambio de env invalida solo, sin `cache_clear`) | Varias llamadas menos por request | 0,1 d | — |
 | <a id="P-12"></a>**P-12** | Middleware de logging con `duration_ms` | Habilita medir | 0,2 d | **P1** |
 | **I-01..06** | 6 índices faltantes | Listados más rápidos | 0,2 d | **P1** |
 | <a id="P-05"></a>**P-05** | Caché de `list_discounts()` | Menos carga en storefront | 0,3 d | **P1** |
@@ -124,7 +124,7 @@ Detalle en [16_Testing.md](16_Testing.md#6-prioridades).
 
 | ID | Test | Riesgo que cubre | Costo | Prioridad |
 |---|---|---|---|---|
-| <a id="T-01"></a>**T-01** | `normalizePaymentAmountsForOrder` | 🔴 Cobro con unidad mal interpretada | 0,2 d | **P0** |
+| <a id="T-01"></a>~~**T-01**~~ | ✅ ~~`normalizePaymentAmountsForOrder`~~ — **hecho**: `useAdminRegisterPayment.test.ts` (9 casos: montos ",90" reales, rechazo por total distinto, efectivo con vuelto, no-numérico) | 🔴 Cobro con unidad mal interpretada | 0,2 d | — |
 | <a id="T-02"></a>**T-02** | Job de CI con PostgreSQL real | 🔴 Toda la concurrencia sin verificar | 1 d | **P0** |
 | <a id="T-03"></a>**T-03** | Concurrencia: dos pagos simultáneos | 🔴 Doble cobro | 0,5 d | **P0** |
 | <a id="T-04"></a>**T-04** | Concurrencia: dos compras de la última unidad | 🔴 Sobreventa | 0,5 d | **P0** |
@@ -146,7 +146,7 @@ Detalle en [17_ProductionReadiness.md](17_ProductionReadiness.md#11-checklist-de
 |---|---|---|---|---|
 | <a id="PR-01"></a>**PR-01** | Alerta si falla el cron de mantenimiento | 🔴 Hoy los 6 jobs pueden dejar de correr en silencio | 0,2 d | **P0** |
 | <a id="PR-02"></a>**PR-02** | **Probar una restauración de backup** y documentarla | 🔴 Un backup no probado no es un backup | 0,5 d | **P0** |
-| <a id="PR-03"></a>**PR-03** | Health check que verifique la base (`/health/ready`) | 🔴 Render reporta sano con la DB caída | 0,3 d | **P0** |
+| <a id="PR-03"></a>~~**PR-03**~~ | ✅ ~~Health check que verifique la base (`/health/ready`)~~ — **hecho en código**: `/health/ready` hace `SELECT 1` y devuelve 503 si la DB no responde (`main.py`). ⏳ *Pendiente operativo*: decidir si `healthCheckPath` de Render apunta a `/health/ready` (ver nota) | 🔴 Render reporta sano con la DB caída | 0,3 d | ⏳ |
 | <a id="PR-04"></a>**PR-04** | Desacoplar deploy de CI *(= B-14)* | 🔴 | 0,3 d | **P1** |
 | <a id="PR-05"></a>**PR-05** | Sentry en backend y frontend | 🔴 Errores invisibles hoy | 0,5 d | **P1** |
 | <a id="PR-06"></a>**PR-06** | Agregación de logs con retención | 🟠 | 0,5 d | **P1** |

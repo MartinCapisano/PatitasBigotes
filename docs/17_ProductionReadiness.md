@@ -400,11 +400,11 @@ privado el cron **superaría la cuota gratuita**. Conviene verificarlo.
 
 - [x] ~~Setear `FORWARDED_ALLOW_IPS` — el rate limiting por IP hoy no funciona~~ — resuelto vía
   `--forwarded-allow-ips '*'` en el `startCommand` de `render.yaml`. Ver §11.1.
-- [ ] Verificar que `alembic` esté disponible en el build de Render
-- [ ] `pool_pre_ping=True` en el engine
+- [x] ~~Verificar que `alembic` esté disponible en el build de Render~~ — `alembic==1.18.4` en `requirements.txt`
+- [x] ~~`pool_pre_ping=True` en el engine~~ — hecho (`db/session.py`, + `pool_recycle=300`)
 - [ ] Alerta si falla el cron de mantenimiento
-- [ ] **Probar una restauración de backup**
-- [ ] Health check que verifique la base
+- [ ] **Probar una restauración de backup** (necesita un proyecto Supabase provisionado)
+- [x] ~~Health check que verifique la base~~ — `/health/ready` en código; falta decidir el `healthCheckPath` de Render (§3)
 - [ ] Error tracking (Sentry)
 - [ ] Desacoplar deploy de CI (no desplegar si el CI falla)
 
