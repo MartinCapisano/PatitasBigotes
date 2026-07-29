@@ -480,6 +480,22 @@ que sostiene la seguridad de este cambio.
 acumuladas bajo la IP del proxy. Conviene purgarlas junto con el deploy para no arrastrar bloqueos
 espurios sobre lo que ahora es una IP real de cliente.
 
+### 11.2 Pendientes operativos: secrets/env a cargar
+
+Varios P0 quedaron **completos en código pero inertes hasta cargar su secret/variable**. Sin esto no rompen
+nada (cada pieza es no-op o cae a un fallback), pero tampoco cumplen su función. Estado a cerrar en los
+dashboards:
+
+| Secret / variable | Dónde | Habilita | Si falta |
+|---|---|---|---|
+| `RENDER_DEPLOY_HOOK_URL` | GitHub → Secrets | Deploy del backend gateado por el CI (§2) | El job `deploy-backend` sale en verde sin desplegar |
+| `VERCEL_DEPLOY_HOOK_URL` | GitHub → Secrets | Deploy del frontend gateado por el CI (§2) | El job `deploy-frontend` sale en verde sin desplegar |
+| `SENTRY_DSN` | Render → Environment | Error tracking + tracing + cron monitor del backend (§4.3/§4.4) | El SDK queda apagado (no-op) |
+| `VITE_SENTRY_DSN` | Vercel → Environment (redeploy) | Error tracking + tracing del frontend (§4.4) | El SDK queda apagado (no-op) |
+
+> Con el auto-deploy apagado (`autoDeploy: false` / `git.deploymentEnabled.main: false`), hasta cargar los dos
+> Deploy Hooks **nada se despliega solo**; el fallback es el *Manual Deploy* del dashboard de Render/Vercel.
+
 ---
 
 ## 12. Veredicto
