@@ -14,15 +14,15 @@
 | Observabilidad — métricas | **4** | 🟡 Performance/APM de Sentry (latencia, error rate); faltan métricas de negocio |
 | Observabilidad — tracing | **5** | 🟡 Tracing de Sentry front↔back e in-process |
 | Alertas | **4** | 🟠 Issue si falla el cron + error tracking y cron monitor de Sentry |
-| Backups | **5** | 🟡 Existen, nunca probados, retención 30 días |
-| Recuperación ante desastre | **2** | 🔴 Sin runbook, sin RTO/RPO |
+| Backups | **8** | 🟢 Diario + mensual, restore verificado en cada corrida |
+| Recuperación ante desastre | **5** | 🟡 Runbook + RPO/RTO definidos; falta offsite/PITR (Supabase Pro) |
 | Escalabilidad | **3** | 🔴 Free tier, una instancia, lock de proceso |
 | Alta disponibilidad | **1** | 🔴 SPOF en cada capa |
 | Rollback | **6** | 🟡 De código sí, de base no |
 | Gestión de secretos | **8** | 🟢 Correcta |
 | Resiliencia ante fallos | **8** | 🟢 ⭐ Lo mejor del sistema |
-| Runbooks | **4** | 🟡 Solo uno, del sweeper |
-| **GLOBAL** | **4,0 / 10** | 🟡 **Apto para demo y piloto; no para producción con volumen real** |
+| Runbooks | **5** | 🟡 Dos: sweeper + restauración de la base |
+| **GLOBAL** | **5,6 / 10** | 🟡 **Apto para demo y piloto; los bloqueantes restantes son escalabilidad y HA (free tier), no observabilidad ni backups** |
 
 > 📌 **Matiz importante:** el score bajo refleja la **infraestructura**, no el **código**. La lógica de negocio
 > tiene una resiliencia notable (reintentos, dead letter, reconciliación, idempotencia). Lo que falta es todo lo
@@ -217,35 +217,28 @@ solo si hay `SENTRY_DSN`; sin DSN el SDK es no-op (local/tests).
 
 `.github/workflows/db-backup.yml`:
 - `pg_dump --format=custom --no-owner --no-privileges` diario a las 04:00 UTC
-- Almacenado como **artifact de GitHub Actions**, retención 30 días
+- Almacenado como **artifact de GitHub Actions** (diario 30 días + copia mensual 90 días el día 01)
+- 🟢 **Verifica el restore en cada corrida**: restaura el dump en un Postgres efímero y chequea
+  tablas núcleo + `alembic_version`. Si falla, abre un issue (`backup-failure`)
 - 🟢 Instala `postgresql-client-17` desde PGDG para que la versión del cliente sea ≥ la del servidor
-- 🟢 El propio workflow reconoce sus límites en un comentario
 
 ### Lo que falta
 
 | Aspecto | Estado | Riesgo |
 |---|---|---|
-| Retención | 30 días | 🟠 Sin copia de largo plazo |
-| Ubicación | Artifacts de GitHub | 🟠 Sin copia offsite en un proveedor distinto |
-| Cifrado en reposo | El que da GitHub | 🟡 Sin cifrado propio |
-| **Prueba de restauración** | ❌ **Nunca se hizo** | 🔴 **Un backup no probado no es un backup** |
-| PITR (point-in-time recovery) | ❌ No hay | 🔴 Se pierde hasta 24 h de datos |
-| RPO definido | ❌ | 🔴 De facto: **24 horas** |
-| RTO definido | ❌ | 🔴 De facto: **desconocido** |
-| Runbook de restauración | ❌ | 🔴 |
+| Retención | 30 días + mensual 90 días | 🟢 Copia de largo plazo mensual |
+| **Prueba de restauración** | ✅ **Automatizada en cada backup** (restore + checks en CI) | 🟢 Ya no es una suposición |
+| RPO definido | ✅ **24 h** (cadencia del dump) | 🟡 Aceptado para el free tier |
+| RTO definido | ✅ **~15–30 min** (restore medido en cada corrida) | 🟡 |
+| Runbook de restauración | ✅ [`docs/runbooks/restore-db.md`](runbooks/restore-db.md) | 🟢 |
+| Ubicación | Artifacts de GitHub | 🟠 Sin copia offsite en un proveedor distinto (riesgo aceptado) |
+| Cifrado en reposo | El que da GitHub | 🟡 Sin cifrado propio (decisión: aceptar el de GitHub) |
+| PITR (point-in-time recovery) | ❌ No hay | 🟠 Diferido a Supabase Pro (§6); RPO de facto 24 h |
 
-> 🔴 **Acción P0:** ejecutar **una restauración de prueba** contra un proyecto Supabase desechable y documentar
-> el procedimiento y el tiempo que toma. Sin eso, el plan de recuperación es una suposición.
-
-**Procedimiento de restauración (a validar):**
-```bash
-# 1. Descargar el artifact desde la ejecución del workflow
-# 2. Crear un proyecto Supabase nuevo (o vaciar el existente)
-pg_restore --no-owner --no-privileges --clean --if-exists \
-           -d "$NUEVA_DATABASE_URL" patitas_backup_YYYYMMDDTHHMMSSZ.dump
-# 3. Verificar: SELECT count(*) FROM orders; SELECT version_num FROM alembic_version;
-# 4. Actualizar DATABASE_URL en Render y redesplegar
-```
+> ✅ **P0 cerrado.** El restore dejó de ser una prueba manual pendiente: cada backup se **verifica
+> restaurándolo** en el propio workflow (más sólido que una prueba única que envejece), con RPO/RTO
+> definidos y runbook en [`docs/runbooks/restore-db.md`](runbooks/restore-db.md). Lo que queda 🟠
+> (offsite en otro proveedor, PITR) es el salto a Supabase Pro, decidido como diferido.
 
 ---
 
@@ -355,7 +348,7 @@ mantenimiento de Render y Supabase. **Hipótesis:** no hay medición real de upt
 
 | Runbook | Prioridad |
 |---|---|
-| Restaurar la base desde un backup | 🔴 P0 |
+| ~~Restaurar la base desde un backup~~ ✅ [`docs/runbooks/restore-db.md`](runbooks/restore-db.md) | — |
 | Qué hacer si el cron de mantenimiento está caído | 🔴 P0 |
 | Investigar y resolver un pago atascado en `pending` | 🟠 P1 |
 | Vaciar la cola de dead letter de webhooks | 🟠 P1 |
@@ -413,7 +406,8 @@ privado el cron **superaría la cuota gratuita**. Conviene verificarlo.
 - [x] ~~`pool_pre_ping=True` en el engine~~ — hecho (`db/session.py`, + `pool_recycle=300`)
 - [x] ~~Alerta si falla el cron de mantenimiento~~ — paso `if: failure()` en `maintenance.yml` abre un issue
   (label `maintenance-failure`, con dedup). Falta el dead-man's switch para "deja de correr del todo" (§4.5)
-- [ ] **Probar una restauración de backup** (necesita un proyecto Supabase provisionado)
+- [x] ~~**Probar una restauración de backup**~~ — automatizado: `db-backup.yml` restaura el dump en un
+  Postgres efímero y verifica tablas + `alembic_version` en cada corrida. Runbook en `docs/runbooks/restore-db.md`
 - [x] ~~Health check que verifique la base~~ — `/health/ready` en código (con test) y ya es el `healthCheckPath` de Render en `render.yaml` (§3)
 - [x] ~~Error tracking (Sentry)~~ — backend + frontend, con tracing/APM y cron monitor del mantenimiento
   (dead-man's switch). Falta cargar `SENTRY_DSN`/`VITE_SENTRY_DSN` (§4.3/§4.4)

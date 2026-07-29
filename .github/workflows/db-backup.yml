@@ -1,33 +1,53 @@
 name: Supabase DB backup
 
 # Supabase's free tier has no automatic backups, so this takes a scheduled
-# logical dump and stores it as a workflow artifact.
+# logical dump, lo sube como artifact y —clave— lo VERIFICA restaurándolo en un
+# Postgres efímero. "Un backup no probado no es un backup" (docs/17 §5): en vez de
+# una prueba manual única, cada corrida deja demostrado que el dump es restaurable.
 #
 # Requires one repository secret:
 #   SUPABASE_DATABASE_URL -> the same Postgres connection string used by the
 #                            backend (Supabase -> Project Settings -> Database).
 #
-# Caveats (best-effort free backup, not a managed DR solution):
-#   - Artifacts are retained for retention-days below, then deleted.
-#   - For long-term/offsite retention, push the dump to object storage (S3/R2)
-#     instead of / in addition to the artifact.
+# Retención: diario 30 días + copia mensual (día 01) con 90 días. Offsite a otro
+# proveedor y PITR quedan diferidos a Supabase Pro (docs/17 §5/§6). El runbook de
+# restauración manual está en docs/runbooks/restore-db.md.
 
 on:
   schedule:
     - cron: "0 4 * * *" # daily at 04:00 UTC
   workflow_dispatch: {}
 
-# Dump de la base a un artifact; no necesita escribir en el repo.
+# Dump + verify no tocan el repo (contents: read). issues: write es para abrir el
+# issue de alerta si el backup o su verificación fallan.
 permissions:
   contents: read
+  issues: write
 
 jobs:
   backup:
     runs-on: ubuntu-latest
+    # Postgres efímero donde se restaura el dump para verificarlo. Mismo patrón que
+    # backend-tests-postgres en ci.yml. El esquema no usa extensiones, así que una
+    # imagen vanilla restaura limpio.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports: ["5432:5432"]
+    env:
+      VERIFY_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
     steps:
       - name: Install matching PostgreSQL client
-        # Install pg_dump 17 from the PGDG repo so the client version is >= the
-        # Supabase server version (pg_dump refuses to dump a newer server).
+        # Install pg_dump/pg_restore/psql 17 from the PGDG repo so the client
+        # version is >= the Supabase server version (pg_dump refuses to dump a
+        # newer server).
         run: |
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
@@ -48,9 +68,79 @@ jobs:
             --no-owner --no-privileges --format=custom \
             --file "patitas_backup_${ts}.dump"
 
+      - name: Decide artifact cadence (daily 30d / monthly 90d)
+        id: cadence
+        # El día 01 se guarda además como copia mensual de largo plazo (90 días);
+        # el resto de los días es la copia diaria (30 días). Un solo cron diario.
+        run: |
+          if [ "$(date -u +%d)" = "01" ]; then
+            echo "name=supabase-backup-monthly" >> "$GITHUB_OUTPUT"
+            echo "retention=90" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=supabase-backup" >> "$GITHUB_OUTPUT"
+            echo "retention=30" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload backup artifact
+        # if: always() -> conservar el backup aunque la verificación posterior falle:
+        # un backup sospechoso sigue siendo mejor que ninguno, y el fallo se alerta.
+        if: always() && env.DUMP_FILE != ''
         uses: actions/upload-artifact@v4
         with:
-          name: supabase-backup
+          name: ${{ steps.cadence.outputs.name }}
           path: ${{ env.DUMP_FILE }}
-          retention-days: 30
+          retention-days: ${{ steps.cadence.outputs.retention }}
+
+      - name: Verify restore (the backup is actually restorable)
+        # Restaura el dump recién hecho en el Postgres efímero y corre sanity checks.
+        # La señal real son los checks, no el exit code de pg_restore (tolerante a
+        # notices benignos). Mide la duración -> baseline de RTO para el runbook.
+        run: |
+          start=$(date +%s)
+          # No -e en el pg_restore: notices benignos no deben abortar; los checks
+          # de abajo son la prueba dura de que el restore funcionó.
+          /usr/lib/postgresql/17/bin/pg_restore \
+            --no-owner --no-privileges --clean --if-exists \
+            -d "$VERIFY_DATABASE_URL" "$DUMP_FILE" || true
+          elapsed=$(( $(date +%s) - start ))
+          echo "restore_duration_seconds=${elapsed} (baseline de RTO)"
+
+          # Tablas núcleo presentes (to_regclass devuelve NULL si no existe).
+          for t in users products product_variants orders order_items payments alembic_version; do
+            exists=$(psql "$VERIFY_DATABASE_URL" -tAc "SELECT to_regclass('public.${t}') IS NOT NULL;")
+            if [ "$exists" != "t" ]; then
+              echo "verify FAILED: falta la tabla public.${t} en el restore" >&2
+              exit 1
+            fi
+          done
+
+          # alembic_version: exactamente 1 fila con version_num no nulo -> el dump
+          # capturó el esquema migrado.
+          version=$(psql "$VERIFY_DATABASE_URL" -tAc \
+            "SELECT version_num FROM alembic_version;" | tr -d '[:space:]')
+          count=$(psql "$VERIFY_DATABASE_URL" -tAc "SELECT count(*) FROM alembic_version;" | tr -d '[:space:]')
+          if [ "$count" != "1" ] || [ -z "$version" ]; then
+            echo "verify FAILED: alembic_version inesperado (count=${count}, version='${version}')" >&2
+            exit 1
+          fi
+          echo "verify OK: restore restaurable, esquema en version ${version}, tablas núcleo presentes"
+
+      - name: Abrir issue si el backup falla
+        # Mismo patrón que maintenance.yml: dedup por label para no spamear.
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          label="backup-failure"
+          gh label create "$label" --color B60205 \
+            --description "El backup de la base o su verificacion de restore fallo" 2>/dev/null || true
+          open_issue="$(gh issue list --state open --label "$label" --limit 1 \
+            --json number --jq '.[0].number // empty')"
+          if [ -n "$open_issue" ]; then
+            echo "ya hay un issue de alerta abierto (#$open_issue); no se abre otro"
+            exit 0
+          fi
+          gh issue create --label "$label" \
+            --title "🔴 El backup de la base esta fallando" \
+            --body "$(printf 'El workflow **db-backup.yml** fallo (dump o verificacion de restore).\n\nUn backup que no se puede tomar o restaurar deja al proyecto sin red de recuperacion. Revisa el secret SUPABASE_DATABASE_URL y el estado de Supabase.\n\nRunbook de restauracion: docs/runbooks/restore-db.md\nCorrida que fallo: %s' "$RUN_URL")"
