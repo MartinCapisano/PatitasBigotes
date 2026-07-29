@@ -13,7 +13,7 @@
 | Observabilidad — logs | **6** | 🟡 Buenos logs, efímeros y sin agregación |
 | Observabilidad — métricas | **1** | 🔴 Inexistentes |
 | Observabilidad — tracing | **0** | 🔴 Inexistente |
-| Alertas | **0** | 🔴 Inexistentes |
+| Alertas | **2** | 🔴 Solo una: issue si falla el cron de mantenimiento |
 | Backups | **5** | 🟡 Existen, nunca probados, retención 30 días |
 | Recuperación ante desastre | **2** | 🔴 Sin runbook, sin RTO/RPO |
 | Escalabilidad | **3** | 🔴 Free tier, una instancia, lock de proceso |
@@ -195,8 +195,14 @@ Render o si un usuario se queja.
 > de pagos, el reprocesamiento de webhooks y la expiración de reservas.** Habría pagos que nunca se confirman y
 > stock reservado eternamente, sin que nadie se entere.
 >
-> **Mitigación mínima:** añadir al workflow un paso `if: failure()` que notifique (email, Slack, o incluso
-> abrir un issue con `gh issue create`).
+> ✅ **Mitigado (parcial).** `maintenance.yml` tiene un paso `if: failure()` que abre un issue de GitHub
+> (label `maintenance-failure`, con dedup para no spamear) cuando una corrida falla —transporte, HTTP ≥ 400 o
+> status `partial`. Cubre el caso "la corrida **falla**".
+>
+> ⚠️ **Todavía sin cubrir: que el workflow deje de correr del todo** (Actions deshabilitado por inactividad,
+> cuota agotada). Un `if: failure()` no dispara si el job nunca arranca. Para eso hace falta un *dead-man's
+> switch* externo (p. ej. un ping a healthchecks.io / BetterStack en cada corrida exitosa que alerte si deja de
+> llegar). Queda como seguimiento 🟠.
 
 ---
 
@@ -400,7 +406,8 @@ privado el cron **superaría la cuota gratuita**. Conviene verificarlo.
   `--forwarded-allow-ips '*'` en el `startCommand` de `render.yaml`. Ver §11.1.
 - [x] ~~Verificar que `alembic` esté disponible en el build de Render~~ — `alembic==1.18.4` en `requirements.txt`
 - [x] ~~`pool_pre_ping=True` en el engine~~ — hecho (`db/session.py`, + `pool_recycle=300`)
-- [ ] Alerta si falla el cron de mantenimiento
+- [x] ~~Alerta si falla el cron de mantenimiento~~ — paso `if: failure()` en `maintenance.yml` abre un issue
+  (label `maintenance-failure`, con dedup). Falta el dead-man's switch para "deja de correr del todo" (§4.5)
 - [ ] **Probar una restauración de backup** (necesita un proyecto Supabase provisionado)
 - [x] ~~Health check que verifique la base~~ — `/health/ready` en código (con test) y ya es el `healthCheckPath` de Render en `render.yaml` (§3)
 - [ ] Error tracking (Sentry)

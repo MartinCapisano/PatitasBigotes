@@ -18,9 +18,11 @@ on:
     - cron: "*/13 * * * *"
   workflow_dispatch: {}
 
-# Solo pega a un endpoint HTTP externo con un secret; no toca el repo.
+# Pega a un endpoint HTTP externo con un secret y, si falla, abre un issue de
+# alerta (issues: write). No escribe código.
 permissions:
   contents: read
+  issues: write
 
 jobs:
   ping:
@@ -76,3 +78,28 @@ jobs:
               exit 1
               ;;
           esac
+
+      # Alerta P0 (docs/17 §4.5): si la corrida falla, abrir un issue para que no
+      # pase inadvertido. Mientras el mantenimiento esté caído se pierden en silencio
+      # la reconciliación de pagos, el reprocesamiento de webhooks y la expiración de
+      # reservas. No dispara en el "skipped" (ese sale en verde). Dedup por label: si
+      # ya hay un issue abierto no se abre otro (el cron corre cada 13 min).
+      - name: Abrir issue si el mantenimiento falla
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          label="maintenance-failure"
+          # El label tiene que existir para poder filtrar/crear con él.
+          gh label create "$label" --color B60205 \
+            --description "El cron de mantenimiento esta fallando" 2>/dev/null || true
+          open_issue="$(gh issue list --state open --label "$label" --limit 1 \
+            --json number --jq '.[0].number // empty')"
+          if [ -n "$open_issue" ]; then
+            echo "ya hay un issue de alerta abierto (#$open_issue); no se abre otro"
+            exit 0
+          fi
+          gh issue create --label "$label" \
+            --title "🔴 El cron de mantenimiento esta fallando" \
+            --body "$(printf 'El workflow **maintenance.yml** fallo.\n\nMientras este caido se pierden en silencio: reconciliacion de pagos, reprocesamiento de webhooks y expiracion de reservas de stock.\n\nCorrida que fallo: %s\n\nRevisa el backend y los secrets (PROD_API_BASE_URL, MAINTENANCE_RUN_TOKEN). Cerra este issue cuando el cron vuelva a correr en verde.' "$RUN_URL")"
