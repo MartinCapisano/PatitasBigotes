@@ -7,6 +7,7 @@ import {
   useCheckoutPage
 } from "../features/checkout";
 import type { CheckoutPaymentMethod } from "../services/checkout-api";
+import { formatItemQuantity } from "../lib/measure";
 
 export function CheckoutPage() {
   const { isLoading: authLoading, isAuthenticated } = useAuth();
@@ -61,12 +62,12 @@ export function CheckoutPage() {
                     >
                       -
                     </button>
-                    <span className="checkout-qty-value">{item.quantity}</span>
+                    <span className="checkout-qty-value">{formatItemQuantity(item)}</span>
                     <button
                       className="btn btn-small btn-ghost"
                       type="button"
                       onClick={() => checkout.onIncrementItem(item.variant_id, item.quantity)}
-                      disabled={checkout.loading || item.quantity >= 10}
+                      disabled={checkout.loading || (item.sold_by !== "measure" && item.quantity >= 10)}
                       aria-label={`Aumentar cantidad de ${item.product_name}`}
                     >
                       +
@@ -88,16 +89,23 @@ export function CheckoutPage() {
           <div className="card">
             <h2>Total</h2>
             <p className="checkout-total">{formatArs(checkout.total)}</p>
-            <label>
-              Metodo de pago
-              <select className="input" value={checkout.paymentMethod} onChange={(event) => checkout.setPaymentMethod(event.target.value as CheckoutPaymentMethod)}>
-                {paymentMethods.map((method) => (
-                  <option key={method.value} value={method.value}>
-                    {method.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {checkout.measureMode ? (
+              <p className="warning">
+                Tu pedido incluye productos por cantidad. No se abona online: comproba
+                disponibilidad con el local por WhatsApp y coordinamos el pago.
+              </p>
+            ) : (
+              <label>
+                Metodo de pago
+                <select className="input" value={checkout.paymentMethod} onChange={(event) => checkout.setPaymentMethod(event.target.value as CheckoutPaymentMethod)}>
+                  {paymentMethods.map((method) => (
+                    <option key={method.value} value={method.value}>
+                      {method.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {!authLoading && !isAuthenticated && (
               <div className="checkout-guest-grid">
                 <label>
@@ -124,14 +132,25 @@ export function CheckoutPage() {
               </Link>
             </div>
             <div className="checkout-actions">
-              <button
-                className="btn"
-                type="button"
-                onClick={() => void checkout.onFinalizeCheckout()}
-                disabled={checkout.loading || authLoading}
-              >
-                {checkout.loading ? "Procesando..." : "Finalizar compra"}
-              </button>
+              {checkout.measureMode ? (
+                <a
+                  className="btn"
+                  href={checkout.whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Comprobar disponibilidad
+                </a>
+              ) : (
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => void checkout.onFinalizeCheckout()}
+                  disabled={checkout.loading || authLoading}
+                >
+                  {checkout.loading ? "Procesando..." : "Finalizar compra"}
+                </button>
+              )}
             </div>
             {checkout.error && <p className="error">{checkout.error}</p>}
             {checkout.success && <p className="success">{checkout.success}</p>}

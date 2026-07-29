@@ -24,6 +24,9 @@ export type StorefrontOption = {
   price_final?: number;
   has_discount?: boolean;
   in_stock: boolean;
+  sold_by?: "unit" | "measure";
+  measure_unit?: string | null;
+  step?: number;
 };
 
 export type StorefrontProductDetail = StorefrontProduct & {

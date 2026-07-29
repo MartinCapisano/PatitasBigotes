@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { addToCart } from "../../../lib/cart-storage";
+import { formatMeasureAmount } from "../../../lib/measure";
 import type { StorefrontProductDetail } from "../../../types";
 import { fetchStorefrontProductById } from "../../../services/storefront-api";
 
@@ -13,6 +14,7 @@ export function useProductDetailPage() {
   const [error, setError] = useState("");
   const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
   const [addedToCart, setAddedToCart] = useState(false);
+  const [measureSteps, setMeasureSteps] = useState(1);
 
   useEffect(() => {
     async function run() {
@@ -37,11 +39,33 @@ export function useProductDetailPage() {
   const currentImageUrl =
     selectedOption?.effective_img_url ?? selectedOption?.img_url ?? product?.img_url ?? null;
 
+  const isMeasure = selectedOption?.sold_by === "measure";
+  const measureStep = selectedOption?.step ?? 1;
+  const measureUnit = selectedOption?.measure_unit ?? null;
+  const optionUnitPrice = selectedOption ? selectedOption.price_final ?? selectedOption.price : 0;
+  // Precio en vivo: por medida = pasos elegidos x precio por paso; por unidad = precio.
+  const linePriceCents = isMeasure ? optionUnitPrice * measureSteps : optionUnitPrice;
+  const measureAmountLabel = isMeasure ? formatMeasureAmount(measureSteps, measureUnit, measureStep) : "";
+  const unitPriceLabel = isMeasure ? formatMeasureAmount(1, measureUnit, measureStep) : "";
+
+  // Al cambiar de variante, la cantidad por medida vuelve a un paso.
+  useEffect(() => {
+    setMeasureSteps(1);
+  }, [selectedVariantId]);
+
   useEffect(() => {
     if (!addedToCart) return;
     const timeoutId = window.setTimeout(() => setAddedToCart(false), ADDED_TO_CART_MESSAGE_TIMEOUT_MS);
     return () => window.clearTimeout(timeoutId);
   }, [addedToCart]);
+
+  function onIncreaseMeasure() {
+    setMeasureSteps((steps) => steps + 1);
+  }
+
+  function onDecreaseMeasure() {
+    setMeasureSteps((steps) => Math.max(1, steps - 1));
+  }
 
   function onBuy() {
     if (!product) return;
@@ -52,10 +76,14 @@ export function useProductDetailPage() {
       variant_id: selectedOption.variant_id,
       option_label: selectedOption.label,
       unit_price: selectedOption.price,
-      quantity: 1,
-      img_url: selectedOption.effective_img_url ?? selectedOption.img_url ?? product.img_url
+      quantity: isMeasure ? measureSteps : 1,
+      img_url: selectedOption.effective_img_url ?? selectedOption.img_url ?? product.img_url,
+      sold_by: selectedOption.sold_by ?? "unit",
+      measure_unit: selectedOption.measure_unit ?? null,
+      step: selectedOption.step ?? 1
     });
     setAddedToCart(true);
+    setMeasureSteps(1);
   }
 
   return {
@@ -67,6 +95,13 @@ export function useProductDetailPage() {
     selectedOption,
     currentImageUrl,
     addedToCart,
-    onBuy
+    onBuy,
+    isMeasure,
+    measureSteps,
+    measureAmountLabel,
+    unitPriceLabel,
+    linePriceCents,
+    onIncreaseMeasure,
+    onDecreaseMeasure
   };
 }

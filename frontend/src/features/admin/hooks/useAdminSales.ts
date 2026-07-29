@@ -10,6 +10,9 @@ type SaleDraftItem = {
   label: string;
   unit_price: number;
   line_total: number;
+  sold_by?: "unit" | "measure";
+  measure_unit?: string | null;
+  step?: number;
 };
 
 export function useAdminSales(params: {
@@ -214,7 +217,10 @@ export function useAdminSales(params: {
           quantity: parsedQty,
           label: lineLabel,
           unit_price: unitPrice,
-          line_total: unitPrice * parsedQty
+          line_total: unitPrice * parsedQty,
+          sold_by: variant.sold_by ?? "unit",
+          measure_unit: variant.measure_unit ?? null,
+          step: variant.step ?? 1
         }
       ];
     });

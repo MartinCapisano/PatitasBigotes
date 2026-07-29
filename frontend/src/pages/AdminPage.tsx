@@ -234,6 +234,7 @@ export function AdminPage() {
           setEditingProductId={catalog.setEditingProductId}
           editingVariantId={catalog.editingVariantId}
           onStartVariantEdit={catalog.onStartVariantEdit}
+          onVariantCreated={catalog.onVariantCreated}
           editVariantSku={catalog.editVariantSku}
           setEditVariantSku={catalog.setEditVariantSku}
           editVariantSize={catalog.editVariantSize}
@@ -246,6 +247,12 @@ export function AdminPage() {
           setEditVariantStock={catalog.setEditVariantStock}
           editVariantActive={catalog.editVariantActive}
           setEditVariantActive={catalog.setEditVariantActive}
+          editVariantSoldBy={catalog.editVariantSoldBy}
+          setEditVariantSoldBy={catalog.setEditVariantSoldBy}
+          editVariantMeasureUnit={catalog.editVariantMeasureUnit}
+          setEditVariantMeasureUnit={catalog.setEditVariantMeasureUnit}
+          editVariantStep={catalog.editVariantStep}
+          setEditVariantStep={catalog.setEditVariantStep}
           enableVariantPriceEdit={catalog.enableVariantPriceEdit}
           setEnableVariantPriceEdit={catalog.setEnableVariantPriceEdit}
           editVariantPrice={catalog.editVariantPrice}

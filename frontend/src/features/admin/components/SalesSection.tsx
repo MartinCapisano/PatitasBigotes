@@ -1,4 +1,5 @@
 import { useModalA11y } from "../../../lib/useModalA11y";
+import { formatItemQuantity } from "../../../lib/measure";
 import type { AdminSearchUser } from "../../../services/admin-sales-api";
 import type { AdminProduct, AdminVariant } from "../../../services/admin-catalog-api";
 import { AdminUserSearchModal } from "./shared/AdminUserSearchModal";
@@ -57,6 +58,9 @@ export function SalesSection(props: {
     label: string;
     unit_price: number;
     line_total: number;
+    sold_by?: "unit" | "measure";
+    measure_unit?: string | null;
+    step?: number;
   }>;
   total: number;
   onAddItem: () => void;
@@ -227,12 +231,18 @@ export function SalesSection(props: {
                 {selectedProductVariants.map((variant) => (
                   <option key={variant.id} value={String(variant.id)}>
                     {variant.sku} ({variant.size || "-"} / {variant.color || "-"}) - {formatArs(variant.price)}
+                    {variant.sold_by === "measure" ? ` / ${variant.step ?? 1} ${variant.measure_unit || ""}` : ""}
                   </option>
                 ))}
               </select>
             </label>
             <label>
-              Cantidad
+              Cantidad{(() => {
+                const selected = selectedProductVariants.find((variant) => String(variant.id) === newVariantId);
+                return selected?.sold_by === "measure"
+                  ? ` (en pasos de ${selected.step ?? 1} ${selected.measure_unit || ""})`
+                  : "";
+              })()}
               <input className="input" type="number" min={1} value={newQuantity} onChange={(e) => setNewQuantity(e.target.value)} />
             </label>
           </div>
@@ -246,7 +256,7 @@ export function SalesSection(props: {
               {items.map((item) => (
                 <div className="admin-variant-row" key={item.variant_id}>
                   <p>{item.label}</p>
-                  <p className="muted">Cantidad: {item.quantity}</p>
+                  <p className="muted">Cantidad: {formatItemQuantity(item)}</p>
                   <p className="muted">Subtotal linea: {formatArs(item.line_total)}</p>
                   <div className="admin-product-actions">
                     <button className="btn btn-small btn-danger" type="button" onClick={() => removeItem(item.variant_id)}>

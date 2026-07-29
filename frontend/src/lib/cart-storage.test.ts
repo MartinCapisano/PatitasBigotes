@@ -4,6 +4,7 @@ import {
   cartCount,
   clearCart,
   decrementCartItem,
+  hasMeasureItems,
   incrementCartItem,
   readCart,
   removeCartItem,
@@ -131,5 +132,22 @@ describe("cart-storage", () => {
     unsubscribe();
     addToCart(buildItem({ variant_id: 99 }));
     expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("hasMeasureItems is true only when a by-quantity line is present", () => {
+    addToCart(buildItem({ sold_by: "unit" }));
+    expect(hasMeasureItems(readCart())).toBe(false);
+
+    addToCart(buildItem({ variant_id: 55, sold_by: "measure", measure_unit: "g", step: 100 }));
+    expect(hasMeasureItems(readCart())).toBe(true);
+  });
+
+  it("incrementCartItem ignores the 10 cap for measure items", () => {
+    addToCart(buildItem({ variant_id: 55, quantity: 10, sold_by: "measure", measure_unit: "g", step: 100 }));
+
+    incrementCartItem(55, 10);
+    const result = incrementCartItem(55, 10);
+
+    expect(result.find((item) => item.variant_id === 55)?.quantity).toBe(12);
   });
 });

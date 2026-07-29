@@ -35,6 +35,9 @@ export type VariantEditPayload = {
   stock: number;
   active: boolean;
   price?: number;
+  sold_by: "unit" | "measure";
+  measure_unit: string | null;
+  step: number;
 };
 
 function deriveProductFromVariants(product: AdminProduct, variants: AdminVariant[]): AdminProduct {
@@ -72,6 +75,9 @@ export function useAdminCatalog(adminSection: AdminSection) {
   const [editVariantImgUrl, setEditVariantImgUrl] = useState("");
   const [editVariantStock, setEditVariantStock] = useState("0");
   const [editVariantActive, setEditVariantActive] = useState(true);
+  const [editVariantSoldBy, setEditVariantSoldBy] = useState<"unit" | "measure">("unit");
+  const [editVariantMeasureUnit, setEditVariantMeasureUnit] = useState("");
+  const [editVariantStep, setEditVariantStep] = useState("1");
   const [enableVariantPriceEdit, setEnableVariantPriceEdit] = useState(false);
   const [editVariantPrice, setEditVariantPrice] = useState("0");
   const [editVariantOriginalPrice, setEditVariantOriginalPrice] = useState<number | null>(null);
@@ -310,6 +316,9 @@ export function useAdminCatalog(adminSection: AdminSection) {
     setEditVariantImgUrl(variant.img_url || "");
     setEditVariantStock(String(variant.stock ?? 0));
     setEditVariantActive(Boolean(variant.active));
+    setEditVariantSoldBy(variant.sold_by === "measure" ? "measure" : "unit");
+    setEditVariantMeasureUnit(variant.measure_unit || "");
+    setEditVariantStep(String(variant.step ?? 1));
     setEnableVariantPriceEdit(false);
     setEditVariantPrice(String(variant.price ?? 0));
     setEditVariantOriginalPrice(variant.price ?? 0);
@@ -347,6 +356,20 @@ export function useAdminCatalog(adminSection: AdminSection) {
     if (editingVariantId !== variant.id) return;
     setError("");
 
+    const soldBy = editVariantSoldBy;
+    const measureUnit = editVariantMeasureUnit.trim();
+    const stepAsInt = Number.parseInt(editVariantStep, 10);
+    if (soldBy === "measure") {
+      if (!measureUnit) {
+        setError("Indica la unidad de medida (por ejemplo g o ml).");
+        return;
+      }
+      if (Number.isNaN(stepAsInt) || stepAsInt <= 0) {
+        setError("El paso debe ser mayor a 0.");
+        return;
+      }
+    }
+
     const stockAsInt = Number.parseInt(editVariantStock, 10);
     if (Number.isNaN(stockAsInt) || stockAsInt < 0) {
       setError("Stock invalido.");
@@ -359,7 +382,10 @@ export function useAdminCatalog(adminSection: AdminSection) {
       color: editVariantColor.trim() || null,
       img_url: editVariantImgUrl.trim() || null,
       stock: stockAsInt,
-      active: editVariantActive
+      active: editVariantActive,
+      sold_by: soldBy,
+      measure_unit: soldBy === "measure" ? measureUnit : null,
+      step: soldBy === "measure" ? stepAsInt : 1
     };
 
     if (enableVariantPriceEdit) {
@@ -393,6 +419,27 @@ export function useAdminCatalog(adminSection: AdminSection) {
       setVariantPriceConfirmation(null);
     }
   }
+
+  const onVariantCreated = useCallback(
+    (variant: AdminVariant) => {
+      setVariantsByProduct((prev) => {
+        const current = prev[variant.product_id] ?? [];
+        if (current.some((row) => row.id === variant.id)) return prev;
+        return {
+          ...prev,
+          [variant.product_id]: [...current, variant].sort((a, b) => a.id - b.id)
+        };
+      });
+      setProducts((prev) =>
+        prev.map((product) => {
+          if (product.id !== variant.product_id) return product;
+          const current = variantsByProduct[variant.product_id] ?? [];
+          return deriveProductFromVariants(product, [...current, variant]);
+        })
+      );
+    },
+    [variantsByProduct]
+  );
 
   const productsSorted = useMemo(
     () => [...products].sort((a, b) => String(a.name).localeCompare(String(b.name))),
@@ -478,6 +525,7 @@ export function useAdminCatalog(adminSection: AdminSection) {
     setEditingProductId,
     editingVariantId,
     onStartVariantEdit,
+    onVariantCreated,
     editVariantSku,
     setEditVariantSku,
     editVariantSize,
@@ -490,6 +538,12 @@ export function useAdminCatalog(adminSection: AdminSection) {
     setEditVariantStock,
     editVariantActive,
     setEditVariantActive,
+    editVariantSoldBy,
+    setEditVariantSoldBy,
+    editVariantMeasureUnit,
+    setEditVariantMeasureUnit,
+    editVariantStep,
+    setEditVariantStep,
     enableVariantPriceEdit,
     setEnableVariantPriceEdit,
     editVariantPrice,

@@ -27,6 +27,9 @@ export type AdminVariant = {
   price: number;
   stock: number;
   active: boolean;
+  sold_by?: "unit" | "measure";
+  measure_unit?: string | null;
+  step?: number;
 };
 
 export type AdminCatalog = {
@@ -90,6 +93,23 @@ export async function patchAdminProduct(
   return response.data.data;
 }
 
+export async function createAdminVariant(payload: {
+  product_id: number;
+  sku: string;
+  size?: string | null;
+  color?: string | null;
+  img_url?: string | null;
+  price: number;
+  stock?: number;
+  active?: boolean;
+  sold_by?: "unit" | "measure";
+  measure_unit?: string | null;
+  step?: number;
+}): Promise<AdminVariant> {
+  const response = await http.post<{ data: AdminVariant }>("/variants", payload);
+  return response.data.data;
+}
+
 export async function patchAdminVariant(
   variantId: number,
   payload: {
@@ -101,6 +121,9 @@ export async function patchAdminVariant(
     price?: number;
     stock?: number;
     active?: boolean;
+    sold_by?: "unit" | "measure";
+    measure_unit?: string | null;
+    step?: number;
   }
 ): Promise<AdminVariant> {
   const response = await http.patch<{ data: AdminVariant }>(`/variants/${variantId}`, payload);

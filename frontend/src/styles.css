@@ -467,6 +467,18 @@ a {
   margin: 0.5rem 0;
 }
 
+/* Productos por cantidad/peso (docs/products_by_measure.md) */
+.measure-selector {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.6rem 0;
+}
+
+.measure-note {
+  margin-top: 0.4rem;
+  font-size: 0.85rem;
+}
+
 .checkout-guest-grid {
   margin-top: 0.7rem;
   display: grid;

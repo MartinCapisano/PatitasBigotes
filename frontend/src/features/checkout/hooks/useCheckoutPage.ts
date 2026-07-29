@@ -3,11 +3,13 @@ import { useNavigate } from "react-router-dom";
 import {
   clearCart,
   decrementCartItem,
+  hasMeasureItems,
   incrementCartItem,
   readCart,
   removeCartItem,
   type CartItem
 } from "../../../lib/cart-storage";
+import { buildAvailabilityMessage, buildWhatsappUrl } from "../../../lib/whatsapp";
 import { getBankTransferInstructions } from "../../../lib/bank-transfer";
 import type { BankTransferInstructions } from "../../../types";
 import {
@@ -40,6 +42,21 @@ export function useCheckoutPage(params: { authLoading: boolean; isAuthenticated:
     () => items.reduce((sum, item) => sum + item.unit_price * item.quantity, 0),
     [items]
   );
+  // Una orden con algún producto por cantidad no se paga online: se comprueba
+  // disponibilidad con el local por WhatsApp (docs/products_by_measure.md).
+  const measureMode = useMemo(() => hasMeasureItems(items), [items]);
+  const whatsappUrl = useMemo(
+    () =>
+      buildWhatsappUrl(
+        buildAvailabilityMessage(items, {
+          first_name: guestFirstName,
+          last_name: guestLastName,
+          email: guestEmail,
+          phone: guestPhone
+        })
+      ),
+    [items, guestFirstName, guestLastName, guestEmail, guestPhone]
+  );
 
   function clearCheckoutMessages() {
     setError("");
@@ -48,7 +65,8 @@ export function useCheckoutPage(params: { authLoading: boolean; isAuthenticated:
 
   function onIncrementItem(variantId: number, quantity: number) {
     if (loading) return;
-    if (quantity >= 10) {
+    const isMeasure = items.find((item) => item.variant_id === variantId)?.sold_by === "measure";
+    if (!isMeasure && quantity >= 10) {
       setSuccess("");
       setError("La cantidad maxima por producto en checkout es 10.");
       return;
@@ -158,6 +176,8 @@ export function useCheckoutPage(params: { authLoading: boolean; isAuthenticated:
     error,
     success,
     bankTransfer,
+    measureMode,
+    whatsappUrl,
     onIncrementItem,
     onDecrementItem,
     onRemoveItem,

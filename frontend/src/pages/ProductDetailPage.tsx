@@ -53,11 +53,50 @@ export function ProductDetailPage() {
             ))}
           </div>
 
+          {detail.isMeasure && detail.selectedOption?.in_stock && (
+            <div className="measure-selector">
+              <span className="muted">Cantidad</span>
+              <div className="checkout-qty-controls">
+                <button
+                  className="btn btn-small btn-ghost"
+                  type="button"
+                  onClick={detail.onDecreaseMeasure}
+                  disabled={detail.measureSteps <= 1}
+                  aria-label="Disminuir cantidad"
+                >
+                  -
+                </button>
+                <span className="checkout-qty-value">{detail.measureAmountLabel}</span>
+                <button
+                  className="btn btn-small btn-ghost"
+                  type="button"
+                  onClick={detail.onIncreaseMeasure}
+                  aria-label="Aumentar cantidad"
+                >
+                  +
+                </button>
+              </div>
+              <p className="checkout-total">
+                {formatArs(detail.linePriceCents)}
+                <span className="muted">
+                  {" "}
+                  ({formatArs(detail.selectedOption.price_final ?? detail.selectedOption.price)} /{" "}
+                  {detail.unitPriceLabel})
+                </span>
+              </p>
+            </div>
+          )}
+
           <div className="detail-actions">
             <button className="btn" type="button" disabled={!detail.selectedOption?.in_stock} onClick={detail.onBuy}>
-              Comprar
+              {detail.isMeasure ? "Agregar al carrito" : "Comprar"}
             </button>
           </div>
+          {detail.isMeasure && (
+            <p className="muted measure-note">
+              Este producto se vende por cantidad: tu pedido se confirma con el local antes de abonar.
+            </p>
+          )}
           {detail.addedToCart && (
             <p className="success">
               Producto agregado al carrito. <Link to="/checkout">Finalizar compra</Link>

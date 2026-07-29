@@ -6,6 +6,11 @@ export type CartItem = {
   unit_price: number;
   quantity: number;
   img_url: string | null;
+  // Productos por cantidad/peso (docs/products_by_measure.md). Opcionales para no
+  // romper carritos ya guardados en localStorage: ausente = producto por unidad.
+  sold_by?: "unit" | "measure";
+  measure_unit?: string | null;
+  step?: number;
 };
 
 const CART_KEY = "pb_cart_items";
@@ -60,11 +65,17 @@ export function removeCartItem(variantId: number): CartItem[] {
   return nextItems;
 }
 
+export function hasMeasureItems(items: CartItem[]): boolean {
+  return items.some((item) => item.sold_by === "measure");
+}
+
 export function incrementCartItem(variantId: number, max = 10): CartItem[] {
-  const safeMax = Math.max(1, Math.trunc(max));
   const nextItems = readCart().map((item) => {
     if (item.variant_id !== variantId) return item;
-    return { ...item, quantity: Math.min(safeMax, item.quantity + 1) };
+    // Los productos por cantidad se mueven de a un paso y no tienen el tope de 10
+    // (el tope es anti-abuso del pago self-service, que estos no usan).
+    const cap = item.sold_by === "measure" ? Number.MAX_SAFE_INTEGER : Math.max(1, Math.trunc(max));
+    return { ...item, quantity: Math.min(cap, item.quantity + 1) };
   });
   writeCart(nextItems);
   return nextItems;

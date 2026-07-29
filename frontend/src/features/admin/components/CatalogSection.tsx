@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import type { AdminCategory, AdminProduct, AdminVariant } from "../services";
+import { createAdminVariant } from "../services";
 import type { VariantEditPayload } from "../hooks/useAdminCatalog";
 import { useModalA11y } from "../../../lib/useModalA11y";
 import { AdminActionsMenu } from "./shared/AdminActionsMenu";
@@ -8,6 +9,145 @@ import { ConfirmModal } from "./shared/ConfirmModal";
 
 const EMPTY_VARIANTS: AdminVariant[] = [];
 const noopAsync = async () => {};
+
+function CreateVariantForm(props: {
+  productId: number;
+  onCreated: (variant: AdminVariant) => void;
+  onCancel: () => void;
+}) {
+  const { productId, onCreated, onCancel } = props;
+  const [sku, setSku] = useState("");
+  const [size, setSize] = useState("");
+  const [color, setColor] = useState("");
+  const [imgUrl, setImgUrl] = useState("");
+  const [price, setPrice] = useState("0");
+  const [stock, setStock] = useState("0");
+  const [soldBy, setSoldBy] = useState<"unit" | "measure">("unit");
+  const [measureUnit, setMeasureUnit] = useState("");
+  const [step, setStep] = useState("1");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function onSubmit() {
+    const trimmedSku = sku.trim();
+    const priceInt = Number.parseInt(price, 10);
+    const stepInt = Number.parseInt(step, 10);
+    const stockInt = Number.parseInt(stock, 10);
+    if (!trimmedSku) {
+      setError("El SKU es obligatorio.");
+      return;
+    }
+    if (Number.isNaN(priceInt) || priceInt <= 0) {
+      setError("El precio debe ser mayor a 0.");
+      return;
+    }
+    if (soldBy === "measure") {
+      if (!measureUnit.trim()) {
+        setError("Indica la unidad de medida (por ejemplo g o ml).");
+        return;
+      }
+      if (Number.isNaN(stepInt) || stepInt <= 0) {
+        setError("El paso debe ser mayor a 0.");
+        return;
+      }
+    } else if (Number.isNaN(stockInt) || stockInt < 0) {
+      setError("Stock invalido.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const created = await createAdminVariant({
+        product_id: productId,
+        sku: trimmedSku,
+        size: size.trim() || null,
+        color: color.trim() || null,
+        img_url: imgUrl.trim() || null,
+        price: priceInt,
+        stock: soldBy === "measure" ? 0 : stockInt,
+        active: true,
+        sold_by: soldBy,
+        measure_unit: soldBy === "measure" ? measureUnit.trim() : null,
+        step: soldBy === "measure" ? stepInt : 1
+      });
+      onCreated(created);
+    } catch {
+      setError("No se pudo crear la variante (revisa que el SKU no exista).");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="admin-edit-box admin-variant-edit-box">
+      <h3>Nueva variante</h3>
+      <div className="admin-form-grid">
+        <label>
+          SKU
+          <input className="input" value={sku} onChange={(e) => setSku(e.target.value)} />
+        </label>
+        <label>
+          Nombre / Talle
+          <input className="input" placeholder="Dog Chow Plus" value={size} onChange={(e) => setSize(e.target.value)} />
+        </label>
+        <label>
+          Color
+          <input className="input" value={color} onChange={(e) => setColor(e.target.value)} />
+        </label>
+        <label>
+          Img URL
+          <input className="input" value={imgUrl} onChange={(e) => setImgUrl(e.target.value)} />
+        </label>
+        <label>
+          Precio (centavos ARS)
+          <input className="input" type="number" min={1} value={price} onChange={(e) => setPrice(e.target.value)} />
+        </label>
+        <label>
+          Tipo de venta
+          <select
+            className="input"
+            value={soldBy}
+            onChange={(e) => setSoldBy(e.target.value === "measure" ? "measure" : "unit")}
+          >
+            <option value="unit">Por unidad</option>
+            <option value="measure">Por cantidad</option>
+          </select>
+        </label>
+        {soldBy === "measure" ? (
+          <>
+            <label>
+              Unidad de medida
+              <input
+                className="input"
+                placeholder="g, ml, kg..."
+                value={measureUnit}
+                onChange={(e) => setMeasureUnit(e.target.value)}
+              />
+            </label>
+            <label>
+              Paso (cantidad por precio)
+              <input className="input" type="number" min={1} value={step} onChange={(e) => setStep(e.target.value)} />
+            </label>
+          </>
+        ) : (
+          <label>
+            Stock
+            <input className="input" type="number" min={0} value={stock} onChange={(e) => setStock(e.target.value)} />
+          </label>
+        )}
+      </div>
+      {error && <p className="error">{error}</p>}
+      <div className="admin-product-actions">
+        <button className="btn btn-small" type="button" disabled={saving} onClick={() => void onSubmit()}>
+          {saving ? "Guardando..." : "Crear variante"}
+        </button>
+        <button className="btn btn-small btn-ghost" type="button" onClick={onCancel}>
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function ProductRowImpl(props: {
   product: AdminProduct;
@@ -34,6 +174,7 @@ function ProductRowImpl(props: {
   setEditingProductId: (value: number | null) => void;
   editingVariantId: number | null;
   onStartVariantEdit: (variant: AdminVariant) => void;
+  onVariantCreated: (variant: AdminVariant) => void;
   editVariantSku: string;
   setEditVariantSku: (value: string) => void;
   editVariantSize: string;
@@ -46,6 +187,12 @@ function ProductRowImpl(props: {
   setEditVariantStock: (value: string) => void;
   editVariantActive: boolean;
   setEditVariantActive: (value: boolean) => void;
+  editVariantSoldBy: "unit" | "measure";
+  setEditVariantSoldBy: (value: "unit" | "measure") => void;
+  editVariantMeasureUnit: string;
+  setEditVariantMeasureUnit: (value: string) => void;
+  editVariantStep: string;
+  setEditVariantStep: (value: string) => void;
   enableVariantPriceEdit: boolean;
   setEnableVariantPriceEdit: (value: boolean) => void;
   editVariantPrice: string;
@@ -79,6 +226,7 @@ function ProductRowImpl(props: {
     setEditingProductId,
     editingVariantId,
     onStartVariantEdit,
+    onVariantCreated,
     editVariantSku,
     setEditVariantSku,
     editVariantSize,
@@ -91,6 +239,12 @@ function ProductRowImpl(props: {
     setEditVariantStock,
     editVariantActive,
     setEditVariantActive,
+    editVariantSoldBy,
+    setEditVariantSoldBy,
+    editVariantMeasureUnit,
+    setEditVariantMeasureUnit,
+    editVariantStep,
+    setEditVariantStep,
     enableVariantPriceEdit,
     setEnableVariantPriceEdit,
     editVariantPrice,
@@ -99,6 +253,7 @@ function ProductRowImpl(props: {
     setEditingVariantId,
     formatArs
   } = props;
+  const [showCreateVariant, setShowCreateVariant] = useState(false);
 
   return (
     <article className="card" key={product.id}>
@@ -174,18 +329,30 @@ function ProductRowImpl(props: {
         </div>
       )}
 
-      {isExpanded &&
-        (variants.length === 0 ? (
-          <p className="muted">Sin variantes.</p>
-        ) : (
-          <div className="admin-variants-grid">
+      {isExpanded && (
+        <>
+          {variants.length === 0 ? (
+            <p className="muted">Sin variantes.</p>
+          ) : (
+            <div className="admin-variants-grid">
             {variants.map((variant) => (
               <div className="admin-variant-row" key={variant.id}>
                 <p>
                   <strong>{variant.sku}</strong> ({variant.size || "-"} / {variant.color || "-"})
                 </p>
-                <p className="muted">Precio: {formatArs(variant.price)}</p>
-                <p className="muted">Stock: {variant.stock}</p>
+                {variant.sold_by === "measure" ? (
+                  <>
+                    <p className="muted">
+                      Por cantidad: {formatArs(variant.price)} / {variant.step ?? 1} {variant.measure_unit || ""}
+                    </p>
+                    <p className="muted">{variant.active ? "Disponible" : "Sin stock"}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="muted">Precio: {formatArs(variant.price)}</p>
+                    <p className="muted">Stock: {variant.stock}</p>
+                  </>
+                )}
                 <div className="admin-product-actions">
                   <button className="btn btn-small btn-ghost" type="button" onClick={() => onStartVariantEdit(variant)}>
                     Editar variante
@@ -213,14 +380,49 @@ function ProductRowImpl(props: {
                         <input className="input" value={editVariantImgUrl} onChange={(e) => setEditVariantImgUrl(e.target.value)} />
                       </label>
                       <label>
-                        Stock
-                        <input className="input" type="number" min={0} value={editVariantStock} onChange={(e) => setEditVariantStock(e.target.value)} />
+                        Tipo de venta
+                        <select
+                          className="input"
+                          value={editVariantSoldBy}
+                          onChange={(e) => setEditVariantSoldBy(e.target.value === "measure" ? "measure" : "unit")}
+                        >
+                          <option value="unit">Por unidad</option>
+                          <option value="measure">Por cantidad</option>
+                        </select>
                       </label>
+                      {editVariantSoldBy === "measure" ? (
+                        <>
+                          <label>
+                            Unidad de medida
+                            <input
+                              className="input"
+                              placeholder="g, ml, kg..."
+                              value={editVariantMeasureUnit}
+                              onChange={(e) => setEditVariantMeasureUnit(e.target.value)}
+                            />
+                          </label>
+                          <label>
+                            Paso (cantidad por precio)
+                            <input
+                              className="input"
+                              type="number"
+                              min={1}
+                              value={editVariantStep}
+                              onChange={(e) => setEditVariantStep(e.target.value)}
+                            />
+                          </label>
+                        </>
+                      ) : (
+                        <label>
+                          Stock
+                          <input className="input" type="number" min={0} value={editVariantStock} onChange={(e) => setEditVariantStock(e.target.value)} />
+                        </label>
+                      )}
                       <label>
-                        Activa
+                        {editVariantSoldBy === "measure" ? "Disponibilidad" : "Activa"}
                         <select className="input" value={editVariantActive ? "1" : "0"} onChange={(e) => setEditVariantActive(e.target.value === "1")}>
-                          <option value="1">Si</option>
-                          <option value="0">No</option>
+                          <option value="1">{editVariantSoldBy === "measure" ? "Disponible" : "Si"}</option>
+                          <option value="0">{editVariantSoldBy === "measure" ? "Sin stock" : "No"}</option>
                         </select>
                       </label>
                     </div>
@@ -257,7 +459,29 @@ function ProductRowImpl(props: {
               </div>
             ))}
           </div>
-        ))}
+          )}
+          {showCreateVariant ? (
+            <CreateVariantForm
+              productId={product.id}
+              onCreated={(variant) => {
+                onVariantCreated(variant);
+                setShowCreateVariant(false);
+              }}
+              onCancel={() => setShowCreateVariant(false)}
+            />
+          ) : (
+            <div className="admin-product-actions">
+              <button
+                className="btn btn-small btn-ghost"
+                type="button"
+                onClick={() => setShowCreateVariant(true)}
+              >
+                Agregar variante
+              </button>
+            </div>
+          )}
+        </>
+      )}
     </article>
   );
 }
@@ -338,6 +562,7 @@ export function CatalogSection(props: {
   setEditingProductId: (value: number | null) => void;
   editingVariantId: number | null;
   onStartVariantEdit: (variant: AdminVariant) => void;
+  onVariantCreated: (variant: AdminVariant) => void;
   editVariantSku: string;
   setEditVariantSku: (value: string) => void;
   editVariantSize: string;
@@ -350,6 +575,12 @@ export function CatalogSection(props: {
   setEditVariantStock: (value: string) => void;
   editVariantActive: boolean;
   setEditVariantActive: (value: boolean) => void;
+  editVariantSoldBy: "unit" | "measure";
+  setEditVariantSoldBy: (value: "unit" | "measure") => void;
+  editVariantMeasureUnit: string;
+  setEditVariantMeasureUnit: (value: string) => void;
+  editVariantStep: string;
+  setEditVariantStep: (value: string) => void;
   enableVariantPriceEdit: boolean;
   setEnableVariantPriceEdit: (value: boolean) => void;
   editVariantPrice: string;
@@ -434,6 +665,7 @@ export function CatalogSection(props: {
     setEditingProductId,
     editingVariantId,
     onStartVariantEdit,
+    onVariantCreated,
     editVariantSku,
     setEditVariantSku,
     editVariantSize,
@@ -446,6 +678,12 @@ export function CatalogSection(props: {
     setEditVariantStock,
     editVariantActive,
     setEditVariantActive,
+    editVariantSoldBy,
+    setEditVariantSoldBy,
+    editVariantMeasureUnit,
+    setEditVariantMeasureUnit,
+    editVariantStep,
+    setEditVariantStep,
     enableVariantPriceEdit,
     setEnableVariantPriceEdit,
     editVariantPrice,
@@ -631,6 +869,7 @@ export function CatalogSection(props: {
                     setEditingProductId={setEditingProductId}
                     editingVariantId={editingVariantId}
                     onStartVariantEdit={onStartVariantEdit}
+                    onVariantCreated={onVariantCreated}
                     editVariantSku={isEditingVariantHere ? editVariantSku : ""}
                     setEditVariantSku={setEditVariantSku}
                     editVariantSize={isEditingVariantHere ? editVariantSize : ""}
@@ -643,6 +882,12 @@ export function CatalogSection(props: {
                     setEditVariantStock={setEditVariantStock}
                     editVariantActive={isEditingVariantHere ? editVariantActive : false}
                     setEditVariantActive={setEditVariantActive}
+                    editVariantSoldBy={isEditingVariantHere ? editVariantSoldBy : "unit"}
+                    setEditVariantSoldBy={setEditVariantSoldBy}
+                    editVariantMeasureUnit={isEditingVariantHere ? editVariantMeasureUnit : ""}
+                    setEditVariantMeasureUnit={setEditVariantMeasureUnit}
+                    editVariantStep={isEditingVariantHere ? editVariantStep : "1"}
+                    setEditVariantStep={setEditVariantStep}
                     enableVariantPriceEdit={isEditingVariantHere ? enableVariantPriceEdit : false}
                     setEnableVariantPriceEdit={setEnableVariantPriceEdit}
                     editVariantPrice={isEditingVariantHere ? editVariantPrice : ""}
