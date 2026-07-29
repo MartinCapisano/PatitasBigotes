@@ -21,6 +21,30 @@ def get_app_env() -> str:
     return os.getenv("APP_ENV", "local").strip().lower() or "local"
 
 
+def get_sentry_dsn() -> str:
+    """DSN de Sentry. Vacío = Sentry apagado (no-op en local y en tests)."""
+    return os.getenv("SENTRY_DSN", "").strip()
+
+
+def get_sentry_traces_sample_rate() -> float:
+    """Fracción de requests con traza de performance (APM). Bajo por el free tier.
+
+    Default 0.2: suficiente para latencias p50/p95 sin quemar la cuota de spans.
+    """
+    raw = os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.2").strip()
+    try:
+        rate = float(raw)
+    except ValueError:
+        return 0.2
+    return min(max(rate, 0.0), 1.0)
+
+
+def get_sentry_release() -> str | None:
+    """Release para atar errores al commit. Render expone RENDER_GIT_COMMIT."""
+    release = os.getenv("SENTRY_RELEASE", "").strip() or os.getenv("RENDER_GIT_COMMIT", "").strip()
+    return release or None
+
+
 def get_maintenance_run_token() -> str:
     token = os.getenv("MAINTENANCE_RUN_TOKEN", "").strip()
     if token:

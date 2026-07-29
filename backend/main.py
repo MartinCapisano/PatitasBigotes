@@ -7,6 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from source.db.config import get_cors_allow_origins, validate_bank_transfer_config
 from source.db.session import get_db
+from source.observability.sentry_s import init_sentry
 from source.services.idempotency_s import IdempotencyError
 from source.dependencies.csrf_d import CSRFMiddleware
 from source.dependencies.security_headers_d import SecurityHeadersMiddleware
@@ -22,6 +23,10 @@ from source.routes.stock_reservations_r import router as stock_reservations_rout
 from source.routes.storefront_r import router as storefront_router
 from source.routes.turns_r import router as turns_router
 from source.routes.users_r import router as users_router
+
+# Sentry antes de crear la app para que instrumente FastAPI desde el arranque.
+# No-op si no hay SENTRY_DSN (local/tests). Ver source/observability/sentry_s.py.
+init_sentry()
 
 app = FastAPI(
     title="Sales API",

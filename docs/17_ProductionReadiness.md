@@ -11,9 +11,9 @@
 | Deploy y build | **9** | 🟢 Blueprint declarativo, CI que valida el contrato y **gatea el deploy** |
 | Health checks | **7** | 🟢 Liveness + readiness que verifica la base, wired a Render |
 | Observabilidad — logs | **6** | 🟡 Buenos logs, efímeros y sin agregación |
-| Observabilidad — métricas | **1** | 🔴 Inexistentes |
-| Observabilidad — tracing | **0** | 🔴 Inexistente |
-| Alertas | **2** | 🔴 Solo una: issue si falla el cron de mantenimiento |
+| Observabilidad — métricas | **4** | 🟡 Performance/APM de Sentry (latencia, error rate); faltan métricas de negocio |
+| Observabilidad — tracing | **5** | 🟡 Tracing de Sentry front↔back e in-process |
+| Alertas | **4** | 🟠 Issue si falla el cron + error tracking y cron monitor de Sentry |
 | Backups | **5** | 🟡 Existen, nunca probados, retención 30 días |
 | Recuperación ante desastre | **2** | 🔴 Sin runbook, sin RTO/RPO |
 | Escalabilidad | **3** | 🔴 Free tier, una instancia, lock de proceso |
@@ -168,18 +168,22 @@ acciones sensibles (ver la tabla en [11_Seguridad.md](11_Seguridad.md#16-logging
 | Sistema | RPS · Latencia p50/p95/p99 · Tasa de 5xx · Conexiones del pool · Tiempo de query |
 | Jobs | Duración de cada job · Ítems procesados · Fallos |
 
-### 4.3 Tracing 🔴
+### 4.3 Tracing 🟡
 
-**Inexistente.** Sin OpenTelemetry ni equivalente. Con un monolito el impacto es menor, pero un flujo como
-`checkout → MP → webhook → job de reconciliación` es genuinamente distribuido y hoy no se puede seguir.
+**Parcial vía Sentry.** El SDK auto-instrumenta FastAPI, SQLAlchemy y las llamadas HTTP salientes
+(`traces_sample_rate`), y el frontend propaga la traza con `browserTracingIntegration`. Eso da la traza
+**dentro del proceso** del flujo `checkout → MP → webhook → job` (el monolito corre los jobs in-process, así que
+se ve casi entero) y encadena frontend↔backend. Lo que falta para tracing distribuido completo es propagar el
+contexto a procesos separados, que hoy no existen.
 
-### 4.4 Error tracking 🔴
+### 4.4 Error tracking 🟢
 
-**Inexistente.** Sin Sentry ni Rollbar. Un error en producción solo se descubre si alguien mira los logs de
-Render o si un usuario se queja.
+**Sentry integrado** (backend y frontend). Captura las excepciones no manejadas con stacktrace y contexto del
+request, las agrupa y las persiste fuera de Render (que pierde sus logs al reiniciar). `send_default_pii=False`
+a propósito, porque el sistema loguea emails en claro (§4.1) y no queremos que viajen en el contexto. Se activa
+solo si hay `SENTRY_DSN`; sin DSN el SDK es no-op (local/tests).
 
-> **Recomendación:** Sentry tiene plan gratuito generoso y se integra con FastAPI y React en ~10 líneas. Es la
-> mejora de observabilidad con mejor relación costo/beneficio.
+> El release se ata al commit vía `RENDER_GIT_COMMIT`, así cada error queda ligado al deploy que lo introdujo.
 
 ### 4.5 Alertas 🔴
 
@@ -199,10 +203,11 @@ Render o si un usuario se queja.
 > (label `maintenance-failure`, con dedup para no spamear) cuando una corrida falla —transporte, HTTP ≥ 400 o
 > status `partial`. Cubre el caso "la corrida **falla**".
 >
-> ⚠️ **Todavía sin cubrir: que el workflow deje de correr del todo** (Actions deshabilitado por inactividad,
-> cuota agotada). Un `if: failure()` no dispara si el job nunca arranca. Para eso hace falta un *dead-man's
-> switch* externo (p. ej. un ping a healthchecks.io / BetterStack en cada corrida exitosa que alerte si deja de
-> llegar). Queda como seguimiento 🟠.
+> ✅ **Dead-man's switch cubierto por Sentry Crons.** El endpoint `/internal/maintenance/run` manda un check-in
+> a Sentry en cada corrida (monitor `maintenance-run`, schedule `*/13 * * * *`). Si el cron de GitHub Actions
+> deja de disparar el endpoint, **no llega el check-in y Sentry alerta** —justo el caso que el `if: failure()`
+> no puede ver. Entre el issue on-failure y el cron monitor, el mantenimiento queda cubierto por los dos flancos:
+> "corrió y falló" y "dejó de correr".
 
 ---
 
@@ -410,7 +415,8 @@ privado el cron **superaría la cuota gratuita**. Conviene verificarlo.
   (label `maintenance-failure`, con dedup). Falta el dead-man's switch para "deja de correr del todo" (§4.5)
 - [ ] **Probar una restauración de backup** (necesita un proyecto Supabase provisionado)
 - [x] ~~Health check que verifique la base~~ — `/health/ready` en código (con test) y ya es el `healthCheckPath` de Render en `render.yaml` (§3)
-- [ ] Error tracking (Sentry)
+- [x] ~~Error tracking (Sentry)~~ — backend + frontend, con tracing/APM y cron monitor del mantenimiento
+  (dead-man's switch). Falta cargar `SENTRY_DSN`/`VITE_SENTRY_DSN` (§4.3/§4.4)
 - [x] ~~Desacoplar deploy de CI (no desplegar si el CI falla)~~ — auto-deploy apagado en Render/Vercel; deploy
   disparado por `deploy-backend`/`deploy-frontend` en `ci.yml` tras los tests. Falta cargar los 2 Deploy Hooks
   como secrets (§2)
@@ -424,7 +430,7 @@ privado el cron **superaría la cuota gratuita**. Conviene verificarlo.
 - [ ] Backup offsite con retención larga
 - [ ] Runbooks de los 5 escenarios más probables
 - [ ] Entorno de staging
-- [ ] Métricas básicas (RPS, latencia, error rate)
+- [x] ~~Métricas básicas (RPS, latencia, error rate)~~ — cubierto por el APM de Sentry; faltan métricas de negocio
 - [ ] Cobertura de tests medida en CI
 - [ ] Job de CI con PostgreSQL real
 

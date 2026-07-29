@@ -1,9 +1,14 @@
 import logging
 import secrets
 
+import sentry_sdk
 from fastapi import APIRouter, Header, HTTPException, status
 
 from source.db.config import get_maintenance_run_token
+from source.observability.sentry_s import (
+    MAINTENANCE_MONITOR_CONFIG,
+    MAINTENANCE_MONITOR_SLUG,
+)
 from source.services.maintenance_s import run_all_maintenance
 
 router = APIRouter()
@@ -36,6 +41,13 @@ def run_maintenance(authorization: str = Header(default="")):
             detail="invalid maintenance token",
         )
 
-    result = run_all_maintenance()
+    # Cron monitor (Sentry Crons): cada ejecución manda un check-in. Si el cron de
+    # GitHub Actions deja de disparar el endpoint, no llega el check-in y Sentry
+    # alerta (dead-man's switch). No-op si Sentry no está inicializado. docs/17 §4.5.
+    with sentry_sdk.monitor(
+        monitor_slug=MAINTENANCE_MONITOR_SLUG,
+        monitor_config=MAINTENANCE_MONITOR_CONFIG,
+    ):
+        result = run_all_maintenance()
     logger.info("event=maintenance_endpoint_run status=%s", result.get("status"))
     return {"data": result}

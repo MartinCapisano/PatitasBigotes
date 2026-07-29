@@ -96,3 +96,9 @@ services:
         sync: false
       - key: MAINTENANCE_RUN_TOKEN
         sync: false
+      # Observabilidad: Sentry (error tracking + tracing/APM + cron monitor del
+      # mantenimiento). Sin SENTRY_DSN el SDK queda apagado. Ver docs/17 §4.
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: "0.2"
