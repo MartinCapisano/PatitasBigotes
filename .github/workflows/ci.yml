@@ -17,6 +17,45 @@ jobs:
       - run: ruff check backend
       - run: python -m pytest backend/tests -q
 
+  # Cierra el hueco H-01 de docs/16_Testing.md: en SQLite `with_for_update()` es un
+  # no-op, así que la concurrencia del sistema queda sin verificar. Este job levanta
+  # un Postgres real, arma el esquema con las migraciones (de yapa cubre H-07, drift
+  # de migraciones) y corre solo la suite de concurrencia (tests/concurrency).
+  backend-tests-postgres:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: patitas_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports: ["5432:5432"]
+    env:
+      # psycopg 3 (ver backend/requirements.txt): el driver es `postgresql+psycopg`,
+      # no el `postgresql://` por defecto de SQLAlchemy (que apunta a psycopg2).
+      # DATABASE_URL lo usa alembic para construir el esquema.
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/patitas_test
+      # CONCURRENCY_DATABASE_URL es la variable dedicada que leen los tests: separada de
+      # DATABASE_URL a propósito, porque esos tests truncan todas las tablas y no deben
+      # poder apuntar a una base real por accidente (la de test lleva "test" en el nombre).
+      CONCURRENCY_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/patitas_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: alembic -c alembic.ini upgrade head
+      - run: python -m pytest tests/concurrency -q
+
   contract-schema:
     runs-on: ubuntu-latest
     steps:
