@@ -14,6 +14,11 @@ services:
     runtime: python
     plan: free
     rootDir: backend
+    # Deploy desacoplado del CI (docs/17 §2): Render NO despliega en cada push.
+    # El deploy lo dispara el job deploy-backend de .github/workflows/ci.yml vía
+    # Deploy Hook, recién cuando los tests pasan. Así un push que rompe el CI no
+    # llega a producción. Requiere el secret RENDER_DEPLOY_HOOK_URL en el repo.
+    autoDeploy: false
     # alembic runs against Supabase; the project must be un-paused for a deploy.
     buildCommand: "pip install -r requirements.txt && alembic upgrade head"
     # --forwarded-allow-ips '*' habilita el ProxyHeadersMiddleware de Uvicorn para

@@ -8,7 +8,7 @@
 
 | Dimensión | Score | Estado |
 |---|---:|---|
-| Deploy y build | **8** | 🟢 Blueprint declarativo, CI que valida el contrato |
+| Deploy y build | **9** | 🟢 Blueprint declarativo, CI que valida el contrato y **gatea el deploy** |
 | Health checks | **7** | 🟢 Liveness + readiness que verifica la base, wired a Render |
 | Observabilidad — logs | **6** | 🟡 Buenos logs, efímeros y sin agregación |
 | Observabilidad — métricas | **1** | 🔴 Inexistentes |
@@ -53,16 +53,19 @@ flowchart LR
 | Blueprint declarativo (`render.yaml`) | 🟢 |
 | Health check configurado | 🟢 |
 | Versión de runtime fijada | 🟢 |
-| ⚠️ **CI y deploy son independientes** | 🔴 Render y Vercel despliegan **aunque el CI falle** |
+| ✅ **Deploy gateado por el CI** | 🟢 Auto-deploy apagado en Render/Vercel; el deploy lo disparan los jobs `deploy-backend`/`deploy-frontend` tras pasar los tests |
 | ⚠️ Migraciones en el `buildCommand` | 🟠 Un fallo de migración rompe el deploy completo |
 | ⚠️ Sin entorno de staging | 🟠 Se despliega directo a producción |
 | ⚠️ Sin blue-green ni canary | 🟠 Free tier no lo permite |
 | ⚠️ `alembic` no está en `requirements.txt` | 🔴 Ver [14_Dependencias.md](14_Dependencias.md#D-01) |
 
-> 🔴 **El riesgo más grave del pipeline:** un push que rompe los tests **igualmente se despliega**. Render y
-> Vercel escuchan el repositorio, no el resultado del CI.
-> **Recomendación:** activar "Deploy only on CI success" en Render/Vercel, o mover el deploy a un job del propio
-> workflow con `needs: [backend-tests, frontend-tests]`.
+> ✅ **Resuelto.** El auto-deploy de Render (`autoDeploy: false`) y de Vercel (`git.deploymentEnabled.main: false`)
+> está apagado. El deploy lo disparan los jobs `deploy-backend` (`needs: [backend-tests, backend-tests-postgres,
+> contract-schema]`) y `deploy-frontend` (`needs: [frontend-tests]`) de `ci.yml`, solo en push a `main` y vía
+> Deploy Hook. Un push que rompe el CI ya no llega a producción.
+>
+> **Requiere dos secrets del repo** (`RENDER_DEPLOY_HOOK_URL`, `VERCEL_DEPLOY_HOOK_URL`). Si falta alguno, su job
+> sale en verde sin desplegar, para no romper el CI durante la configuración.
 
 ### Rollback
 
@@ -401,7 +404,9 @@ privado el cron **superaría la cuota gratuita**. Conviene verificarlo.
 - [ ] **Probar una restauración de backup** (necesita un proyecto Supabase provisionado)
 - [x] ~~Health check que verifique la base~~ — `/health/ready` en código (con test) y ya es el `healthCheckPath` de Render en `render.yaml` (§3)
 - [ ] Error tracking (Sentry)
-- [ ] Desacoplar deploy de CI (no desplegar si el CI falla)
+- [x] ~~Desacoplar deploy de CI (no desplegar si el CI falla)~~ — auto-deploy apagado en Render/Vercel; deploy
+  disparado por `deploy-backend`/`deploy-frontend` en `ci.yml` tras los tests. Falta cargar los 2 Deploy Hooks
+  como secrets (§2)
 
 ### 🟠 Importantes
 
