@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAdminSales } from "./useAdminSales";
 import {
   createAdminSale,
-  searchAdminUsers,
   type AdminSearchUser,
   type CreateAdminSaleResponse,
 } from "../../../services/admin-sales-api";
@@ -65,7 +64,7 @@ function saleResponse(id: number, status: string): CreateAdminSaleResponse {
 
 function makeParams() {
   return {
-    adminSection: "sales" as const,
+    adminSection: "registrar_venta" as const,
     productsSorted: [product()],
     variantsByProduct: { 1: [variant()] },
   };
