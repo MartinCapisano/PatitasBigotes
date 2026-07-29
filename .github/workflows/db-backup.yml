@@ -44,7 +44,24 @@ jobs:
     env:
       VERIFY_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
     steps:
+      - name: Check backup secret is configured
+        id: guard
+        # Prod todavía en despliegue: sin SUPABASE_DATABASE_URL no hay a quién
+        # respaldar. En vez de fallar (y spamear un mail por corrida diaria), salir
+        # en verde y saltear el resto del job. El workflow se activa solo cuando se
+        # cargue el secret. Mismo criterio que el skip de maintenance.yml (MP-1).
+        env:
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+        run: |
+          if [ -z "$SUPABASE_DATABASE_URL" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "skipped: SUPABASE_DATABASE_URL no está cargado todavía"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install matching PostgreSQL client
+        if: steps.guard.outputs.configured == 'true'
         # Install pg_dump/pg_restore/psql 17 from the PGDG repo so the client
         # version is >= the Supabase server version (pg_dump refuses to dump a
         # newer server).
@@ -55,13 +72,11 @@ jobs:
           sudo apt-get install -y postgresql-client-17
 
       - name: Dump database
+        if: steps.guard.outputs.configured == 'true'
         env:
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
         run: |
-          if [ -z "$SUPABASE_DATABASE_URL" ]; then
-            echo "Missing SUPABASE_DATABASE_URL secret." >&2
-            exit 1
-          fi
+          # El step-guard ya garantizó que el secret está cargado antes de llegar acá.
           ts=$(date -u +%Y%m%dT%H%M%SZ)
           echo "DUMP_FILE=patitas_backup_${ts}.dump" >> "$GITHUB_ENV"
           /usr/lib/postgresql/17/bin/pg_dump "$SUPABASE_DATABASE_URL" \
@@ -69,6 +84,7 @@ jobs:
             --file "patitas_backup_${ts}.dump"
 
       - name: Decide artifact cadence (daily 30d / monthly 90d)
+        if: steps.guard.outputs.configured == 'true'
         id: cadence
         # El día 01 se guarda además como copia mensual de largo plazo (90 días);
         # el resto de los días es la copia diaria (30 días). Un solo cron diario.
@@ -84,7 +100,7 @@ jobs:
       - name: Upload backup artifact
         # if: always() -> conservar el backup aunque la verificación posterior falle:
         # un backup sospechoso sigue siendo mejor que ninguno, y el fallo se alerta.
-        if: always() && env.DUMP_FILE != ''
+        if: always() && steps.guard.outputs.configured == 'true' && env.DUMP_FILE != ''
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.cadence.outputs.name }}
@@ -92,6 +108,7 @@ jobs:
           retention-days: ${{ steps.cadence.outputs.retention }}
 
       - name: Verify restore (the backup is actually restorable)
+        if: steps.guard.outputs.configured == 'true'
         # Restaura el dump recién hecho en el Postgres efímero y corre sanity checks.
         # La señal real son los checks, no el exit code de pg_restore (tolerante a
         # notices benignos). Mide la duración -> baseline de RTO para el runbook.
@@ -126,8 +143,9 @@ jobs:
           echo "verify OK: restore restaurable, esquema en version ${version}, tablas núcleo presentes"
 
       - name: Abrir issue si el backup falla
-        # Mismo patrón que maintenance.yml: dedup por label para no spamear.
-        if: failure()
+        # Mismo patrón que maintenance.yml: dedup por label para no spamear. No
+        # dispara en el skip por secret ausente (ese sale en verde).
+        if: failure() && steps.guard.outputs.configured == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
