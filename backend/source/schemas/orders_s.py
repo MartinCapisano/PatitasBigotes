@@ -186,6 +186,9 @@ class OrderItemResponse(BaseModel):
     discount_amount: int
     final_unit_price: int
     line_total: int
+    sold_by: str
+    measure_unit: str | None
+    step: int
 
 
 class OrderResponse(BaseModel):

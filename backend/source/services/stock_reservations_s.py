@@ -16,6 +16,16 @@ RESERVATION_CONSUMED = "consumed"
 RESERVATION_RELEASED = "released"
 RESERVATION_EXPIRED = "expired"
 
+# Productos por medida (ver docs/products_by_measure.md §4.3): no son inventario finito.
+# Su disponibilidad la maneja el admin con `is_active`, no un stock numérico, así que
+# se tratan como "sin límite" y su reserva no vence (el job de expiración nunca la toca).
+MEASURE_UNLIMITED_AVAILABLE = 1_000_000_000
+NON_EXPIRING_RESERVATION_AT = datetime(9999, 12, 31, tzinfo=UTC)
+
+
+def _variant_is_measure(sold_by: object) -> bool:
+    return str(sold_by or "unit") == "measure"
+
 
 def _reservation_to_dict(reservation: StockReservation) -> dict:
     return {
@@ -72,14 +82,18 @@ def _available_stock_for_variant(
 ) -> tuple[ProductVariant, int]:
     variant = (
         db.query(ProductVariant)
-        .filter(
-            ProductVariant.id == variant_id,
-            ProductVariant.is_active.is_(True),
-        )
+        .filter(ProductVariant.id == variant_id)
         .with_for_update()
         .first()
     )
     if variant is None:
+        raise ValueError(f"variant {variant_id} not found")
+
+    if _variant_is_measure(variant.sold_by):
+        # No es inventario finito: disponibilidad ilimitada para el motor de reservas.
+        return variant, MEASURE_UNLIMITED_AVAILABLE
+
+    if not bool(variant.is_active):
         raise ValueError(f"variant {variant_id} not found")
 
     reserved_qty = (
@@ -256,8 +270,26 @@ def reserve_stock_for_submitted_order(order_id: int, db: Session) -> list[dict]:
             raise ValueError(f"insufficient stock for variant {item.variant_id}")
         missing_items.append(item)
 
-    expires_at = now + timedelta(hours=RESERVATION_TTL_HOURS)
+    default_expires_at = now + timedelta(hours=RESERVATION_TTL_HOURS)
+    measure_variant_ids: set[int] = set()
+    if missing_items:
+        measure_variant_ids = {
+            int(row[0])
+            for row in db.query(ProductVariant.id)
+            .filter(
+                ProductVariant.id.in_([int(item.variant_id) for item in missing_items]),
+                ProductVariant.sold_by == "measure",
+            )
+            .all()
+        }
     for item in missing_items:
+        # Las reservas de productos por medida no vencen: el job de expiración nunca
+        # intenta reactivarlas ni cancela la orden por ellas (docs/products_by_measure.md §4.3).
+        item_expires_at = (
+            NON_EXPIRING_RESERVATION_AT
+            if int(item.variant_id) in measure_variant_ids
+            else default_expires_at
+        )
         db.add(
             StockReservation(
                 order_id=order_id,
@@ -266,7 +298,7 @@ def reserve_stock_for_submitted_order(order_id: int, db: Session) -> list[dict]:
                 quantity=int(item.quantity),
                 status=RESERVATION_ACTIVE,
                 reactivation_count=0,
-                expires_at=expires_at,
+                expires_at=item_expires_at,
                 reason=None,
             )
         )
@@ -317,19 +349,27 @@ def consume_reservations_for_paid_order(order_id: int, db: Session) -> list[dict
         raise ValueError("no active reservations for order")
 
     for reservation in active_reservations:
-        updated = (
-            db.query(ProductVariant)
-            .filter(
-                ProductVariant.id == reservation.variant_id,
-                ProductVariant.stock >= int(reservation.quantity),
-            )
-            .update(
-                {ProductVariant.stock: ProductVariant.stock - int(reservation.quantity)},
-                synchronize_session=False,
-            )
+        variant_sold_by = (
+            db.query(ProductVariant.sold_by)
+            .filter(ProductVariant.id == reservation.variant_id)
+            .scalar()
         )
-        if int(updated or 0) != 1:
-            raise ValueError(f"insufficient stock for variant {reservation.variant_id}")
+        # Los productos por medida no descuentan stock numérico (no lo tienen): la reserva
+        # se marca consumida sin el compare-and-swap. Ver docs/products_by_measure.md §4.3.
+        if not _variant_is_measure(variant_sold_by):
+            updated = (
+                db.query(ProductVariant)
+                .filter(
+                    ProductVariant.id == reservation.variant_id,
+                    ProductVariant.stock >= int(reservation.quantity),
+                )
+                .update(
+                    {ProductVariant.stock: ProductVariant.stock - int(reservation.quantity)},
+                    synchronize_session=False,
+                )
+            )
+            if int(updated or 0) != 1:
+                raise ValueError(f"insufficient stock for variant {reservation.variant_id}")
 
         reservation.status = RESERVATION_CONSUMED
         reservation.consumed_at = now

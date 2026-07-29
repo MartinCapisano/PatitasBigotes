@@ -77,6 +77,15 @@ class ProductVariant(Base):
     __tablename__ = "product_variants"
     __table_args__ = (
         CheckConstraint("price >= 0", name="ck_product_variants_price_non_negative"),
+        CheckConstraint("step > 0", name="ck_product_variants_step_positive"),
+        CheckConstraint(
+            "sold_by IN ('unit', 'measure')",
+            name="ck_product_variants_sold_by_valid",
+        ),
+        CheckConstraint(
+            "sold_by = 'unit' OR measure_unit IS NOT NULL",
+            name="ck_product_variants_measure_unit_present",
+        ),
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -94,6 +103,13 @@ class ProductVariant(Base):
     price = Column(Integer, nullable=False)
     stock = Column(Integer, nullable=False, default=0)
     is_active = Column(Boolean, nullable=False, default=True)
+
+    # Venta por cantidad/peso (ver docs/products_by_measure.md). Para `sold_by='measure'`
+    # la variante se vende en pasos de `measure_unit`: `quantity` cuenta pasos, `price` es
+    # por paso y la disponibilidad la maneja el admin con `is_active` (no hay stock numérico).
+    sold_by = Column(String, nullable=False, default="unit", server_default="unit")
+    measure_unit = Column(String, nullable=True)
+    step = Column(Integer, nullable=False, default=1, server_default=text("1"))
 
     product = relationship("Product", back_populates="variants")
 

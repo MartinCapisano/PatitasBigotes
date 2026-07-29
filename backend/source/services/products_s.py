@@ -50,7 +50,27 @@ def _variant_to_dict(variant: ProductVariant) -> dict:
         "price": int(variant.price),
         "stock": int(variant.stock),
         "active": bool(variant.is_active),
+        "sold_by": str(variant.sold_by or "unit"),
+        "measure_unit": variant.measure_unit,
+        "step": int(variant.step or 1),
     }
+
+
+def _normalize_measure_fields(payload: dict) -> tuple[str, str | None, int]:
+    sold_by = str(payload.get("sold_by", "unit") or "unit").strip() or "unit"
+    if sold_by not in ("unit", "measure"):
+        raise ValueError("sold_by must be 'unit' or 'measure'")
+    raw_measure_unit = payload.get("measure_unit")
+    measure_unit = None if raw_measure_unit is None else str(raw_measure_unit).strip() or None
+    try:
+        step = int(payload.get("step", 1))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("step must be greater than 0") from exc
+    if step <= 0:
+        raise ValueError("step must be greater than 0")
+    if sold_by == "measure" and not measure_unit:
+        raise ValueError("measure_unit is required when sold_by is 'measure'")
+    return sold_by, measure_unit, step
 
 
 def _category_to_dict(category: Category) -> dict:
@@ -479,6 +499,7 @@ def create_variant(payload: dict, db: Session) -> dict:
         raise ValueError("stock must be greater than or equal to 0")
     raw_img_url = payload.get("img_url")
     normalized_img_url = None if raw_img_url is None else str(raw_img_url).strip() or None
+    sold_by, measure_unit, step = _normalize_measure_fields(payload)
 
     with write_session_scope(db) as (session, _):
         product = session.query(Product).filter(Product.id == product_id).first()
@@ -498,6 +519,9 @@ def create_variant(payload: dict, db: Session) -> dict:
             price=price,
             stock=stock,
             is_active=bool(payload.get("active", True)),
+            sold_by=sold_by,
+            measure_unit=measure_unit,
+            step=step,
         )
         session.add(variant)
         session.flush()
@@ -505,7 +529,19 @@ def create_variant(payload: dict, db: Session) -> dict:
 
 
 def update_variant(variant_id: int, updates: dict, db: Session) -> dict | None:
-    allowed_fields = {"product_id", "sku", "size", "color", "img_url", "price", "stock", "active"}
+    allowed_fields = {
+        "product_id",
+        "sku",
+        "size",
+        "color",
+        "img_url",
+        "price",
+        "stock",
+        "active",
+        "sold_by",
+        "measure_unit",
+        "step",
+    }
     with write_session_scope(db) as (session, _):
         variant = session.query(ProductVariant).filter(ProductVariant.id == variant_id).first()
         if variant is None:
@@ -559,6 +595,24 @@ def update_variant(variant_id: int, updates: dict, db: Session) -> dict | None:
                 variant.stock = stock
             elif field == "active":
                 variant.is_active = bool(value)
+            elif field == "sold_by":
+                sold_by = str(value or "unit").strip() or "unit"
+                if sold_by not in ("unit", "measure"):
+                    raise ValueError("sold_by must be 'unit' or 'measure'")
+                variant.sold_by = sold_by
+            elif field == "measure_unit":
+                variant.measure_unit = None if value is None else str(value).strip() or None
+            elif field == "step":
+                try:
+                    step = int(value)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("step must be greater than 0") from exc
+                if step <= 0:
+                    raise ValueError("step must be greater than 0")
+                variant.step = step
+
+        if str(variant.sold_by) == "measure" and not (variant.measure_unit or "").strip():
+            raise ValueError("measure_unit is required when sold_by is 'measure'")
 
         session.flush()
         return _variant_to_dict(variant)

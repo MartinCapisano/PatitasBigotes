@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from sqlalchemy import asc, desc, func
+from sqlalchemy import asc, desc, func, or_
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from source.db.models import Product, ProductVariant
@@ -26,6 +26,31 @@ from source.services.discount_s import (
 from source.services.products_s import list_categories
 
 
+def _variant_is_measure(variant: ProductVariant) -> bool:
+    return str(variant.sold_by or "unit") == "measure"
+
+
+def _variant_storefront_visible(variant: ProductVariant) -> bool:
+    # Los productos por medida se muestran aunque estén inactivos (marcados "sin stock");
+    # los normales solo si están activos. Ver docs/products_by_measure.md §4.2.
+    return bool(variant.is_active) or _variant_is_measure(variant)
+
+
+def _variant_in_stock(variant: ProductVariant) -> bool:
+    # Para measure la disponibilidad es `is_active` (no hay stock numérico).
+    if _variant_is_measure(variant):
+        return bool(variant.is_active)
+    return int(variant.stock) > 0
+
+
+def _measure_fields(variant: ProductVariant) -> dict:
+    return {
+        "sold_by": str(variant.sold_by or "unit"),
+        "measure_unit": variant.measure_unit,
+        "step": int(variant.step or 1),
+    }
+
+
 def _variant_to_storefront_dict(variant: ProductVariant, *, price_original: int, price_final: int) -> dict:
     return {
         "id": int(variant.id),
@@ -36,7 +61,8 @@ def _variant_to_storefront_dict(variant: ProductVariant, *, price_original: int,
         "price_original": int(price_original),
         "price_final": int(price_final),
         "has_discount": int(price_final) < int(price_original),
-        "in_stock": int(variant.stock) > 0,
+        "in_stock": _variant_in_stock(variant),
+        **_measure_fields(variant),
     }
 
 
@@ -81,7 +107,8 @@ def _variant_to_storefront_option(
         "price_original": int(price_original),
         "price_final": int(price_final),
         "has_discount": int(price_final) < int(price_original),
-        "in_stock": int(variant.stock) > 0,
+        "in_stock": _variant_in_stock(variant),
+        **_measure_fields(variant),
     }
 
 
@@ -90,7 +117,7 @@ def _product_to_storefront_dict(
     product: Product,
     min_var_price_original: int | None,
     min_var_price_final: int | None,
-    active_stock_sum: int,
+    in_stock: bool,
     has_discount: bool,
 ) -> dict:
     return {
@@ -104,8 +131,12 @@ def _product_to_storefront_dict(
         "min_var_price_original": None if min_var_price_original is None else int(min_var_price_original),
         "min_var_price_final": None if min_var_price_final is None else int(min_var_price_final),
         "has_discount": bool(has_discount),
-        "in_stock": int(active_stock_sum or 0) > 0,
+        "in_stock": bool(in_stock),
     }
+
+
+def _product_in_stock(product: Product) -> bool:
+    return any(_variant_in_stock(v) for v in product.variants if _variant_storefront_visible(v))
 
 
 def _calculate_variant_pricing_for_storefront(
@@ -124,8 +155,8 @@ def _build_storefront_product_pricing(
     product: Product,
     discounts: list[DiscountDTO],
 ) -> tuple[int | None, int | None, bool]:
-    active_variants = [variant for variant in product.variants if bool(variant.is_active)]
-    if not active_variants:
+    visible_variants = [variant for variant in product.variants if _variant_storefront_visible(variant)]
+    if not visible_variants:
         return None, None, False
 
     product_stub = {
@@ -136,7 +167,7 @@ def _build_storefront_product_pricing(
     min_original: int | None = None
     min_final: int | None = None
 
-    for variant in active_variants:
+    for variant in visible_variants:
         original, final = _calculate_variant_pricing_for_storefront(
             variant=variant,
             product_discounts=applicable_discounts,
@@ -177,7 +208,12 @@ def list_storefront_products(
                 func.sum(ProductVariant.stock).label("active_stock_sum"),
                 func.count(ProductVariant.id).label("active_variant_count"),
             )
-            .filter(ProductVariant.is_active.is_(True))
+            .filter(
+                or_(
+                    ProductVariant.is_active.is_(True),
+                    ProductVariant.sold_by == "measure",
+                )
+            )
             .group_by(ProductVariant.product_id)
             .subquery()
         )
@@ -222,7 +258,7 @@ def list_storefront_products(
         discounts = list_discounts(db=session)
 
         data = []
-        for product, _min_var_price, active_stock_sum in rows:
+        for product, _min_var_price, _active_stock_sum in rows:
             min_original, min_final, has_discount = _build_storefront_product_pricing(
                 product=product,
                 discounts=discounts,
@@ -232,7 +268,7 @@ def list_storefront_products(
                     product=product,
                     min_var_price_original=min_original,
                     min_var_price_final=min_final,
-                    active_stock_sum=int(active_stock_sum or 0),
+                    in_stock=_product_in_stock(product),
                     has_discount=has_discount,
                 )
             )
@@ -278,12 +314,12 @@ def get_storefront_product_by_id(product_id: int, db: Session | None = None) -> 
         if product is None:
             return None
 
-        active_variants = [
+        visible_variants = [
             variant
             for variant in product.variants
-            if bool(variant.is_active)
+            if _variant_storefront_visible(variant)
         ]
-        if not active_variants:
+        if not visible_variants:
             return None
 
         discounts = list_discounts(db=session)
@@ -296,19 +332,18 @@ def get_storefront_product_by_id(product_id: int, db: Session | None = None) -> 
             product=product,
             discounts=discounts,
         )
-        active_stock_sum = sum(int(variant.stock) for variant in active_variants)
 
         payload = _product_to_storefront_dict(
             product=product,
             min_var_price_original=min_var_price_original,
             min_var_price_final=min_var_price_final,
-            active_stock_sum=active_stock_sum,
+            in_stock=_product_in_stock(product),
             has_discount=has_discount,
         )
-        sorted_active_variants = sorted(active_variants, key=lambda row: int(row.id))
-        option_axis = _storefront_option_axis(sorted_active_variants)
+        sorted_visible_variants = sorted(visible_variants, key=lambda row: int(row.id))
+        option_axis = _storefront_option_axis(sorted_visible_variants)
         pricing_by_variant_id: dict[int, tuple[int, int]] = {}
-        for variant in sorted_active_variants:
+        for variant in sorted_visible_variants:
             pricing_by_variant_id[int(variant.id)] = _calculate_variant_pricing_for_storefront(
                 variant=variant,
                 product_discounts=applicable_discounts,
@@ -321,7 +356,7 @@ def get_storefront_product_by_id(product_id: int, db: Session | None = None) -> 
                 price_original=pricing_by_variant_id[int(variant.id)][0],
                 price_final=pricing_by_variant_id[int(variant.id)][1],
             )
-            for variant in sorted_active_variants
+            for variant in sorted_visible_variants
         ]
         for option in payload["options"]:
             option["effective_img_url"] = option.get("img_url") or payload.get("img_url")
@@ -332,6 +367,6 @@ def get_storefront_product_by_id(product_id: int, db: Session | None = None) -> 
                 price_original=pricing_by_variant_id[int(variant.id)][0],
                 price_final=pricing_by_variant_id[int(variant.id)][1],
             )
-            for variant in sorted_active_variants
+            for variant in sorted_visible_variants
         ]
         return payload

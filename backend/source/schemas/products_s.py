@@ -1,7 +1,12 @@
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 ADMIN_SCHEMA_CONFIG = ConfigDict(extra="forbid", str_strip_whitespace=True)
+MEASURE_UNIT_FIELD = Field(default=None, min_length=1, max_length=16)
+STEP_FIELD = Field(default=1, gt=0)
+OPTIONAL_STEP_FIELD = Field(default=None, gt=0)
 NAME_FIELD = Field(min_length=1, max_length=120)
 OPTIONAL_NAME_FIELD = Field(default=None, min_length=1, max_length=120)
 CATEGORY_FIELD = Field(min_length=1, max_length=80)
@@ -55,6 +60,11 @@ class PatchProductRequest(BaseModel):
     active: bool | None = None
 
 
+def _require_measure_unit(sold_by: str | None, measure_unit: str | None) -> None:
+    if sold_by == "measure" and not (measure_unit or "").strip():
+        raise ValueError("measure_unit is required when sold_by is 'measure'")
+
+
 class CreateVariantRequest(BaseModel):
     model_config = ADMIN_SCHEMA_CONFIG
     product_id: int = Field(gt=0)
@@ -65,6 +75,14 @@ class CreateVariantRequest(BaseModel):
     price: int = Field(gt=0)
     stock: int = Field(default=0, ge=0)
     active: bool = True
+    sold_by: Literal["unit", "measure"] = "unit"
+    measure_unit: str | None = MEASURE_UNIT_FIELD
+    step: int = STEP_FIELD
+
+    @model_validator(mode="after")
+    def _check_measure(self) -> "CreateVariantRequest":
+        _require_measure_unit(self.sold_by, self.measure_unit)
+        return self
 
 
 class UpdateVariantRequest(BaseModel):
@@ -77,6 +95,14 @@ class UpdateVariantRequest(BaseModel):
     price: int = Field(gt=0)
     stock: int = Field(ge=0)
     active: bool
+    sold_by: Literal["unit", "measure"] = "unit"
+    measure_unit: str | None = MEASURE_UNIT_FIELD
+    step: int = STEP_FIELD
+
+    @model_validator(mode="after")
+    def _check_measure(self) -> "UpdateVariantRequest":
+        _require_measure_unit(self.sold_by, self.measure_unit)
+        return self
 
 
 class PatchVariantRequest(BaseModel):
@@ -89,3 +115,12 @@ class PatchVariantRequest(BaseModel):
     price: int | None = Field(default=None, gt=0)
     stock: int | None = Field(default=None, ge=0)
     active: bool | None = None
+    sold_by: Literal["unit", "measure"] | None = None
+    measure_unit: str | None = MEASURE_UNIT_FIELD
+    step: int | None = OPTIONAL_STEP_FIELD
+
+    @model_validator(mode="after")
+    def _check_measure(self) -> "PatchVariantRequest":
+        if self.sold_by is not None:
+            _require_measure_unit(self.sold_by, self.measure_unit)
+        return self

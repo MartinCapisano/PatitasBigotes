@@ -101,6 +101,9 @@ def _order_to_dict(order: Order) -> dict:
                 "discount_amount": int(item.discount_amount or 0),
                 "final_unit_price": int(item.final_unit_price or 0),
                 "line_total": int(item.line_total or 0),
+                "sold_by": str(item.variant.sold_by) if item.variant is not None else "unit",
+                "measure_unit": item.variant.measure_unit if item.variant is not None else None,
+                "step": int(item.variant.step) if item.variant is not None else 1,
             }
         )
 
@@ -455,6 +458,18 @@ def change_order_status(
         return _order_to_dict(order)
 
     if order.status == "draft" and new_status == "submitted":
+        if not is_admin:
+            measure_item = (
+                db.query(OrderItem.id)
+                .join(ProductVariant, OrderItem.variant_id == ProductVariant.id)
+                .filter(
+                    OrderItem.order_id == order.id,
+                    ProductVariant.sold_by == "measure",
+                )
+                .first()
+            )
+            if measure_item is not None:
+                raise ValueError("measure products require availability confirmation")
         _recalculate_order_total(order, db=db, force=True)
         validate_order_pricing_before_submit(_order_to_dict(order))
         reserve_stock_for_submitted_order(order_id=order.id, db=db)
@@ -512,6 +527,7 @@ def _create_submitted_order_for_user(
     user_id: int,
     items: list[dict],
     db: Session,
+    allow_measure: bool = False,
 ) -> dict:
     if not items:
         raise ValueError("items are required")
@@ -542,6 +558,8 @@ def _create_submitted_order_for_user(
         )
         if variant is None:
             raise ValueError(f"variant {variant_id} not found")
+        if not allow_measure and str(variant.sold_by or "unit") == "measure":
+            raise ValueError("measure products require availability confirmation")
         item_fields = _build_order_item_fields(variant=variant, quantity=quantity)
 
         db.add(
@@ -713,6 +731,7 @@ def create_admin_sale(
     order_payload = _create_submitted_order_for_user(
         user_id=int(selected_user.id),
         items=items,
+        allow_measure=True,
         db=db,
     )
 
