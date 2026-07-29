@@ -1109,8 +1109,34 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Health Check */
+        /**
+         * Health Check
+         * @description Liveness: solo confirma que el proceso responde. No toca la base, asi que
+         *     un pico de latencia de Supabase no marca el servicio como caido.
+         */
         get: operations["health_check_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Readiness Check
+         * @description Readiness: verifica que la base sea alcanzable. Devuelve 503 si no lo es,
+         *     para que un monitor externo (o el healthCheckPath de Render) distinga
+         *     "el proceso vive" de "el proceso puede atender pedidos".
+         */
+        get: operations["readiness_check_health_ready_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1362,6 +1388,19 @@ export interface components {
              * @default true
              */
             active: boolean;
+            /**
+             * Sold By
+             * @default unit
+             * @enum {string}
+             */
+            sold_by: "unit" | "measure";
+            /** Measure Unit */
+            measure_unit?: string | null;
+            /**
+             * Step
+             * @default 1
+             */
+            step: number;
         };
         /** EmailRequest */
         EmailRequest: {
@@ -1434,6 +1473,12 @@ export interface components {
             final_unit_price: number;
             /** Line Total */
             line_total: number;
+            /** Sold By */
+            sold_by: string;
+            /** Measure Unit */
+            measure_unit: string | null;
+            /** Step */
+            step: number;
         };
         /**
          * OrderResponse
@@ -1531,6 +1576,12 @@ export interface components {
             stock?: number | null;
             /** Active */
             active?: boolean | null;
+            /** Sold By */
+            sold_by?: ("unit" | "measure") | null;
+            /** Measure Unit */
+            measure_unit?: string | null;
+            /** Step */
+            step?: number | null;
         };
         /** PaymentIncidentResolveNoRefundRequest */
         PaymentIncidentResolveNoRefundRequest: {
@@ -1809,6 +1860,19 @@ export interface components {
             stock: number;
             /** Active */
             active: boolean;
+            /**
+             * Sold By
+             * @default unit
+             * @enum {string}
+             */
+            sold_by: "unit" | "measure";
+            /** Measure Unit */
+            measure_unit?: string | null;
+            /**
+             * Step
+             * @default 1
+             */
+            step: number;
         };
         /**
          * UserBasicResponse
@@ -4297,6 +4361,26 @@ export interface operations {
         };
     };
     health_check_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    readiness_check_health_ready_get: {
         parameters: {
             query?: never;
             header?: never;
