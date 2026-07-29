@@ -283,11 +283,11 @@ Vale la pena reconocerlo:
 
 | ID | Test faltante | Riesgo que cubre | Esfuerzo | Prioridad |
 |---|---|---|---|---|
-| <a id="T-01"></a>**T-01** | `normalizePaymentAmountsForOrder` (unitario puro) | 🔴 Cobro con unidad monetaria mal interpretada | 2 h | **P0** |
-| <a id="T-02"></a>**T-02** | Job de CI con PostgreSQL real | 🔴 Toda la concurrencia sin verificar | 1 día | **P0** |
-| <a id="T-03"></a>**T-03** | Concurrencia: dos pagos simultáneos sobre la misma orden | 🔴 Doble cobro | 4 h | **P0** |
-| <a id="T-04"></a>**T-04** | Concurrencia: dos compras de la última unidad | 🔴 Sobreventa | 4 h | **P0** |
-| <a id="T-05"></a>**T-05** | `useAdminSales.onSubmit` | 🔴 Venta presencial mal registrada | 1 día | **P1** |
+| <a id="T-01"></a>~~**T-01**~~ | ✅ **hecho** — `normalizePaymentAmountsForOrder` (unitario puro): `useAdminRegisterPayment.test.ts`, 9 casos (montos ",90" reales, rechazo por total distinto, efectivo con vuelto, no-numérico) | 🔴 Cobro con unidad monetaria mal interpretada | 2 h | — |
+| <a id="T-02"></a>~~**T-02**~~ | ✅ **hecho** — job `backend-tests-postgres` en CI: Postgres 16 real, esquema por `alembic upgrade head`, corre `tests/concurrency` (de yapa cubre H-07) | 🔴 Toda la concurrencia sin verificar | 1 día | — |
+| <a id="T-03"></a>~~**T-03**~~ | ✅ **hecho** — `tests/concurrency/test_double_payment_concurrency.py`: dos reservas de pago sobre la misma orden serializadas por `FOR UPDATE` | 🔴 Doble cobro | 4 h | — |
+| <a id="T-04"></a>~~**T-04**~~ | ✅ **hecho** — `tests/concurrency/test_oversell_concurrency.py`: dos órdenes por la última unidad; solo una reserva, la otra se bloquea y es rechazada | 🔴 Sobreventa | 4 h | — |
+| <a id="T-05"></a>~~**T-05**~~ | ✅ **hecho** — `useAdminSales.test.tsx`, 7 casos (guards de ítems/cliente/pago, payload de cliente nuevo vs existente, efectivo con vuelto, transferencia sin vuelto, error del backend) | 🔴 Venta presencial mal registrada | 1 día | — |
 | <a id="T-06"></a>**T-06** | `useAdminPaymentIncidents.resolveWithRefund` | 🔴 Reembolso incorrecto | 4 h | **P1** |
 | <a id="T-07"></a>**T-07** | Cobertura en CI con umbral mínimo (60%) | 🟠 Visibilidad | 2 h | **P1** |
 | <a id="T-08"></a>**T-08** | Matriz de flags de `get_public_order_snapshot…` | 🟠 UI que muestra el botón equivocado | 1 día | **P1** |

@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# Privilegio minimo: los jobs solo leen el codigo y suben/bajan artifacts
+# (que no dependen de este scope). Evita un GITHUB_TOKEN con permisos de escritura.
+permissions:
+  contents: read
+
 jobs:
   backend-tests:
     runs-on: ubuntu-latest

@@ -17,6 +17,10 @@ on:
     - cron: "0 4 * * *" # daily at 04:00 UTC
   workflow_dispatch: {}
 
+# Dump de la base a un artifact; no necesita escribir en el repo.
+permissions:
+  contents: read
+
 jobs:
   backup:
     runs-on: ubuntu-latest
