@@ -22,7 +22,10 @@ services:
     # El '*' es seguro solo porque el contenedor no es alcanzable directamente:
     # todo el ingreso pasa por el edge de Render, que no publica un CIDR estable.
     startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT --forwarded-allow-ips '*'"
-    healthCheckPath: /health
+    # Readiness, no liveness: /health/ready hace un SELECT 1, así Render saca de
+    # rotación la instancia si la base es inalcanzable (P0 de la base caída). El
+    # /health simple nunca ve ese fallo. Ver docs/17_ProductionReadiness.md §3/§8.
+    healthCheckPath: /health/ready
     envVars:
       - key: APP_ENV
         value: production

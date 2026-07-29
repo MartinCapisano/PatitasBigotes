@@ -9,7 +9,7 @@
 | Dimensión | Score | Estado |
 |---|---:|---|
 | Deploy y build | **8** | 🟢 Blueprint declarativo, CI que valida el contrato |
-| Health checks | **4** | 🟠 Existe, pero es superficial |
+| Health checks | **7** | 🟢 Liveness + readiness que verifica la base, wired a Render |
 | Observabilidad — logs | **6** | 🟡 Buenos logs, efímeros y sin agregación |
 | Observabilidad — métricas | **1** | 🔴 Inexistentes |
 | Observabilidad — tracing | **0** | 🔴 Inexistente |
@@ -84,37 +84,32 @@ al N−1, el código viejo corre contra un esquema nuevo. Puede funcionar (si la
 
 ## 3. Health checks
 
-### Estado actual
+### Estado actual 🟢
+
+Dos endpoints separados en `main.py`, con tests en `tests/http/test_health_fundamentals.py`:
 
 ```python
-@app.get("/health")
+@app.get("/health")            # liveness: ¿el proceso vive? No toca la base.
 def health_check():
     return {"status": "ok"}
+
+@app.get("/health/ready")      # readiness: ¿puede atender? Verifica la base.
+def readiness_check(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception:
+        return JSONResponse(503, {"status": "unavailable", "db": "unreachable"})
+    return {"status": "ok", "db": "ok"}
 ```
 
-🔴 **Solo verifica que el proceso responde.** No comprueba:
-- Conectividad con PostgreSQL
+🟢 **`healthCheckPath` de Render apunta a `/health/ready`** (`render.yaml`): si la base es inalcanzable, Render
+saca la instancia de rotación en vez de reportarla sana con la base caída. La liveness (`/health`) queda para un
+monitor externo que quiera distinguir "el proceso vive" de "el proceso puede atender".
+
+**Lo que el readiness todavía NO comprueba** (aceptable para el estado actual):
 - Que las migraciones estén al día
 - Que las variables críticas estén configuradas
-- Que Mercado Pago sea alcanzable
-
-**Consecuencia:** Render puede reportar el servicio como sano con la base caída. Los usuarios verían 500 mientras
-el panel dice "healthy".
-
-> **Recomendación — dos endpoints:**
-> ```python
-> @app.get("/health")           # liveness: ¿el proceso vive?
-> def health(): return {"status": "ok"}
->
-> @app.get("/health/ready")     # readiness: ¿puede atender?
-> def ready(db: Session = Depends(get_db)):
->     try:
->         db.execute(text("SELECT 1"))
->     except Exception:
->         raise HTTPException(503, "database unavailable")
->     return {"status": "ok", "db": "ok"}
-> ```
-> `healthCheckPath` de Render debería apuntar a `/health/ready`.
+- Que Mercado Pago sea alcanzable (hoy pausado)
 
 ---
 
@@ -329,7 +324,7 @@ mantenimiento de Render y Supabase. **Hipótesis:** no hay medición real de upt
 
 | Fallo | Estado |
 |---|---|
-| Base de datos caída | 🔴 Todo devuelve 500; sin degradación elegante ni página de mantenimiento |
+| Base de datos caída | 🟡 `/health/ready` la detecta (503) y es el `healthCheckPath` de Render, que saca la instancia de rotación; falta degradación elegante en la app (página de mantenimiento) para el resto de los requests |
 | Circuit breaker ante Mercado Pago caído | 🔴 Se sigue reintentando indefinidamente, gastando el timeout de cada request |
 | Sobrecarga del servicio | 🔴 Sin bulkhead ni cola de admisión |
 | Fallo del cron de mantenimiento | 🔴 Silencioso |
@@ -404,7 +399,7 @@ privado el cron **superaría la cuota gratuita**. Conviene verificarlo.
 - [x] ~~`pool_pre_ping=True` en el engine~~ — hecho (`db/session.py`, + `pool_recycle=300`)
 - [ ] Alerta si falla el cron de mantenimiento
 - [ ] **Probar una restauración de backup** (necesita un proyecto Supabase provisionado)
-- [x] ~~Health check que verifique la base~~ — `/health/ready` en código; falta decidir el `healthCheckPath` de Render (§3)
+- [x] ~~Health check que verifique la base~~ — `/health/ready` en código (con test) y ya es el `healthCheckPath` de Render en `render.yaml` (§3)
 - [ ] Error tracking (Sentry)
 - [ ] Desacoplar deploy de CI (no desplegar si el CI falla)
 
